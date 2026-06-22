@@ -101,15 +101,21 @@ PositronicKit  ──► products: PositronicKit, PKShared, PKPrompt, PKOpenAIPr
 
 ### 5.1 Problem
 
-Inside `ChatEngine.buildPrompt` (`Sources/PositronicKit/Services/Chat/ChatEngine+ContextBuilding.swift`)
+Inside `ChatEngine.prepareSession(...)` (`Sources/PositronicKit/Services/Chat/ChatEngine+ContextBuilding.swift`, ~lines 36–135)
 the engine computes everything we want to show:
 
 - `renderedPrompt: RenderedPrompt` — `.sections` (each with `role`, `priority`,
   `compression`, `cachePolicy`, `estimatedTokens`, `path`, `parentID`,
   `compressionOutcome`, `content`), `.compressionReport`.
 - `renderedPrompt.buildMessages()` — **the exact messages sent to the model**.
-- `promptHistory.update(prompt:)` → a diff (`PromptJournalDiff`-style: stable
-  prefix count, overlays, `didCompact`) — the **PromptJournal** story.
+  Note: `buildMessages() -> [LLMMessage]` is a `public extension RenderedPrompt`
+  defined in the **PositronicKit** target (`Services/Prompting/Prompt+OpenAI.swift`),
+  not in `PKPrompt`; the app must depend on the `PositronicKit` product to get it.
+- `promptHistory.update(prompt:)` returns an **internal** `PromptHistoryUpdate`
+  carrying `didCompact` and `diff.stablePrefixCount` (internal `PromptDiff` /
+  `PromptHistoryJournalDiff` in `TimelinePromptHistory.swift`) — the **PromptJournal**
+  story. The public `PKPrompt.PromptJournalDiff` carries only the overlay ID sets
+  (`changed/added/removedSemiStableIDs`) — **not** `stablePrefixCount` or `didCompact`.
 
 None of it crosses the public boundary: `ChatTurnPlugin`/`CompletedTurn` only carry
 `fullResponse` + `modelName`; the runtime `PromptAssembler` is `internal`
@@ -139,16 +145,27 @@ public protocol TurnInspecting: Sendable {
 public struct TurnInspection: Sendable {
     public let timelineId: UUID
     public let agentInstanceId: UUID?
-    public let turnIndex: Int
+    public let turnIndex: Int                   // from ChatTurnContext.turnCount (0-based; increments through the tool loop)
     public let model: String
     public let rendered: RenderedPrompt        // real sections + traits + compressionReport
     public let sentMessages: [LLMMessage]       // exact buildMessages() output
-    public let journal: PromptJournalDiff        // stable-prefix / overlays / didCompact
+    public let journal: TurnJournalSnapshot     // NEW public projection (see below)
     public let estimatedTokens: Int
+}
+
+/// NEW public projection of the journal story — required upstream work. The public
+/// `PromptJournalDiff` carries only overlay ID sets, while `stablePrefixCount` and
+/// `didCompact` live on the INTERNAL `PromptHistoryUpdate`/`PromptDiff`. The seam
+/// fires inside the runtime target, so it can read those internals and project them
+/// into this public, Sendable snapshot.
+public struct TurnJournalSnapshot: Sendable {
+    public let overlay: PromptJournalDiff       // public: changed / added / removed semi-stable IDs
+    public let stablePrefixCount: Int           // projected from internal PromptHistoryUpdate.diff
+    public let didCompact: Bool                 // projected from internal PromptHistoryUpdate
 }
 ```
 
-- **Call site:** in `ChatEngine.buildPrompt`, immediately after `renderedPrompt`
+- **Call site:** in `ChatEngine.prepareSession(...)`, immediately after `renderedPrompt`
   and the prompt-history `update` are produced:
   `await inspector?.didComposeTurn(TurnInspection(...))`. Fires **once per turn**,
   which is exactly the granularity the Prompt and Journal tabs want (the journal
@@ -261,6 +278,9 @@ Provider/base-URL presets, API key, model, generation params, retry config,
 - `TurnInspectionModel` — projected `TurnInspection`: `conversationId`, `turnIndex`,
   `model`, `createdAt`, `sections` (Codable), `sentMessages` (Codable),
   `journal` (Codable), `estimatedTokens`, plus captured response metadata.
+  Because `RenderedPrompt.Section` and `TurnJournalSnapshot` are `Sendable` but
+  **not `Codable`**, the app defines hand-written Codable DTOs for the `sections`
+  and `journal` projections (concrete app work, called out in the plan).
 - `PersonaModel` — `id`, `name`, `systemInstructions`, `builtIn`.
 - `WorkspaceModel` — `id`, `displayName`, `folderPath` (and security-scoped
   bookmark data, see §10).
@@ -411,9 +431,11 @@ targets:
 
 - **Additive enum risk:** none chosen — the seam deliberately avoids touching
   `ChatEvent`, so no downstream `switch` churn.
-- **`PromptJournalDiff` shape:** confirm the exact public diff type emitted by
-  `promptHistory.update(prompt:)` during implementation; if it isn't already public
-  in a Codable-projectable form, the Journal projection adapts.
+- **Journal projection (resolved — required upstream work):** the public
+  `PromptJournalDiff` exposes only overlay ID sets; `stablePrefixCount` and
+  `didCompact` live on the internal `PromptHistoryUpdate`/`PromptDiff`. The seam
+  introduces a new public `TurnJournalSnapshot` (§5.2) projecting those internal
+  values. Treat this as in-scope seam work, not a footnote.
 - **Endpoint embeddings (Phase 2):** not all OpenAI-compatible endpoints expose
   `/embeddings`; the embeddings cluster will need an endpoint-capability check.
 - **macOS sandbox:** v1 non-sandboxed by choice; revisit bookmarks/entitlements if
