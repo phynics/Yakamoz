@@ -8,12 +8,17 @@ import YakamozCore
 struct ChatView: View {
     @Bindable var conversation: ConversationModel
 
+    @Environment(\.modelContext) private var modelContext
     @Environment(\.yakamozRuntime) private var runtime
 
     @State private var viewModel: ChatViewModel?
     @State private var inspectionViewModel: InspectionViewModel?
     @State private var draft = ""
     @State private var workspacePresentation: WorkspacePresentation?
+    @State private var workspacePromptId: UUID?
+    @State private var dismissedWorkspacePromptConversationId: UUID?
+
+    @SceneStorage("inspector.isOpen") private var isInspectorOpen = false
 
     @Query private var workspaces: [WorkspaceModel]
 
@@ -40,6 +45,16 @@ struct ChatView: View {
         .navigationTitle(conversation.title)
         .toolbar {
             ToolbarItem(placement: .automatic) {
+                Button {
+                    withAnimation(.snappy) { isInspectorOpen.toggle() }
+                } label: {
+                    Label("Inspector", systemImage: "sidebar.bottom")
+                }
+                .help(isInspectorOpen ? "Hide inspector" : "Show inspector")
+                .accessibilityLabel(isInspectorOpen ? "Hide inspector" : "Show inspector")
+            }
+
+            ToolbarItem(placement: .automatic) {
                 WorkspacePicker(conversation: conversation)
             }
         }
@@ -63,6 +78,7 @@ struct ChatView: View {
                                 selectedTurnState: viewModel.selectedTurnState,
                                 workspacePresentation: workspacePresentation,
                                 onRefreshWorkspace: { Task { await refreshWorkspacePresentation() } },
+                                isOpen: $isInspectorOpen,
                                 onSelectTurn: { viewModel.selectedTurnIndex = $0 }
                             )
                         }
@@ -70,14 +86,6 @@ struct ChatView: View {
             }
             .onChange(of: viewModel.selectedTurnIndex) { _, newIndex in
                 Task { await inspectionViewModel?.select(conversationId: conversation.id, turnIndex: newIndex) }
-            }
-
-            if let errorMessage = viewModel.errorMessage {
-                Text(errorMessage)
-                    .font(.callout)
-                    .foregroundStyle(.red)
-                    .padding(.horizontal)
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             Divider()
@@ -100,7 +108,8 @@ struct ChatView: View {
                             MessageBubble(
                                 item: item,
                                 isSelected: isSelected(item, viewModel: viewModel),
-                                onSelectTurn: { viewModel.selectedTurnIndex = $0 }
+                                onSelectTurn: { viewModel.selectedTurnIndex = $0 },
+                                onSelectPromptOption: handlePromptSelection
                             )
                             .id(item.id)
                         }
@@ -130,6 +139,7 @@ struct ChatView: View {
 
     private func buildViewModelIfNeeded() async {
         guard let runtime else { return }
+        workspacePromptId = nil
         let chat = await runtime.makeChatViewModel(
             timelineId: conversation.id,
             enabledToolIds: conversation.enabledToolIds,
@@ -140,6 +150,7 @@ struct ChatView: View {
         inspectionViewModel = inspection
         await inspection.select(conversationId: conversation.id, turnIndex: chat.selectedTurnIndex)
         await refreshWorkspacePresentation()
+        offerWorkspacePromptIfNeeded(in: chat)
     }
 
     /// Rebuilds the Workspace-tab presentation from the conversation's attached folder
@@ -154,5 +165,58 @@ struct ChatView: View {
         let folderPath = workspace.folderPath
         let displayName = workspace.displayName
         workspacePresentation = await runtime.makeWorkspacePresentation(folderPath: folderPath, displayName: displayName)
+    }
+
+    private func offerWorkspacePromptIfNeeded(in viewModel: ChatViewModel) {
+        guard conversation.workspaceId == nil else { return }
+        guard dismissedWorkspacePromptConversationId != conversation.id else { return }
+        guard workspacePromptId == nil else { return }
+        guard viewModel.transcript.allSatisfy({ item in
+            if case .prompt = item { return true }
+            return false
+        }) else { return }
+
+        workspacePromptId = viewModel.presentPrompt(ChatPrompt(
+            title: "Attach a folder?",
+            detail: "Use it as this chat's workspace.",
+            options: [
+                ChatPromptOption(id: "documents", title: "Documents", systemImage: "folder"),
+                ChatPromptOption(id: "choose", title: "Choose Folder", systemImage: "folder.badge.plus"),
+                ChatPromptOption(id: "skip", title: "Skip", systemImage: "xmark"),
+            ]
+        ))
+    }
+
+    private func handlePromptSelection(promptId: UUID, option: ChatPromptOption) {
+        viewModel?.dismissTranscriptItem(id: promptId)
+        if workspacePromptId == promptId {
+            workspacePromptId = nil
+            dismissedWorkspacePromptConversationId = conversation.id
+        }
+
+        switch option.id {
+        case "documents":
+            if let url = WorkspaceAttachmentSupport.defaultDocumentsURL {
+                WorkspaceAttachmentSupport.attachWorkspace(to: conversation, modelContext: modelContext, url: url)
+                Task { await buildViewModelIfNeeded() }
+            }
+        case "choose":
+            pickFolderForPrompt()
+        default:
+            break
+        }
+    }
+
+    private func pickFolderForPrompt() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Attach"
+        panel.message = "Choose a folder to use as this conversation's workspace."
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        WorkspaceAttachmentSupport.attachWorkspace(to: conversation, modelContext: modelContext, url: url)
+        Task { await buildViewModelIfNeeded() }
     }
 }

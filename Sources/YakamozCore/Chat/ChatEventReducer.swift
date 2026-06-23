@@ -154,16 +154,42 @@ public struct ChatTurnState: Sendable, Equatable {
 
 /// A single entry in the chat transcript shown to the user: either a persisted
 /// human/system message, or the live/finished view of an assistant turn.
+public struct ChatPromptOption: Sendable, Identifiable, Equatable {
+    public let id: String
+    public let title: String
+    public let systemImage: String
+
+    public init(id: String, title: String, systemImage: String) {
+        self.id = id
+        self.title = title
+        self.systemImage = systemImage
+    }
+}
+
+public struct ChatPrompt: Sendable, Equatable {
+    public let title: String
+    public let detail: String?
+    public let options: [ChatPromptOption]
+
+    public init(title: String, detail: String? = nil, options: [ChatPromptOption]) {
+        self.title = title
+        self.detail = detail
+        self.options = options
+    }
+}
+
 public enum TranscriptItem: Sendable, Identifiable, Equatable {
     case user(id: UUID, text: String, timestamp: Date)
     case assistant(id: UUID, turn: ChatTurnState)
     case error(id: UUID, message: String)
+    case prompt(id: UUID, prompt: ChatPrompt)
 
     public var id: UUID {
         switch self {
         case let .user(id, _, _): id
         case let .assistant(id, _): id
         case let .error(id, _): id
+        case let .prompt(id, _): id
         }
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import Logging
 import PKOpenAIProvider
 import PKShared
 import PositronicKit
@@ -46,37 +47,34 @@ public enum AppHealthStatus: String, Sendable, Equatable {
 /// `llmServiceFactory` is the seam that keeps this testable without touching the network: pass a
 /// factory that returns `PKTestSupport.MockLLMService` (or any other `LLMServiceProtocol`) instead
 /// of relying on the default `PKOpenAIProvider`/`LLMService` wiring.
-public actor YakamozRuntime {
+public actor YakamozRuntime: ChatRunning {
     public let kit: PositronicKit
     public let stores: YakamozStores
     public let inspector: SwiftDataTurnInspector
-    private let llmService: any LLMServiceProtocol
+
+    private let settingsSnapshotProvider: @MainActor () -> ProviderSettingsSnapshot
+    private let secrets: any SecretStoring
+    private let llmServiceFactory: LLMServiceFactory
 
     @MainActor
     public init(
         modelContainer: ModelContainer,
         settings: ProviderSettings,
         secrets: any SecretStoring,
-        llmServiceFactory: LLMServiceFactory = defaultLLMServiceFactory
+        llmServiceFactory: @escaping LLMServiceFactory = defaultLLMServiceFactory
     ) throws {
         stores = YakamozStores(modelContainer: modelContainer)
         inspector = SwiftDataTurnInspector(modelContainer: modelContainer)
+        self.settingsSnapshotProvider = { @MainActor in settings.snapshot }
+        self.secrets = secrets
+        self.llmServiceFactory = llmServiceFactory
 
-        let key = try secrets.read(account: ProviderSettings.apiKeyAccount) ?? ""
-        let configuration = settings.configuration(apiKey: key)
-        llmService = llmServiceFactory(configuration)
-
-        kit = PositronicKit(
-            llmService: llmService,
-            messageStore: stores.messages,
-            agentInstanceStore: stores.agents,
-            requestOriginStore: stores.origins,
-            timelinePersistence: stores.timelines,
-            workspacePersistence: stores.workspaces,
-            toolPersistence: stores.tools,
-            workspaceCreator: FileSystemWorkspaceFactory(),
-            turnInspector: inspector,
-            generationParameters: settings.generationParameters
+        kit = Self.makeKit(
+            stores: stores,
+            inspector: inspector,
+            settingsSnapshot: settings.snapshot,
+            apiKey: try secrets.read(account: ProviderSettings.apiKeyAccount) ?? "",
+            llmServiceFactory: llmServiceFactory
         )
     }
 
@@ -127,7 +125,12 @@ public actor YakamozRuntime {
 
     /// Delegates to the underlying LLM service's health check exactly once per call.
     public func healthCheck() async -> HealthStatus {
-        await llmService.checkHealth()
+        do {
+            let llmService = try await makeConfiguredLLMService()
+            return await llmService.checkHealth()
+        } catch {
+            return .down
+        }
     }
 
     /// `healthCheck()` mapped to the app-safe `AppHealthStatus`, for callers (the
@@ -148,16 +151,18 @@ public actor YakamozRuntime {
         enabledToolIds: [String] = [],
         workspaceRoot: URL? = nil
     ) async -> ChatViewModel {
-        let runner = kit
+        let runner: any ChatRunning = self
         let turnInspector = inspector
         let tools = resolveTools(enabledToolIds: enabledToolIds, workspaceRoot: workspaceRoot)
+        let transcript = (try? await loadTranscript(for: timelineId)) ?? []
         return ChatViewModel(
             timelineId: timelineId,
             runner: runner,
             inspector: turnInspector,
             agentInstanceId: agentInstanceId,
             tools: tools,
-            systemInstructions: systemInstructions
+            systemInstructions: systemInstructions,
+            initialTranscript: transcript
         )
     }
 
@@ -183,5 +188,104 @@ public actor YakamozRuntime {
     ) async throws -> ConversationModel {
         let coordinator = ConversationCoordinator(modelContext: modelContext, timelineStore: stores.timelines)
         return try await coordinator.createConversation(title: title, personaId: personaId, workspaceId: workspaceId)
+    }
+
+    /// ChatRunning conformance that resolves the latest settings and API key on each turn.
+    public func run(
+        timelineId: UUID,
+        message: String,
+        tools: [AnyTool],
+        toolOutputs: [ToolOutputSubmission]? = nil,
+        systemInstructions: String? = nil,
+        agentInstanceId: UUID? = nil,
+        maxTurns: Int = 5,
+        generationParameters: GenerationParameters? = nil,
+        promptAssemblyLogger: Logger? = nil
+    ) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+        let kit = try await makeConfiguredKit()
+        return try await kit.run(
+            timelineId: timelineId,
+            message: message,
+            tools: tools,
+            toolOutputs: toolOutputs,
+            systemInstructions: systemInstructions,
+            agentInstanceId: agentInstanceId,
+            maxTurns: maxTurns,
+            generationParameters: generationParameters,
+            promptAssemblyLogger: promptAssemblyLogger
+        )
+    }
+
+    private func currentSettingsSnapshot() async -> ProviderSettingsSnapshot {
+        await settingsSnapshotProvider()
+    }
+
+    private func makeConfiguredLLMService() async throws -> any LLMServiceProtocol {
+        let settings = await currentSettingsSnapshot()
+        let key = try secrets.read(account: ProviderSettings.apiKeyAccount) ?? ""
+        return llmServiceFactory(settings.configuration(apiKey: key))
+    }
+
+    private func makeConfiguredKit() async throws -> PositronicKit {
+        let settings = await currentSettingsSnapshot()
+        let key = try secrets.read(account: ProviderSettings.apiKeyAccount) ?? ""
+        return Self.makeKit(
+            stores: stores,
+            inspector: inspector,
+            settingsSnapshot: settings,
+            apiKey: key,
+            llmServiceFactory: llmServiceFactory
+        )
+    }
+
+    private static func makeKit(
+        stores: YakamozStores,
+        inspector: SwiftDataTurnInspector,
+        settingsSnapshot: ProviderSettingsSnapshot,
+        apiKey: String,
+        llmServiceFactory: LLMServiceFactory
+    ) -> PositronicKit {
+        let configuration = settingsSnapshot.configuration(apiKey: apiKey)
+        let llmService = llmServiceFactory(configuration)
+        return PositronicKit(
+            llmService: llmService,
+            messageStore: stores.messages,
+            agentInstanceStore: stores.agents,
+            requestOriginStore: stores.origins,
+            timelinePersistence: stores.timelines,
+            workspacePersistence: stores.workspaces,
+            toolPersistence: stores.tools,
+            workspaceCreator: FileSystemWorkspaceFactory(),
+            turnInspector: inspector,
+            generationParameters: settingsSnapshot.generationParameters
+        )
+    }
+
+    private func loadTranscript(for timelineId: UUID) async throws -> [TranscriptItem] {
+        let messages = try await stores.messages.fetchMessages(for: timelineId)
+        return Self.transcriptItems(from: messages)
+    }
+
+    private static func transcriptItems(from messages: [ConversationMessage]) -> [TranscriptItem] {
+        var assistantTurnIndex = 0
+        var transcript: [TranscriptItem] = []
+
+        for message in messages {
+            switch message.messageRole {
+            case .user:
+                transcript.append(.user(id: message.id, text: message.content, timestamp: message.timestamp))
+            case .assistant:
+                var turn = ChatTurnState(turnIndex: assistantTurnIndex)
+                assistantTurnIndex += 1
+                turn.response.reconstructedText = message.content
+                turn.response.thinking = message.think ?? ""
+                turn.isComplete = true
+                transcript.append(.assistant(id: message.id, turn: turn))
+            case .tool, .system, .summary:
+                continue
+            }
+        }
+
+        return transcript
     }
 }

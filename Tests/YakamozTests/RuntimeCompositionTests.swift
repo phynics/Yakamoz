@@ -131,6 +131,14 @@ struct RuntimeCompositionTests {
         try await stores.messages.saveMessage(message)
         let messages = try await stores.messages.fetchMessages(for: timelineId)
         #expect(messages.map(\.content) == ["hello"])
+
+        let hydrated = await runtime.makeChatViewModel(timelineId: timelineId)
+        #expect(hydrated.transcript.count == 1)
+        guard case let .user(_, text, _) = hydrated.transcript[0] else {
+            Issue.record("Expected hydrated transcript to start with a user item")
+            return
+        }
+        #expect(text == "hello")
     }
 
     @Test("The runtime's PositronicKit facade is constructed and runnable")
@@ -166,5 +174,33 @@ struct RuntimeCompositionTests {
         mock.mockHealthStatus = .degraded
         let secondStatus = await runtime.healthCheck()
         #expect(secondStatus == .degraded)
+    }
+
+    @Test("The runtime re-reads settings and API keys for each new health check")
+    @MainActor
+    func healthCheckUsesLatestConfiguration() async throws {
+        let settings = makeSettings()
+        let secrets = FakeSecretStore()
+        try secrets.write("sk-secret-initial", account: ProviderSettings.apiKeyAccount)
+        let mock = MockLLMService()
+        mock.mockHealthStatus = .ok
+
+        nonisolated(unsafe) var captured: [LLMConfiguration] = []
+        let runtime = try makeRuntime(settings: settings, secrets: secrets, mock: mock) { configuration in
+            captured.append(configuration)
+        }
+
+        _ = await runtime.healthCheck()
+        settings.model = "updated-model"
+        try secrets.write("sk-secret-updated", account: ProviderSettings.apiKeyAccount)
+        _ = await runtime.healthCheck()
+
+        #expect(captured.count == 3)
+        #expect(captured[0].apiKey == "sk-secret-initial")
+        #expect(captured[0].modelName == "gpt-4o-test")
+        #expect(captured[1].apiKey == "sk-secret-initial")
+        #expect(captured[1].modelName == "gpt-4o-test")
+        #expect(captured[2].apiKey == "sk-secret-updated")
+        #expect(captured[2].modelName == "updated-model")
     }
 }

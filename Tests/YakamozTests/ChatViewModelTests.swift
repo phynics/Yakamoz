@@ -225,6 +225,12 @@ struct ChatViewModelTests {
         try await waitUntil { viewModel.errorMessage != nil }
 
         #expect(viewModel.errorMessage == "the provider rejected the request")
+        #expect(viewModel.transcript.contains(where: { item in
+            if case let .error(_, message) = item {
+                return message == "the provider rejected the request"
+            }
+            return false
+        }))
 
         runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
@@ -245,6 +251,62 @@ struct ChatViewModelTests {
 
         try await waitUntil { !viewModel.isSending }
         #expect(viewModel.errorMessage == "boom")
+    }
+
+    @Test("A chat prompt can be presented and dismissed without becoming a message")
+    func chatPromptCanBePresentedAndDismissed() {
+        let runner = ScriptedRunner()
+        let viewModel = ChatViewModel(timelineId: UUID(), runner: runner)
+        let prompt = ChatPrompt(
+            title: "Attach a folder?",
+            options: [
+                ChatPromptOption(id: "documents", title: "Documents", systemImage: "folder"),
+                ChatPromptOption(id: "choose", title: "Choose Folder", systemImage: "folder.badge.plus"),
+            ]
+        )
+
+        let promptId = viewModel.presentPrompt(prompt)
+
+        #expect(viewModel.transcript.count == 1)
+        guard case let .prompt(id, shownPrompt) = viewModel.transcript[0] else {
+            Issue.record("Expected prompt transcript item")
+            return
+        }
+        #expect(id == promptId)
+        #expect(shownPrompt.title == "Attach a folder?")
+        #expect(shownPrompt.options.map(\.id) == ["documents", "choose"])
+
+        viewModel.dismissTranscriptItem(id: promptId)
+
+        #expect(viewModel.transcript.isEmpty)
+    }
+
+    @Test("Prompt rows do not affect the next assistant turn index")
+    func promptRowsDoNotAffectTurnIndexing() async throws {
+        let runner = ScriptedRunner()
+        let viewModel = ChatViewModel(
+            timelineId: UUID(),
+            runner: runner,
+            initialTranscript: [
+                .assistant(id: UUID(), turn: ChatTurnState(turnIndex: 3)),
+                .prompt(
+                    id: UUID(),
+                    prompt: ChatPrompt(
+                        title: "Attach a folder?",
+                        options: [ChatPromptOption(id: "skip", title: "Skip", systemImage: "xmark")]
+                    )
+                ),
+            ]
+        )
+
+        viewModel.send("next")
+        try await Task.sleep(for: .milliseconds(10))
+
+        #expect(viewModel.selectedTurnIndex == 4)
+
+        runner.continuation?.yield(.streamCompleted())
+        runner.continuation?.finish()
+        try await waitUntil { !viewModel.isSending }
     }
 
     @Test("Turn selection tracks the most recently started turn")

@@ -13,11 +13,6 @@ struct WorkspacePicker: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var workspaces: [WorkspaceModel]
 
-    /// PKShared filesystem tool ids exposed by any folder workspace (mirrors
-    /// `FileSystemWorkspace.toolIds`); enabling a workspace turns these on automatically
-    /// so the user doesn't have to separately toggle them in a tools settings screen.
-    private static let filesystemToolIds = ["cat", "ls", "find", "search_files", "grep", "change_directory"]
-
     private var attachedWorkspace: WorkspaceModel? {
         guard let workspaceId = conversation.workspaceId else { return nil }
         return workspaces.first { $0.id == workspaceId }
@@ -63,25 +58,39 @@ struct WorkspacePicker: View {
     }
 
     private func attachWorkspace(at url: URL) {
-        let bookmark = try? url.bookmarkData(options: .withSecurityScope)
-        let workspace = WorkspaceModel(
-            displayName: url.lastPathComponent,
-            folderPath: url.path,
-            bookmarkData: bookmark
-        )
-        modelContext.insert(workspace)
-
-        conversation.workspaceId = workspace.id
-        var enabled = Set(conversation.enabledToolIds)
-        enabled.formUnion(Self.filesystemToolIds)
-        conversation.enabledToolIds = Array(enabled)
-
-        try? modelContext.save()
+        WorkspaceAttachmentSupport.attachWorkspace(to: conversation, modelContext: modelContext, url: url)
     }
 
     private func detachWorkspace() {
+        WorkspaceAttachmentSupport.detachWorkspace(from: conversation, modelContext: modelContext)
+    }
+}
+
+enum WorkspaceAttachmentSupport {
+    static let filesystemToolIds = ["cat", "ls", "find", "search_files", "grep", "change_directory"]
+
+    static var defaultDocumentsURL: URL? {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+    }
+
+    @discardableResult
+    static func attachWorkspace(to conversation: ConversationModel, modelContext: ModelContext, url: URL) -> WorkspaceModel {
+        let bookmark = try? url.bookmarkData(options: .withSecurityScope)
+        let workspace = WorkspaceModel(displayName: url.lastPathComponent, folderPath: url.path, bookmarkData: bookmark)
+        modelContext.insert(workspace)
+        conversation.workspaceId = workspace.id
+
+        var enabledToolIds = Set(conversation.enabledToolIds)
+        enabledToolIds.formUnion(filesystemToolIds)
+        conversation.enabledToolIds = Array(enabledToolIds)
+
+        try? modelContext.save()
+        return workspace
+    }
+
+    static func detachWorkspace(from conversation: ConversationModel, modelContext: ModelContext) {
         conversation.workspaceId = nil
-        conversation.enabledToolIds.removeAll { Self.filesystemToolIds.contains($0) }
+        conversation.enabledToolIds.removeAll { filesystemToolIds.contains($0) }
         try? modelContext.save()
     }
 }

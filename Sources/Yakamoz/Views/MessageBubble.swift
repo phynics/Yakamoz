@@ -9,6 +9,7 @@ struct MessageBubble: View {
     let item: TranscriptItem
     let isSelected: Bool
     let onSelectTurn: (Int) -> Void
+    let onSelectPromptOption: (UUID, ChatPromptOption) -> Void
 
     var body: some View {
         switch item {
@@ -42,12 +43,58 @@ struct MessageBubble: View {
         case let .error(_, message):
             HStack {
                 Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
                     .foregroundStyle(.red)
-                    .padding(10)
-                    .background(.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+                Spacer(minLength: 40)
+            }
+            .padding(.vertical, 4)
+
+        case let .prompt(id, prompt):
+            HStack {
+                ChatPromptRow(prompt: prompt) { option in
+                    onSelectPromptOption(id, option)
+                }
                 Spacer(minLength: 40)
             }
         }
+    }
+}
+
+private struct ChatPromptRow: View {
+    let prompt: ChatPrompt
+    let onSelect: (ChatPromptOption) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(prompt.title)
+                    .font(.callout.weight(.medium))
+                if let detail = prompt.detail {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            HStack(spacing: 8) {
+                ForEach(prompt.options) { option in
+                    Button {
+                        onSelect(option)
+                    } label: {
+                        Label(option.title, systemImage: option.systemImage)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityLabel(option.title)
+                }
+            }
+        }
+        .padding(10)
+        .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+        )
     }
 }
 
@@ -62,9 +109,6 @@ private struct AssistantTurnContent: View {
             } else if turn.isCancelled {
                 Text("Cancelled")
                     .foregroundStyle(.secondary)
-            } else if let errorMessage = turn.errorMessage {
-                Text(errorMessage)
-                    .foregroundStyle(.red)
             } else if !turn.isComplete {
                 HStack(spacing: 6) {
                     ProgressView()

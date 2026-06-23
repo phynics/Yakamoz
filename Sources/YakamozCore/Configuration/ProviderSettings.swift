@@ -40,6 +40,88 @@ public enum ProviderPreset: String, CaseIterable, Codable, Sendable {
     }
 }
 
+/// A Sendable snapshot of the observable provider settings.
+///
+/// `ProviderSettings` itself is `@MainActor`-isolated. This value type lets actors and other
+/// sendable consumers work with a stable copy of the current configuration without crossing
+/// the main-actor boundary for every field access.
+public struct ProviderSettingsSnapshot: Sendable, Equatable {
+    public var preset: ProviderPreset
+    public var baseURL: URL
+    public var model: String
+    public var temperature: Double?
+    public var maxTokens: Int?
+    public var topP: Double?
+    public var frequencyPenalty: Double?
+    public var presencePenalty: Double?
+    public var seed: Int?
+    public var timeoutInterval: TimeInterval
+    public var maxRetries: Int
+
+    public init(
+        preset: ProviderPreset,
+        baseURL: URL,
+        model: String,
+        temperature: Double?,
+        maxTokens: Int?,
+        topP: Double?,
+        frequencyPenalty: Double?,
+        presencePenalty: Double?,
+        seed: Int?,
+        timeoutInterval: TimeInterval,
+        maxRetries: Int
+    ) {
+        self.preset = preset
+        self.baseURL = baseURL
+        self.model = model
+        self.temperature = temperature
+        self.maxTokens = maxTokens
+        self.topP = topP
+        self.frequencyPenalty = frequencyPenalty
+        self.presencePenalty = presencePenalty
+        self.seed = seed
+        self.timeoutInterval = timeoutInterval
+        self.maxRetries = maxRetries
+    }
+
+    /// Maps this snapshot onto the real PositronicKit configuration type.
+    public func configuration(apiKey: String) -> LLMConfiguration {
+        LLMConfiguration(
+            endpoint: baseURL.absoluteString,
+            modelName: model,
+            utilityModel: model,
+            fastModel: model,
+            apiKey: apiKey,
+            provider: preset.llmProvider,
+            timeoutInterval: timeoutInterval,
+            maxRetries: maxRetries,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            topP: topP,
+            frequencyPenalty: frequencyPenalty,
+            presencePenalty: presencePenalty,
+            seed: seed
+        )
+    }
+
+    /// Maps the generation knobs onto PositronicKit's `GenerationParameters`.
+    public var generationParameters: GenerationParameters {
+        GenerationParameters(
+            temperature: temperature,
+            maxTokens: maxTokens,
+            topP: topP,
+            frequencyPenalty: frequencyPenalty,
+            presencePenalty: presencePenalty,
+            seed: seed
+        )
+    }
+
+    /// Retry knobs mapped for callers that want to drive `RetryPolicy.retry` directly.
+    public var retrySettings: RetrySettings {
+        RetrySettings(maxRetries: maxRetries, baseDelay: 1.0)
+    }
+}
+
 /// Observable provider configuration for Yakamoz's settings UI.
 ///
 /// Non-secret fields (preset, base URL, model, generation/retry knobs) persist to the
@@ -48,7 +130,7 @@ public enum ProviderPreset: String, CaseIterable, Codable, Sendable {
 @MainActor
 @Observable
 public final class ProviderSettings {
-    public static let apiKeyAccount = "provider-api-key"
+    nonisolated(unsafe) public static let apiKeyAccount = "provider-api-key"
 
     private enum DefaultsKey {
         static let preset = "providerSettings.preset"
@@ -146,6 +228,23 @@ public final class ProviderSettings {
         defaults.set(maxRetries, forKey: DefaultsKey.maxRetries)
     }
 
+    /// A Sendable snapshot of the current observable settings, suitable for actors.
+    public var snapshot: ProviderSettingsSnapshot {
+        ProviderSettingsSnapshot(
+            preset: preset,
+            baseURL: baseURL,
+            model: model,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            topP: topP,
+            frequencyPenalty: frequencyPenalty,
+            presencePenalty: presencePenalty,
+            seed: seed,
+            timeoutInterval: timeoutInterval,
+            maxRetries: maxRetries
+        )
+    }
+
     /// Reloads all non-secret fields from the injected `UserDefaults`, discarding in-memory edits.
     public func reload() {
         let storedPresetRaw = defaults.string(forKey: DefaultsKey.preset)
@@ -189,41 +288,19 @@ public final class ProviderSettings {
     /// Maps the current settings plus a freshly read secret into the real PositronicKit
     /// `LLMConfiguration`, using its flat legacy initializer (endpoint/apiKey/modelName/...).
     public func configuration(apiKey: String) -> LLMConfiguration {
-        LLMConfiguration(
-            endpoint: baseURL.absoluteString,
-            modelName: model,
-            utilityModel: model,
-            fastModel: model,
-            apiKey: apiKey,
-            provider: preset.llmProvider,
-            timeoutInterval: timeoutInterval,
-            maxRetries: maxRetries,
-            temperature: temperature,
-            maxTokens: maxTokens,
-            topP: topP,
-            frequencyPenalty: frequencyPenalty,
-            presencePenalty: presencePenalty,
-            seed: seed
-        )
+        snapshot.configuration(apiKey: apiKey)
     }
 
     /// Maps the current generation knobs onto PositronicKit's `GenerationParameters`.
     public var generationParameters: GenerationParameters {
-        GenerationParameters(
-            temperature: temperature,
-            maxTokens: maxTokens,
-            topP: topP,
-            frequencyPenalty: frequencyPenalty,
-            presencePenalty: presencePenalty,
-            seed: seed
-        )
+        snapshot.generationParameters
     }
 
     /// Retry knobs mapped for callers that want to drive `RetryPolicy.retry` directly.
     /// `RetryPolicy` itself exposes only static helpers (no stored configuration type to
     /// construct), so this value type bundles the two knobs `ProviderSettings` owns.
     public var retrySettings: RetrySettings {
-        RetrySettings(maxRetries: maxRetries, baseDelay: 1.0)
+        snapshot.retrySettings
     }
 }
 

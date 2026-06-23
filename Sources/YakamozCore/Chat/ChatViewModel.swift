@@ -81,6 +81,7 @@ public final class ChatViewModel {
         systemInstructions: String? = nil,
         maxTurns: Int = 5,
         generationParameters: GenerationParameters? = nil,
+        initialTranscript: [TranscriptItem] = [],
         clock: ContinuousClock = ContinuousClock()
     ) {
         self.timelineId = timelineId
@@ -91,6 +92,8 @@ public final class ChatViewModel {
         self.systemInstructions = systemInstructions
         self.maxTurns = maxTurns
         self.generationParameters = generationParameters
+        self.transcript = initialTranscript
+        self.nextTurnIndex = Self.nextTurnIndex(for: initialTranscript)
         self.clock = clock
     }
 
@@ -121,6 +124,17 @@ public final class ChatViewModel {
         sendTask?.cancel()
     }
 
+    @discardableResult
+    public func presentPrompt(_ prompt: ChatPrompt) -> UUID {
+        let id = UUID()
+        transcript.append(.prompt(id: id, prompt: prompt))
+        return id
+    }
+
+    public func dismissTranscriptItem(id: UUID) {
+        transcript.removeAll { $0.id == id }
+    }
+
     private func consume(_ text: String) async {
         let turnIndex = nextTurnIndex
         nextTurnIndex += 1
@@ -129,6 +143,7 @@ public final class ChatViewModel {
         let assistantItemId = UUID()
         transcript.append(.assistant(id: assistantItemId, turn: state))
         selectedTurnIndex = turnIndex
+        var lastRecordedErrorMessage: String?
 
         defer { isSending = false }
 
@@ -155,8 +170,10 @@ public final class ChatViewModel {
                 ChatEventReducer.reduce(event, into: &state, now: clock.now)
                 updateAssistantItem(id: assistantItemId, turn: state)
 
-                if let message = state.errorMessage {
+                if let message = state.errorMessage, message != lastRecordedErrorMessage {
+                    lastRecordedErrorMessage = message
                     errorMessage = message
+                    appendErrorItem(message)
                 }
             }
 
@@ -176,12 +193,17 @@ public final class ChatViewModel {
             errorMessage = message
             state.errorMessage = message
             updateAssistantItem(id: assistantItemId, turn: state)
+            appendErrorItem(message)
         }
     }
 
     private func updateAssistantItem(id: UUID, turn: ChatTurnState) {
         guard let index = transcript.firstIndex(where: { $0.id == id }) else { return }
         transcript[index] = .assistant(id: id, turn: turn)
+    }
+
+    private func appendErrorItem(_ message: String) {
+        transcript.append(.error(id: UUID(), message: message))
     }
 
     private func persistResponse(turnIndex: Int, state: ChatTurnState) async {
@@ -194,6 +216,14 @@ public final class ChatViewModel {
             )
         } catch {
             errorMessage = error.localizedDescription
+            appendErrorItem(error.localizedDescription)
         }
+    }
+
+    private static func nextTurnIndex(for transcript: [TranscriptItem]) -> Int {
+        transcript.compactMap { item -> Int? in
+            guard case let .assistant(_, turn) = item else { return nil }
+            return turn.turnIndex
+        }.max().map { $0 + 1 } ?? 0
     }
 }

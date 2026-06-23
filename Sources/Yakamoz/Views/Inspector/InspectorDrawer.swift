@@ -64,8 +64,8 @@ struct InspectorDrawer: View {
     let workspacePresentation: WorkspacePresentation?
     /// Re-fetches `workspacePresentation` (e.g. after files changed on disk).
     let onRefreshWorkspace: () -> Void
+    @Binding var isOpen: Bool
 
-    @SceneStorage("inspector.isOpen") private var isOpen = false
     @SceneStorage("inspector.tab") private var selectedTabRaw = InspectorTab.prompt.rawValue
     @SceneStorage("inspector.height") private var storedHeight: Double = 280
 
