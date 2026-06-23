@@ -184,6 +184,7 @@ public actor YakamozRuntime: ChatRunning {
             agentInstanceId: agentInstanceId,
             tools: tools,
             systemInstructions: systemInstructions,
+            structuredOutput: typedReplyEnabled ? TypedReply.request() : nil,
             typedReplyEnabled: typedReplyEnabled,
             onBeginUserSend: onBeginUserSend,
             initialTranscript: transcript
@@ -231,6 +232,7 @@ public actor YakamozRuntime: ChatRunning {
         agentInstanceId: UUID? = nil,
         maxTurns: Int = 5,
         generationParameters: GenerationParameters? = nil,
+        structuredOutput: StructuredOutputRequest? = nil,
         promptAssemblyLogger: Logger? = nil
     ) async throws -> AsyncThrowingStream<ChatEvent, Error> {
         let kit = try await makeConfiguredKit()
@@ -243,6 +245,7 @@ public actor YakamozRuntime: ChatRunning {
             agentInstanceId: agentInstanceId,
             maxTurns: maxTurns,
             generationParameters: generationParameters,
+            structuredOutput: structuredOutput,
             promptAssemblyLogger: promptAssemblyLogger
         )
     }
@@ -342,6 +345,7 @@ struct FollowUpRunner: ChatRunning {
         agentInstanceId: UUID?,
         maxTurns: Int,
         generationParameters: GenerationParameters?,
+        structuredOutput: StructuredOutputRequest?,
         promptAssemblyLogger: Logger?
     ) async throws -> AsyncThrowingStream<ChatEvent, Error> {
         let kit = try await runtime.makeConfiguredKit(addingPlugin: plugin)
@@ -354,6 +358,7 @@ struct FollowUpRunner: ChatRunning {
             agentInstanceId: agentInstanceId,
             maxTurns: maxTurns,
             generationParameters: generationParameters,
+            structuredOutput: structuredOutput,
             promptAssemblyLogger: promptAssemblyLogger
         )
     }

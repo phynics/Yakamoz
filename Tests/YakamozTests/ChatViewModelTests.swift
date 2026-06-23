@@ -12,6 +12,7 @@ import Testing
 /// No real `ChatEngine`/`PositronicKit` instance is constructed.
 private final class ScriptedRunner: ChatRunning, @unchecked Sendable {
     private(set) var capturedMessages: [String] = []
+    private(set) var lastStructuredOutput: StructuredOutputRequest?
     var continuation: AsyncThrowingStream<ChatEvent, Error>.Continuation?
     var onRun: (@Sendable (String) -> Void)?
 
@@ -24,9 +25,11 @@ private final class ScriptedRunner: ChatRunning, @unchecked Sendable {
         agentInstanceId _: UUID?,
         maxTurns _: Int,
         generationParameters _: GenerationParameters?,
+        structuredOutput: StructuredOutputRequest?,
         promptAssemblyLogger _: Logger?
     ) async throws -> AsyncThrowingStream<ChatEvent, Error> {
         capturedMessages.append(message)
+        lastStructuredOutput = structuredOutput
         onRun?(message)
         return AsyncThrowingStream { continuation in
             self.continuation = continuation
@@ -108,6 +111,26 @@ struct ChatViewModelTests {
 
         // Only the first message should have reached the runner.
         #expect(runner.capturedMessages == ["first"])
+
+        runner.continuation?.yield(.streamCompleted())
+        runner.continuation?.finish()
+        try await waitUntil { !viewModel.isSending }
+    }
+
+    @Test("Typed reply conversations forward the structured output schema to the runner")
+    func typedReplyConversationsForwardStructuredOutputSchema() async throws {
+        let runner = ScriptedRunner()
+        let viewModel = ChatViewModel(
+            timelineId: UUID(),
+            runner: runner,
+            structuredOutput: TypedReply.request(),
+            typedReplyEnabled: true
+        )
+
+        viewModel.send("summarize this")
+
+        try await waitUntil { runner.lastStructuredOutput != nil }
+        #expect(runner.lastStructuredOutput == TypedReply.request())
 
         runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
@@ -410,6 +433,7 @@ private struct ThrowingRunner: ChatRunning {
         agentInstanceId _: UUID?,
         maxTurns _: Int,
         generationParameters _: GenerationParameters?,
+        structuredOutput _: StructuredOutputRequest?,
         promptAssemblyLogger _: Logger?
     ) async throws -> AsyncThrowingStream<ChatEvent, Error> {
         throw error

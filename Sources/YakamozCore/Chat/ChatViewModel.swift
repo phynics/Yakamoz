@@ -19,6 +19,7 @@ public protocol ChatRunning: Sendable {
         agentInstanceId: UUID?,
         maxTurns: Int,
         generationParameters: GenerationParameters?,
+        structuredOutput: StructuredOutputRequest?,
         promptAssemblyLogger: Logger?
     ) async throws -> AsyncThrowingStream<ChatEvent, Error>
 }
@@ -69,6 +70,7 @@ public final class ChatViewModel {
     private let systemInstructions: String?
     private let maxTurns: Int
     private let generationParameters: GenerationParameters?
+    private let structuredOutput: StructuredOutputRequest?
     private let typedReplyEnabled: Bool
     /// Called on the main actor immediately before each user send, before the runner runs.
     /// Used to reset the autonomous-follow-up plugin's per-send guard (see
@@ -86,6 +88,7 @@ public final class ChatViewModel {
         systemInstructions: String? = nil,
         maxTurns: Int = 5,
         generationParameters: GenerationParameters? = nil,
+        structuredOutput: StructuredOutputRequest? = nil,
         typedReplyEnabled: Bool = false,
         onBeginUserSend: (@MainActor @Sendable () async -> Void)? = nil,
         initialTranscript: [TranscriptItem] = [],
@@ -99,6 +102,7 @@ public final class ChatViewModel {
         self.systemInstructions = systemInstructions
         self.maxTurns = maxTurns
         self.generationParameters = generationParameters
+        self.structuredOutput = structuredOutput
         self.typedReplyEnabled = typedReplyEnabled
         self.onBeginUserSend = onBeginUserSend
         transcript = initialTranscript
@@ -167,6 +171,7 @@ public final class ChatViewModel {
                 agentInstanceId: agentInstanceId,
                 maxTurns: maxTurns,
                 generationParameters: generationParameters,
+                structuredOutput: structuredOutput,
                 promptAssemblyLogger: nil
             )
 

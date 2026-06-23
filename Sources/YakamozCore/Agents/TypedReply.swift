@@ -18,15 +18,11 @@ public struct TypedReplyPayload: Codable, Sendable, Equatable {
 
 /// Builds and validates the typed-reply structured-output contract.
 ///
-/// IMPORTANT (real-API gap): `PositronicKit.run(...)` — the chat-loop entry point — does
-/// NOT accept an `LLMResponseFormat`/`StructuredOutputRequest`, and `GenerationParameters`
-/// carries no response-format field. The schema-aware request path lives only on
-/// `LLMServiceProtocol.chatStream(structuredOutput:)`, which the chat loop does not use.
-/// So Yakamoz cannot force the schema through the live chat turn today. What it CAN do, and
-/// does, is: (1) generate the schema, (2) persist the schema JSON for inspection, and
-/// (3) decode/validate the turn's final reconstructed text with `StructuredOutputDecoder`,
-/// surfacing the parsed JSON or the validation error in the Response tab. See
-/// `TypedReply.decode(from:)`.
+/// `TypedReply` owns the typed-reply schema and the inspection-time decode path.
+/// The live turn now sends the schema through `PositronicKit.run(..., structuredOutput:)`,
+/// while the response inspector still persists the schema JSON and decodes the final
+/// reconstructed text with `StructuredOutputDecoder` so the Response tab can show the
+/// parsed JSON or validation error. See `TypedReply.decode(from:)`.
 public enum TypedReply {
     public static let schemaName = "yakamoz_typed_reply"
 
