@@ -10,7 +10,7 @@
 - [x] Task 1: Publish the PositronicKit turn inspection boundary
 - [x] Task 2: Create the XcodeGen project and app shell
 - [x] Task 3: Add SwiftData inspection projections
-- [ ] Task 4: Add SwiftData persistence adapters
+- [x] Task 4: Add SwiftData persistence adapters
 - [ ] Task 5: Add provider settings, Keychain, and runtime composition
 - [ ] Task 6: Add chat event reduction and view model orchestration
 - [ ] Task 7: Add conversation shell and settings UI
