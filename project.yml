@@ -1,0 +1,70 @@
+name: Yakamoz
+options:
+  deploymentTarget:
+    macOS: "15.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    ALWAYS_SEARCH_USER_PATHS: NO
+packages:
+  PositronicKit:
+    path: ../PositronicKit
+targets:
+  Yakamoz:
+    type: application
+    platform: macOS
+    sources:
+      - Sources/Yakamoz
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.atakandulker.Yakamoz
+        PRODUCT_NAME: Yakamoz
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: YakamozCore
+  YakamozCore:
+    type: framework
+    platform: macOS
+    sources:
+      - Sources/YakamozCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.atakandulker.YakamozCore
+        PRODUCT_NAME: YakamozCore
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGNING_ALLOWED: NO
+    dependencies:
+      - package: PositronicKit
+        product: PositronicKit
+      - package: PositronicKit
+        product: PKShared
+      - package: PositronicKit
+        product: PKPrompt
+      - package: PositronicKit
+        product: PKOpenAIProvider
+  YakamozTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - Tests/YakamozTests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.atakandulker.YakamozTests
+        PRODUCT_NAME: YakamozTests
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGNING_ALLOWED: NO
+    dependencies:
+      - target: YakamozCore
+      - package: PositronicKit
+        product: PKTestSupport
+schemes:
+  Yakamoz:
+    build:
+      targets:
+        Yakamoz: all
+        YakamozCore: all
+    test:
+      targets:
+        - YakamozTests
