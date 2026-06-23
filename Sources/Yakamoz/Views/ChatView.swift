@@ -10,6 +10,7 @@ struct ChatView: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.yakamozRuntime) private var runtime
+    @Environment(\.uiCoordinator) private var coordinator
 
     @State private var viewModel: ChatViewModel?
     @State private var inspectionViewModel: InspectionViewModel?
@@ -17,8 +18,10 @@ struct ChatView: View {
     @State private var workspacePresentation: WorkspacePresentation?
     @State private var workspacePromptId: UUID?
     @State private var dismissedWorkspacePromptConversationId: UUID?
+    @State private var composerFocusToken = 0
 
     @SceneStorage("inspector.isOpen") private var isInspectorOpen = false
+    @SceneStorage("inspector.tab") private var selectedInspectorTabRaw = "prompt"
 
     @Query private var workspaces: [WorkspaceModel]
     @Query private var customPersonas: [PersonaModel]
@@ -62,7 +65,8 @@ struct ChatView: View {
                 } label: {
                     Label("Inspector", systemImage: "info.circle")
                 }
-                .help(isInspectorOpen ? "Hide inspector" : "Show inspector")
+                .keyboardShortcut("i", modifiers: .command)
+                .help(isInspectorOpen ? "Hide inspector (⌘I)" : "Show inspector (⌘I)")
                 .accessibilityLabel(isInspectorOpen ? "Hide inspector" : "Show inspector")
             }
 
@@ -89,6 +93,22 @@ struct ChatView: View {
         .task(id: rebuildKey) {
             await buildViewModelIfNeeded()
         }
+        // Menu-bar / keyboard command intents (Command-I, Command-1…6).
+        .onChange(of: coordinator.toggleInspectorToken) { _, _ in
+            withAnimation(.snappy) { isInspectorOpen.toggle() }
+        }
+        .onChange(of: coordinator.inspectorTabRequest.token) { _, _ in
+            let tabs = ["prompt", "sent", "journal", "response", "tools", "workspace"]
+            let index = coordinator.inspectorTabRequest.index
+            guard tabs.indices.contains(index) else { return }
+            selectedInspectorTabRaw = tabs[index]
+            if !isInspectorOpen {
+                withAnimation(.snappy) { isInspectorOpen = true }
+            }
+        }
+        .onChange(of: coordinator.focusComposerToken) { _, _ in
+            composerFocusToken += 1
+        }
     }
 
     /// A composite key over the settings that influence how the `ChatViewModel` is built.
@@ -110,6 +130,7 @@ struct ChatView: View {
                                 workspacePresentation: workspacePresentation,
                                 onRefreshWorkspace: { Task { await refreshWorkspacePresentation() } },
                                 isOpen: $isInspectorOpen,
+                                selectedTabRaw: $selectedInspectorTabRaw,
                                 onSelectTurn: { viewModel.selectedTurnIndex = $0 }
                             )
                         }
@@ -125,7 +146,8 @@ struct ChatView: View {
                 text: $draft,
                 isSending: viewModel.isSending,
                 onSend: { send(viewModel: viewModel) },
-                onCancel: { viewModel.cancel() }
+                onCancel: { viewModel.cancel() },
+                focusToken: composerFocusToken
             )
         }
     }
@@ -166,6 +188,9 @@ struct ChatView: View {
         let text = draft
         draft = ""
         viewModel.send(text)
+        // Return keyboard focus to the composer so the user can keep typing without
+        // reaching for the mouse.
+        composerFocusToken += 1
     }
 
     private func buildViewModelIfNeeded() async {

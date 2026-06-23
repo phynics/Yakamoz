@@ -132,6 +132,13 @@ public struct ResponseDTO: Codable, Sendable, Equatable {
     /// Human-readable validation/decoding error, when typed-reply decoding failed.
     public var structuredError: String?
 
+    // MARK: Tool traces — Task 11
+
+    /// Persisted projections of the turn's tool calls, in first-seen order, so the Tools and
+    /// Workspace inspector tabs survive a relaunch (previously the traces lived only in the
+    /// in-memory `ChatTurnState`). Empty when the turn made no tool calls.
+    public var tools: [ToolTraceDTO]
+
     public init(
         reconstructedText: String,
         thinking: String,
@@ -141,7 +148,8 @@ public struct ResponseDTO: Codable, Sendable, Equatable {
         outputTokens: Int? = nil,
         structuredSchemaJSON: String? = nil,
         structuredParsedJSON: String? = nil,
-        structuredError: String? = nil
+        structuredError: String? = nil,
+        tools: [ToolTraceDTO] = []
     ) {
         self.reconstructedText = reconstructedText
         self.thinking = thinking
@@ -152,6 +160,7 @@ public struct ResponseDTO: Codable, Sendable, Equatable {
         self.structuredSchemaJSON = structuredSchemaJSON
         self.structuredParsedJSON = structuredParsedJSON
         self.structuredError = structuredError
+        self.tools = tools
     }
 
     /// `Codable` with all new fields optional so older persisted `responseData` blobs
@@ -159,6 +168,7 @@ public struct ResponseDTO: Codable, Sendable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case reconstructedText, thinking, model, finishReason, inputTokens, outputTokens
         case structuredSchemaJSON, structuredParsedJSON, structuredError
+        case tools
     }
 
     public init(from decoder: any Decoder) throws {
@@ -172,6 +182,84 @@ public struct ResponseDTO: Codable, Sendable, Equatable {
         structuredSchemaJSON = try container.decodeIfPresent(String.self, forKey: .structuredSchemaJSON)
         structuredParsedJSON = try container.decodeIfPresent(String.self, forKey: .structuredParsedJSON)
         structuredError = try container.decodeIfPresent(String.self, forKey: .structuredError)
+        tools = try container.decodeIfPresent([ToolTraceDTO].self, forKey: .tools) ?? []
+    }
+}
+
+/// Terminal-or-in-flight status of a persisted tool trace, mirrored from the live
+/// `ToolTraceState` the reducer produces (`attempting`/`succeeded`/`failed`).
+///
+/// Encoded as its `rawValue` string so older blobs and forward-compatible additions
+/// degrade gracefully; an unknown string decodes to `.attempting`.
+public enum ToolTraceStatus: String, Codable, Sendable, Equatable {
+    case attempting
+    case success
+    case failure
+
+    public init(from decoder: any Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = ToolTraceStatus(rawValue: raw) ?? .attempting
+    }
+}
+
+/// Codable projection of one tool call's lifecycle within a turn, persisted alongside the
+/// turn's response so the Tools/Workspace inspector tabs survive a relaunch.
+///
+/// `ToolTrace` (the live reducer value) carries `ContinuousClock.Instant`s that are not
+/// meaningfully `Codable` across processes; this DTO flattens timing to `elapsedMillis`.
+public struct ToolTraceDTO: Codable, Sendable, Identifiable, Equatable {
+    public let id: String
+    public let name: String
+    public let status: ToolTraceStatus
+    public let output: String?
+    public let error: String?
+    public let elapsedMillis: Double?
+
+    public init(
+        id: String,
+        name: String,
+        status: ToolTraceStatus,
+        output: String? = nil,
+        error: String? = nil,
+        elapsedMillis: Double? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.status = status
+        self.output = output
+        self.error = error
+        self.elapsedMillis = elapsedMillis
+    }
+}
+
+public extension ToolTraceDTO {
+    /// Flattens a live reducer `ToolTrace` into its persistable projection, mapping the
+    /// lifecycle state to a `ToolTraceStatus` and `elapsed` to whole milliseconds.
+    init(trace: ToolTrace) {
+        let status: ToolTraceStatus = switch trace.state {
+        case .attempting: .attempting
+        case .succeeded: .success
+        case .failed: .failure
+        }
+        self.init(
+            id: trace.id,
+            name: trace.name,
+            status: status,
+            output: trace.output,
+            error: trace.error,
+            elapsedMillis: trace.elapsed.map { duration in
+                let seconds = duration.components.seconds
+                let attoseconds = duration.components.attoseconds
+                return Double(seconds) * 1000 + Double(attoseconds) / 1_000_000_000_000_000
+            }
+        )
+    }
+}
+
+public extension ChatTurnState {
+    /// The turn's tool traces in first-seen order, projected to their persistable DTOs.
+    var toolTraceDTOs: [ToolTraceDTO] {
+        orderedTools.map(ToolTraceDTO.init(trace:))
     }
 }
 

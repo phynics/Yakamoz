@@ -71,4 +71,30 @@ public actor SwiftDataTurnInspector: TurnInspecting {
         model.responseData = try JSONEncoder().encode(response)
         try modelContext.save()
     }
+
+    /// The highest persisted turn index for a conversation, or `nil` if none exist.
+    ///
+    /// A single `ChatViewModel` user send can drive several engine LLM round-trips (one
+    /// per tool-resolution loop), each creating its own `didComposeTurn` inspection row.
+    /// The final assistant text belongs to the *last* of those rows, so callers persisting
+    /// response metadata target this index rather than the view model's own turn counter.
+    public func latestTurnIndex(conversationId: UUID) throws -> Int? {
+        var descriptor = FetchDescriptor<TurnInspectionModel>(
+            predicate: #Predicate { $0.conversationId == conversationId },
+            sortBy: [SortDescriptor(\.turnIndex, order: .reverse)]
+        )
+        descriptor.fetchLimit = 1
+        return try modelContext.fetch(descriptor).first?.turnIndex
+    }
+
+    /// Enriches the conversation's most recent inspection row with response metadata.
+    ///
+    /// Resolves the latest turn index (see `latestTurnIndex`) and delegates to
+    /// `updateResponse`, so the final assistant response lands on the engine's last
+    /// round-trip even when the view model only counts one logical turn. No-ops when the
+    /// conversation has no inspection rows yet.
+    public func updateLatestResponse(conversationId: UUID, response: ResponseDTO) throws {
+        guard let turnIndex = try latestTurnIndex(conversationId: conversationId) else { return }
+        try updateResponse(conversationId: conversationId, turnIndex: turnIndex, response: response)
+    }
 }

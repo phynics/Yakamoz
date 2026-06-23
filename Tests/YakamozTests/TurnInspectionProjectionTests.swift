@@ -107,4 +107,76 @@ struct TurnInspectionProjectionTests {
         let saved = try await inspector.inspection(conversationId: UUID(), turnIndex: 99)
         #expect(saved == nil)
     }
+
+    @Test("Persisted tool traces round-trip through the response projection")
+    func toolTracesRoundTripThroughResponse() async throws {
+        let fixture = try await makeFixture()
+        let container = try makeContainer()
+        let inspector = SwiftDataTurnInspector(modelContainer: container)
+
+        await inspector.didComposeTurn(fixture)
+
+        // Enrich the row with a response that carries tool traces, the way
+        // `ChatViewModel.persistResponse` does after a turn completes.
+        let traces = [
+            ToolTraceDTO(
+                id: "call_1",
+                name: "calculator",
+                status: .success,
+                output: "4",
+                error: nil,
+                elapsedMillis: 12
+            ),
+            ToolTraceDTO(id: "call_2", name: "broken_tool", status: .failure, error: "boom"),
+        ]
+        try await inspector.updateResponse(
+            conversationId: fixture.timelineId,
+            turnIndex: 0,
+            response: ResponseDTO(
+                reconstructedText: "done",
+                thinking: "",
+                tools: traces
+            )
+        )
+
+        let saved = try await inspector.inspection(conversationId: fixture.timelineId, turnIndex: 0)
+        let response = try #require(saved?.response)
+        #expect(response.tools.count == 2)
+        #expect(response.tools.first?.id == "call_1")
+        #expect(response.tools.first?.name == "calculator")
+        #expect(response.tools.first?.status == .success)
+        #expect(response.tools.first?.output == "4")
+        #expect(response.tools.first?.elapsedMillis == 12)
+        #expect(response.tools.last?.status == .failure)
+        #expect(response.tools.last?.error == "boom")
+
+        // The presentation read seam surfaces the same traces.
+        let presentation = try #require(try await inspector.presentation(conversationId: fixture.timelineId, turnIndex: 0))
+        #expect(presentation.response?.tools.map(\.status) == [.success, .failure])
+    }
+
+    @Test("A ChatTurnState projects its ordered tool traces to DTOs")
+    func chatTurnStateProjectsTraces() {
+        var state = ChatTurnState(turnIndex: 0)
+        let clock = ContinuousClock()
+        let start = clock.now
+        state.applyToolStatus(
+            id: "c1",
+            status: .attempting(name: "calculator", reference: .known("calculator")),
+            now: start
+        )
+        state.applyToolStatus(
+            id: "c1",
+            status: .success(.success("4")),
+            now: start.advanced(by: .milliseconds(7))
+        )
+
+        let dtos = state.toolTraceDTOs
+        #expect(dtos.count == 1)
+        #expect(dtos.first?.id == "c1")
+        #expect(dtos.first?.name == "calculator")
+        #expect(dtos.first?.status == .success)
+        #expect(dtos.first?.output == "4")
+        #expect((dtos.first?.elapsedMillis ?? 0) > 0)
+    }
 }

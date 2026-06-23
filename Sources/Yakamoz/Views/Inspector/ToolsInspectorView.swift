@@ -4,44 +4,42 @@ import YakamozCore
 /// Tools tab: every tool call made during the selected turn, in first-seen order, with
 /// its lifecycle state, output/error, and elapsed time.
 ///
-/// **Known v1 limitation (Gap 1):** tool traces live only in the in-memory
-/// `ChatTurnState` the reducer builds while a turn streams (`ChatViewModel.selectedTurnState`)
-/// — they are NOT persisted anywhere. `SwiftDataTurnInspector`/`InspectionPresentation`
-/// (the source for the other three inspector tabs) carry prompt/sent/journal/response
-/// data that survives a relaunch, but no tool-trace projection. That means: after the app
-/// restarts and a conversation is reloaded from disk, this tab renders the "no tool calls"
-/// empty state for every historical turn, even if that turn actually called tools when it
-/// ran live. Tool traces are only visible for turns observed during the current session.
-/// Persisting them would mean adding a `ToolTraceDTO`-shaped column to
-/// `SwiftDataTurnInspector`'s response projection (`InspectionDTOs.swift`) and populating
-/// it from `ChatEventReducer`'s `ToolTrace` list in `ChatEngine+ContextBuilding`/
-/// `ChatEngine+ToolExecution`-equivalent persistence hooks — left for a follow-up task.
+/// **Source priority (Task 11):** tool traces are now persisted on the turn's
+/// `ResponseDTO` (`InspectionPresentation.response?.tools`), so a reloaded conversation
+/// shows historical tool calls. This view prefers those persisted traces; for the
+/// *in-flight* turn (which has no persisted response yet) it falls back to the live,
+/// in-memory `ChatTurnState` the reducer is building (`liveTurn`). The empty state only
+/// shows when neither source has any tool calls.
 struct ToolsInspectorView: View {
-    let turn: ChatTurnState?
+    /// Persisted tool traces for the selected turn, decoded from the inspection projection.
+    let persistedTools: [ToolTraceDTO]
+    /// The selected turn's live, in-memory state — used only for the turn currently
+    /// streaming, before its response (and traces) have been persisted.
+    let liveTurn: ChatTurnState?
+
+    /// Persisted traces win when present; otherwise project the live turn's traces.
+    private var traces: [ToolTraceDTO] {
+        if !persistedTools.isEmpty { return persistedTools }
+        return liveTurn?.toolTraceDTOs ?? []
+    }
 
     var body: some View {
-        if let turn, !turn.toolOrder.isEmpty {
-            content(turn)
+        if !traces.isEmpty {
+            content
         } else {
             ContentUnavailableView(
                 "No Tool Calls",
                 systemImage: "wrench.and.screwdriver",
-                description: Text(emptyDescription)
+                description: Text("This turn did not call any tools.")
             )
         }
     }
 
-    private var emptyDescription: String {
-        "Tool traces are only available for turns observed in this session; they are not persisted across relaunches."
-    }
-
-    private func content(_ turn: ChatTurnState) -> some View {
+    private var content: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
-                ForEach(turn.toolOrder, id: \.self) { callId in
-                    if let trace = turn.tools[callId] {
-                        traceCard(trace)
-                    }
+                ForEach(traces) { trace in
+                    traceCard(trace)
                 }
             }
             .padding(10)
@@ -49,18 +47,19 @@ struct ToolsInspectorView: View {
         }
     }
 
-    private func traceCard(_ trace: ToolTrace) -> some View {
+    private func traceCard(_ trace: ToolTraceDTO) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(trace.name)
                     .font(.callout.weight(.semibold))
                 Spacer()
-                stateBadge(trace.state)
-                if let elapsed = trace.elapsed {
-                    Text(formatted(elapsed))
+                stateBadge(trace.status)
+                if let elapsed = trace.elapsedMillis {
+                    Text(String(format: "%.0f ms", elapsed))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
+                        .accessibilityLabel("Elapsed: \(Int(elapsed)) milliseconds")
                 }
             }
 
@@ -73,13 +72,14 @@ struct ToolsInspectorView: View {
         }
         .padding(8)
         .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 6))
+        .accessibilityElement(children: .combine)
     }
 
-    private func stateBadge(_ state: ToolTraceState) -> some View {
-        let (label, color): (String, Color) = switch state {
+    private func stateBadge(_ status: ToolTraceStatus) -> some View {
+        let (label, color): (String, Color) = switch status {
         case .attempting: ("Attempting", .orange)
-        case .succeeded: ("Succeeded", .green)
-        case .failed: ("Failed", .red)
+        case .success: ("Succeeded", .green)
+        case .failure: ("Failed", .red)
         }
         return Text(label)
             .font(.caption.weight(.medium))
@@ -87,7 +87,7 @@ struct ToolsInspectorView: View {
             .padding(.vertical, 2)
             .background(color.opacity(0.15), in: Capsule())
             .foregroundStyle(color)
-            .accessibilityLabel("State: \(label)")
+            .accessibilityLabel("Status: \(label)")
     }
 
     private func labeledBlock(_ title: String, text: String, isError: Bool = false) -> some View {
@@ -98,13 +98,7 @@ struct ToolsInspectorView: View {
                 .foregroundStyle(isError ? .red : .primary)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityLabel("\(title): \(text)")
         }
-    }
-
-    private func formatted(_ duration: Duration) -> String {
-        let seconds = duration.components.seconds
-        let attoseconds = duration.components.attoseconds
-        let millis = Double(seconds) * 1000 + Double(attoseconds) / 1_000_000_000_000_000
-        return String(format: "%.0f ms", millis)
     }
 }

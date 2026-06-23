@@ -65,8 +65,11 @@ struct InspectorDrawer: View {
     /// Re-fetches `workspacePresentation` (e.g. after files changed on disk).
     let onRefreshWorkspace: () -> Void
     @Binding var isOpen: Bool
+    /// The selected inspector tab's raw value, owned by `ChatView` (via `@SceneStorage`)
+    /// so menu-bar commands (Command-1…6) can drive it. Bound here so the segmented picker
+    /// stays the single source of truth either way.
+    @Binding var selectedTabRaw: String
 
-    @SceneStorage("inspector.tab") private var selectedTabRaw = InspectorTab.prompt.rawValue
     @SceneStorage("inspector.height") private var storedHeight: Double = 280
 
     @State private var dragStartHeight: Double?
@@ -168,7 +171,10 @@ struct InspectorDrawer: View {
     private var tabContent: some View {
         switch selectedTab {
         case .tools:
-            ToolsInspectorView(turn: selectedTurnState)
+            ToolsInspectorView(
+                persistedTools: viewModel.inspection?.response?.tools ?? [],
+                liveTurn: selectedTurnState
+            )
         case .workspace:
             WorkspaceInspectorView(
                 presentation: workspacePresentation,

@@ -194,6 +194,54 @@ struct ChatViewModelTests {
         #expect(response.finishReason == "stop")
     }
 
+    @Test("A stream that ends without an explicit streamCompleted still finalizes and persists")
+    func normalStreamEndFinalizesTurn() async throws {
+        // The real ChatEngine ends its stream by finishing the continuation; it never emits
+        // a synthetic `.streamCompleted`. The view model must treat that clean end as
+        // completion so the response is persisted.
+        let runner = ScriptedRunner()
+        let inspector = try makeInspector()
+        let timelineId = UUID()
+        let viewModel = ChatViewModel(timelineId: timelineId, runner: runner, inspector: inspector)
+
+        let prompt = AnyPrompt.build { SystemPrompt("You are helpful") }
+        let assembled = try prompt.assemblePrompt()
+        let rendered = await assembled.render()
+        await inspector.didComposeTurn(TurnInspection(
+            timelineId: timelineId,
+            agentInstanceId: nil,
+            turnIndex: 0,
+            model: "gpt-test",
+            rendered: rendered,
+            sentMessages: [],
+            journal: TurnJournalSnapshot(
+                overlay: PromptJournalDiff(changedSemiStableIDs: [], addedSemiStableIDs: [], removedSemiStableIDs: []),
+                stablePrefixCount: 0,
+                didCompact: false
+            ),
+            estimatedTokens: rendered.estimatedTokens
+        ))
+
+        viewModel.send("hi")
+        try await Task.sleep(for: .milliseconds(10))
+
+        runner.continuation?.yield(.generation("final answer"))
+        // No `.streamCompleted` — just finish the stream, like the real engine.
+        runner.continuation?.finish()
+
+        try await waitUntil { !viewModel.isSending }
+
+        guard case let .assistant(_, turn) = viewModel.transcript.last else {
+            Issue.record("Expected assistant item")
+            return
+        }
+        #expect(turn.isComplete)
+        #expect(turn.response.reconstructedText == "final answer")
+
+        let persisted = try await inspector.inspection(conversationId: timelineId, turnIndex: 0)
+        #expect(persisted?.response?.reconstructedText == "final answer")
+    }
+
     @Test("Cancelling marks the in-flight turn as cancelled and stops sending")
     func cancelMarksTurnCancelled() async throws {
         let runner = ScriptedRunner()

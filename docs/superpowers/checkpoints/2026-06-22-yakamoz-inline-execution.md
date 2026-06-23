@@ -17,7 +17,7 @@
 - [x] Task 8: Add inspector tabs for prompt, sent, journal, and response
 - [x] Task 9: Add demo tools, workspaces, and tools/workspace tabs
 - [x] Task 10: Add personas, structured replies, and prompt/plugin examples
-- [ ] Task 11: End-to-end verification and polish
+- [x] Task 11: End-to-end verification and polish
 
 ## Checkpoints
 

@@ -46,6 +46,8 @@ struct YakamozApp: App {
     private let secrets: any SecretStoring
     private let setupError: String?
 
+    @State private var coordinator = UICoordinator()
+
     init() {
         let settings = ProviderSettings()
         let secrets = KeychainStore()
@@ -75,14 +77,21 @@ struct YakamozApp: App {
                     .environment(\.yakamozRuntime, runtime)
                     .environment(\.providerSettings, settings)
                     .environment(\.secretStore, secrets)
+                    .environment(\.uiCoordinator, coordinator)
+                    .frame(minWidth: 900, minHeight: 620)
             } else {
                 ContentUnavailableView(
                     "Yakamoz Failed to Start",
                     systemImage: "exclamationmark.triangle",
                     description: Text(setupError ?? "An unknown error occurred while initializing the app.")
                 )
+                .frame(minWidth: 900, minHeight: 620)
             }
         }
+        .commands {
+            YakamozCommands(coordinator: coordinator)
+        }
+        .defaultSize(width: 1200, height: 820)
 
         Settings {
             if let runtime {

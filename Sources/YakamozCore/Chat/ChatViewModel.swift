@@ -194,6 +194,17 @@ public final class ChatViewModel {
                 updateAssistantItem(id: assistantItemId, turn: state)
             }
 
+            // The real `ChatEngine` finishes its stream by simply ending the
+            // `AsyncThrowingStream` — it never emits a synthetic `.streamCompleted`
+            // event (only test runners do). So a turn that streamed to a clean end
+            // exits the loop here with `isComplete == false`. Treat a normal,
+            // non-cancelled, non-errored loop exit as completion so the response is
+            // finalized and persisted exactly as a `.streamCompleted` would have.
+            if !state.isCancelled, state.errorMessage == nil, !state.isComplete {
+                state.isComplete = true
+                updateAssistantItem(id: assistantItemId, turn: state)
+            }
+
             if state.isComplete {
                 await persistResponse(turnIndex: turnIndex, state: state)
             }
@@ -237,12 +248,16 @@ public final class ChatViewModel {
         transcript.append(.error(id: UUID(), message: message))
     }
 
-    private func persistResponse(turnIndex: Int, state: ChatTurnState) async {
+    private func persistResponse(turnIndex _: Int, state: ChatTurnState) async {
         guard let inspector else { return }
         do {
-            try await inspector.updateResponse(
+            // A single user send can drive several engine LLM round-trips (one per tool
+            // loop), each creating its own inspection row; the final assistant text and
+            // tool traces belong to the *last* of those rows. Target it via the inspector's
+            // latest-turn lookup rather than the view model's single logical turn counter,
+            // so a reloaded conversation reads the response off the engine's final turn.
+            try await inspector.updateLatestResponse(
                 conversationId: timelineId,
-                turnIndex: turnIndex,
                 response: enrichedResponseDTO(from: state)
             )
         } catch {
@@ -257,6 +272,9 @@ public final class ChatViewModel {
     /// than through `run()`).
     private func enrichedResponseDTO(from state: ChatTurnState) -> ResponseDTO {
         var dto = state.responseDTO
+        // Persist the turn's tool traces so the Tools/Workspace inspector tabs survive a
+        // relaunch (they previously lived only in the in-memory `ChatTurnState`).
+        dto.tools = state.toolTraceDTOs
         guard typedReplyEnabled else { return dto }
         let decoded = TypedReply.decode(from: dto.reconstructedText)
         dto.structuredSchemaJSON = TypedReply.schemaJSON()

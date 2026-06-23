@@ -11,6 +11,7 @@ struct ConversationListView: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.yakamozRuntime) private var runtime
+    @Environment(\.uiCoordinator) private var coordinator
 
     @Query(sort: \ConversationModel.createdAt, order: .reverse)
     private var conversations: [ConversationModel]
@@ -31,8 +32,13 @@ struct ConversationListView: View {
                 Button(action: createConversation) {
                     Label("New Conversation", systemImage: "plus")
                 }
+                .keyboardShortcut("n", modifiers: .command)
+                .help("New Conversation (⌘N)")
                 .accessibilityLabel("New Conversation")
             }
+        }
+        .onChange(of: coordinator.newChatToken) { _, _ in
+            createConversation()
         }
         .alert(
             "Couldn't Create Conversation",

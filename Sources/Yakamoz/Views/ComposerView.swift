@@ -7,6 +7,12 @@ struct ComposerView: View {
     let isSending: Bool
     let onSend: () -> Void
     let onCancel: () -> Void
+    /// Bumped by the parent (after a send, or via the composer-focus command) to return
+    /// keyboard focus to the text field. Defaults to a constant so callers/previews that
+    /// don't manage focus keep working.
+    var focusToken: Int = 0
+
+    @FocusState private var isComposerFocused: Bool
 
     private var canSend: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSending
@@ -19,11 +25,15 @@ struct ComposerView: View {
                 .lineLimit(1 ... 8)
                 .padding(8)
                 .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+                .focused($isComposerFocused)
                 .onSubmit(submitFromReturn)
                 // SwiftUI's onSubmit fires on plain Return; Shift-Return inserts a
                 // newline into the bound text by default for an .vertical axis
                 // TextField, so no extra handling is required for the newline case.
                 .disabled(isSending)
+                .accessibilityLabel("Message composer")
+                .onAppear { isComposerFocused = true }
+                .onChange(of: focusToken) { _, _ in isComposerFocused = true }
 
             Button {
                 if isSending {
