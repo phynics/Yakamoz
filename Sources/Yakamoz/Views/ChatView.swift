@@ -48,7 +48,7 @@ struct ChatView: View {
                 Button {
                     withAnimation(.snappy) { isInspectorOpen.toggle() }
                 } label: {
-                    Label("Inspector", systemImage: "sidebar.bottom")
+                    Label("Inspector", systemImage: "info.circle")
                 }
                 .help(isInspectorOpen ? "Hide inspector" : "Show inspector")
                 .accessibilityLabel(isInspectorOpen ? "Hide inspector" : "Show inspector")

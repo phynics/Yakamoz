@@ -105,7 +105,7 @@ struct InspectorDrawer: View {
         Button {
             withAnimation(.snappy) { isOpen.toggle() }
         } label: {
-            Image(systemName: "sidebar.bottom")
+            Image(systemName: "info.circle")
                 .symbolVariant(isOpen ? .fill : .none)
         }
         .buttonStyle(.borderless)
