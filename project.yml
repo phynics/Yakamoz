@@ -8,6 +8,13 @@ settings:
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
     ALWAYS_SEARCH_USER_PATHS: NO
+    # PositronicKit's SwiftPM products are built for the host arch only, so build
+    # Yakamoz for the active arch too (avoids x86_64 module-resolution failures on
+    # Apple Silicon). This is a local dev/showcase app, not a universal release.
+    ONLY_ACTIVE_ARCH: YES
+    # Tests use `@testable import YakamozCore`, which requires the framework to be
+    # built with -enable-testing.
+    ENABLE_TESTABILITY: YES
 packages:
   PositronicKit:
     path: ../PositronicKit
