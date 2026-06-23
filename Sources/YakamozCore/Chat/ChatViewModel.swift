@@ -173,7 +173,9 @@ public final class ChatViewModel {
                 if let message = state.errorMessage, message != lastRecordedErrorMessage {
                     lastRecordedErrorMessage = message
                     errorMessage = message
+                    state = finalizeFailedTurn(state, assistantItemId: assistantItemId)
                     appendErrorItem(message)
+                    break eventLoop
                 }
             }
 
@@ -192,14 +194,33 @@ public final class ChatViewModel {
             let message = error.localizedDescription
             errorMessage = message
             state.errorMessage = message
-            updateAssistantItem(id: assistantItemId, turn: state)
+            state = finalizeFailedTurn(state, assistantItemId: assistantItemId)
             appendErrorItem(message)
         }
+    }
+
+    private func finalizeFailedTurn(_ state: ChatTurnState, assistantItemId: UUID) -> ChatTurnState {
+        var failedState = state
+        guard failedState.hasVisibleTranscriptContent else {
+            removeAssistantItem(id: assistantItemId, turnIndex: failedState.turnIndex)
+            return failedState
+        }
+
+        failedState.isComplete = true
+        updateAssistantItem(id: assistantItemId, turn: failedState)
+        return failedState
     }
 
     private func updateAssistantItem(id: UUID, turn: ChatTurnState) {
         guard let index = transcript.firstIndex(where: { $0.id == id }) else { return }
         transcript[index] = .assistant(id: id, turn: turn)
+    }
+
+    private func removeAssistantItem(id: UUID, turnIndex: Int) {
+        transcript.removeAll { $0.id == id }
+        if selectedTurnIndex == turnIndex {
+            selectedTurnIndex = nil
+        }
     }
 
     private func appendErrorItem(_ message: String) {

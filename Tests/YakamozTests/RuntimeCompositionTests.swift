@@ -77,6 +77,30 @@ struct RuntimeCompositionTests {
         #expect(configuration.apiKey == "sk-secret-runtime-key")
     }
 
+    @Test("OpenRouter runtime reads the OpenRouter API key account")
+    @MainActor
+    func openRouterRuntimeReadsOpenRouterAPIKeyAccount() throws {
+        let settings = makeSettings()
+        settings.applyPreset(.openRouter)
+        settings.model = "openai/gpt-4o-test"
+
+        let secrets = FakeSecretStore()
+        try secrets.write("sk-openai-secret", account: ProviderSettings.apiKeyAccount(for: .openAI))
+        try secrets.write("sk-or-v1-openrouter-secret", account: ProviderSettings.apiKeyAccount(for: .openRouter))
+        let mock = MockLLMService()
+
+        nonisolated(unsafe) var captured: LLMConfiguration?
+        _ = try makeRuntime(settings: settings, secrets: secrets, mock: mock) { configuration in
+            captured = configuration
+        }
+
+        let configuration = try #require(captured)
+        #expect(configuration.activeProvider == .openRouter)
+        #expect(configuration.endpoint == ProviderPreset.openRouter.baseURL.absoluteString)
+        #expect(configuration.modelName == "openai/gpt-4o-test")
+        #expect(configuration.apiKey == "sk-or-v1-openrouter-secret")
+    }
+
     @Test("The runtime exposes the SwiftDataTurnInspector and YakamozStores it constructed")
     @MainActor
     func runtimeUsesSwiftDataStoresAndInspector() async throws {

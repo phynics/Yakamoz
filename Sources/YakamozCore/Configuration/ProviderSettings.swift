@@ -125,12 +125,61 @@ public struct ProviderSettingsSnapshot: Sendable, Equatable {
 /// Observable provider configuration for Yakamoz's settings UI.
 ///
 /// Non-secret fields (preset, base URL, model, generation/retry knobs) persist to the
-/// injected `UserDefaults`. The API key is never written to `UserDefaults` — it lives only
-/// in the injected `SecretStoring` (Keychain in production), addressed by `Self.apiKeyAccount`.
+/// injected `UserDefaults`. API keys are never written to `UserDefaults` — they live only
+/// in the injected `SecretStoring` (Keychain in production), addressed by provider-specific
+/// accounts from `Self.apiKeyAccount(for:)`.
 @MainActor
 @Observable
 public final class ProviderSettings {
+    /// Legacy OpenAI keychain account. Keep this stable so existing OpenAI installs keep working.
     nonisolated(unsafe) public static let apiKeyAccount = "provider-api-key"
+
+    /// Keychain account for a provider preset's API key.
+    public nonisolated static func apiKeyAccount(for preset: ProviderPreset) -> String {
+        switch preset {
+        case .openAI:
+            return apiKeyAccount
+        case .openRouter:
+            return "\(apiKeyAccount).openRouter"
+        case .ollama:
+            return "\(apiKeyAccount).ollama"
+        case .custom:
+            return "\(apiKeyAccount).custom"
+        }
+    }
+
+    /// Reads and normalizes the key for `preset`, with a constrained migration path for keys
+    /// saved before provider-specific accounts existed.
+    public nonisolated static func storedAPIKey(for preset: ProviderPreset, secrets: any SecretStoring) throws -> String {
+        let primaryAccount = apiKeyAccount(for: preset)
+        if let key = try secrets.read(account: primaryAccount).map(normalizeAPIKey), !key.isEmpty {
+            return key
+        }
+
+        guard primaryAccount != apiKeyAccount,
+              let legacyKey = try secrets.read(account: apiKeyAccount).map(normalizeAPIKey),
+              legacyAPIKey(legacyKey, isCompatibleWith: preset)
+        else {
+            return ""
+        }
+
+        return legacyKey
+    }
+
+    public nonisolated static func normalizeAPIKey(_ apiKey: String) -> String {
+        apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private nonisolated static func legacyAPIKey(_ key: String, isCompatibleWith preset: ProviderPreset) -> Bool {
+        switch preset {
+        case .openAI:
+            return true
+        case .openRouter:
+            return key.hasPrefix("sk-or-")
+        case .ollama, .custom:
+            return false
+        }
+    }
 
     private enum DefaultsKey {
         static let preset = "providerSettings.preset"

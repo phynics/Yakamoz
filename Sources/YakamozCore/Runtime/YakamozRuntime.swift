@@ -1,6 +1,8 @@
 import Foundation
 import Logging
+import PKOllamaProvider
 import PKOpenAIProvider
+import PKOpenRouterProvider
 import PKShared
 import PositronicKit
 import SwiftData
@@ -12,10 +14,12 @@ import SwiftData
 /// during `make test`.
 public typealias LLMServiceFactory = @Sendable (LLMConfiguration) -> any LLMServiceProtocol
 
-/// The default factory used in production: registers `PKOpenAIProvider`'s client factories and
+/// The default factory used in production: registers supported provider client factories and
 /// constructs a real `LLMService` from the given configuration.
 public func defaultLLMServiceFactory(configuration: LLMConfiguration) -> any LLMServiceProtocol {
     PKOpenAIProvider.register()
+    PKOpenRouterProvider.register()
+    PKOllamaProvider.register()
     return LLMService(configuration: configuration)
 }
 
@@ -69,11 +73,12 @@ public actor YakamozRuntime: ChatRunning {
         self.secrets = secrets
         self.llmServiceFactory = llmServiceFactory
 
+        let settingsSnapshot = settings.snapshot
         kit = Self.makeKit(
             stores: stores,
             inspector: inspector,
-            settingsSnapshot: settings.snapshot,
-            apiKey: try secrets.read(account: ProviderSettings.apiKeyAccount) ?? "",
+            settingsSnapshot: settingsSnapshot,
+            apiKey: try ProviderSettings.storedAPIKey(for: settingsSnapshot.preset, secrets: secrets),
             llmServiceFactory: llmServiceFactory
         )
     }
@@ -222,13 +227,13 @@ public actor YakamozRuntime: ChatRunning {
 
     private func makeConfiguredLLMService() async throws -> any LLMServiceProtocol {
         let settings = await currentSettingsSnapshot()
-        let key = try secrets.read(account: ProviderSettings.apiKeyAccount) ?? ""
+        let key = try ProviderSettings.storedAPIKey(for: settings.preset, secrets: secrets)
         return llmServiceFactory(settings.configuration(apiKey: key))
     }
 
     private func makeConfiguredKit() async throws -> PositronicKit {
         let settings = await currentSettingsSnapshot()
-        let key = try secrets.read(account: ProviderSettings.apiKeyAccount) ?? ""
+        let key = try ProviderSettings.storedAPIKey(for: settings.preset, secrets: secrets)
         return Self.makeKit(
             stores: stores,
             inspector: inspector,

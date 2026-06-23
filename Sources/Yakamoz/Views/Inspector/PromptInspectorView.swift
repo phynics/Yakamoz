@@ -46,30 +46,45 @@ private struct SectionDisclosure: View {
     }
 
     var body: some View {
-        DisclosureGroup(isExpanded: $isExpanded) {
-            VStack(alignment: .leading, spacing: 6) {
-                metadata
-                if !section.content.isEmpty {
-                    Text(section.content)
-                        .font(.system(.caption, design: .monospaced))
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(6)
-                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
+        VStack(alignment: .leading, spacing: 4) {
+            Button {
+                withAnimation(.snappy) {
+                    isExpanded.toggle()
                 }
-                ForEach(node.children) { child in
-                    SectionDisclosure(node: child, depth: depth + 1)
-                }
+            } label: {
+                label
             }
-            .padding(.leading, 4)
-        } label: {
-            label
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+            .accessibilityLabel("\(isExpanded ? "Collapse" : "Expand") prompt section \(section.id)")
+
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 6) {
+                    metadata
+                    if !section.content.isEmpty {
+                        Text(section.content)
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(6)
+                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
+                    }
+                    ForEach(node.children) { child in
+                        SectionDisclosure(node: child, depth: depth + 1)
+                    }
+                }
+                .padding(.leading, 4)
+            }
         }
         .padding(.leading, CGFloat(depth) * 8)
     }
 
     private var label: some View {
         HStack(spacing: 6) {
+            Image(systemName: "chevron.right")
+                .font(.caption2.weight(.semibold))
+                .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                .foregroundStyle(.secondary)
             Text(section.role)
                 .font(.caption.weight(.semibold))
             Text(section.path.joined(separator: " / "))
@@ -81,6 +96,7 @@ private struct SectionDisclosure: View {
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(.secondary)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var metadata: some View {

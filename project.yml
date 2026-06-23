@@ -51,6 +51,10 @@ targets:
         product: PKPrompt
       - package: PositronicKit
         product: PKOpenAIProvider
+      - package: PositronicKit
+        product: PKOpenRouterProvider
+      - package: PositronicKit
+        product: PKOllamaProvider
   YakamozTests:
     type: bundle.unit-test
     platform: macOS

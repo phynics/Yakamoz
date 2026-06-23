@@ -169,6 +169,35 @@ struct ProviderConfigurationTests {
         #expect(config.endpoint == ProviderPreset.openAI.baseURL.absoluteString)
     }
 
+    @Test("API key accounts are scoped per provider")
+    func apiKeyAccountsAreScopedPerProvider() {
+        #expect(ProviderSettings.apiKeyAccount(for: .openAI) == ProviderSettings.apiKeyAccount)
+        #expect(ProviderSettings.apiKeyAccount(for: .openRouter) == "provider-api-key.openRouter")
+        #expect(ProviderSettings.apiKeyAccount(for: .custom) == "provider-api-key.custom")
+        #expect(ProviderSettings.apiKeyAccount(for: .ollama) == "provider-api-key.ollama")
+    }
+
+    @Test("storedAPIKey reads the selected provider account")
+    func storedAPIKeyReadsSelectedProviderAccount() throws {
+        let secrets = FakeSecretStore()
+        try secrets.write("sk-openai-secret", account: ProviderSettings.apiKeyAccount(for: .openAI))
+        try secrets.write(" sk-or-v1-openrouter-secret\n", account: ProviderSettings.apiKeyAccount(for: .openRouter))
+
+        #expect(try ProviderSettings.storedAPIKey(for: .openAI, secrets: secrets) == "sk-openai-secret")
+        #expect(try ProviderSettings.storedAPIKey(for: .openRouter, secrets: secrets) == "sk-or-v1-openrouter-secret")
+    }
+
+    @Test("OpenRouter only migrates compatible legacy API keys")
+    func openRouterLegacyMigrationRequiresOpenRouterKey() throws {
+        let secrets = FakeSecretStore()
+        try secrets.write("sk-openai-secret", account: ProviderSettings.apiKeyAccount)
+
+        #expect(try ProviderSettings.storedAPIKey(for: .openRouter, secrets: secrets) == "")
+
+        try secrets.write(" sk-or-v1-legacy-openrouter-secret\n", account: ProviderSettings.apiKeyAccount)
+        #expect(try ProviderSettings.storedAPIKey(for: .openRouter, secrets: secrets) == "sk-or-v1-legacy-openrouter-secret")
+    }
+
     // MARK: - No API key in UserDefaults
 
     @Test("No API key ever appears in UserDefaults, even after persist()")

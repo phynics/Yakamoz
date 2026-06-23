@@ -83,6 +83,10 @@ public struct ChatTurnState: Sendable, Equatable {
         toolOrder.compactMap { tools[$0] }
     }
 
+    var hasVisibleTranscriptContent: Bool {
+        !response.reconstructedText.isEmpty || !orderedTools.isEmpty
+    }
+
     /// Applies a tool execution status update, creating the trace on first sight and
     /// recording start/finish instants so `ToolTrace.elapsed` can be derived later.
     ///

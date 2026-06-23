@@ -95,7 +95,7 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .frame(minWidth: 420, minHeight: 420)
         .task {
-            apiKeyDraft = (try? secrets.read(account: ProviderSettings.apiKeyAccount)) ?? ""
+            loadAPIKeyForSelectedPreset()
         }
     }
 
@@ -105,6 +105,7 @@ struct SettingsView: View {
             set: { newValue in
                 settings.applyPreset(newValue)
                 settings.persist()
+                loadAPIKeyForSelectedPreset()
             }
         )
     }
@@ -132,13 +133,26 @@ struct SettingsView: View {
 
     private func applyAPIKey() {
         applyError = nil
+        let normalizedKey = ProviderSettings.normalizeAPIKey(apiKeyDraft)
         do {
             try settings.validateBaseURL()
-            try settings.validateAPIKey(apiKeyDraft)
-            try secrets.write(apiKeyDraft, account: ProviderSettings.apiKeyAccount)
+            try settings.validateAPIKey(normalizedKey)
+            let account = ProviderSettings.apiKeyAccount(for: settings.preset)
+            if normalizedKey.isEmpty {
+                try secrets.delete(account: account)
+            } else {
+                try secrets.write(normalizedKey, account: account)
+            }
+            apiKeyDraft = normalizedKey
         } catch {
             applyError = error.localizedDescription
         }
+    }
+
+    private func loadAPIKeyForSelectedPreset() {
+        apiKeyDraft = (try? ProviderSettings.storedAPIKey(for: settings.preset, secrets: secrets)) ?? ""
+        applyError = nil
+        healthStatus = nil
     }
 
     private func testConnection() async {

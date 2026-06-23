@@ -231,6 +231,12 @@ struct ChatViewModelTests {
             }
             return false
         }))
+        #expect(!viewModel.transcript.contains(where: { item in
+            if case .assistant = item {
+                return true
+            }
+            return false
+        }))
 
         runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
@@ -251,6 +257,16 @@ struct ChatViewModelTests {
 
         try await waitUntil { !viewModel.isSending }
         #expect(viewModel.errorMessage == "boom")
+        #expect(viewModel.transcript.count == 2)
+        guard case .user = viewModel.transcript[0] else {
+            Issue.record("Expected user item to remain")
+            return
+        }
+        guard case let .error(_, message) = viewModel.transcript[1] else {
+            Issue.record("Expected thrown failure to be shown as an error item")
+            return
+        }
+        #expect(message == "boom")
     }
 
     @Test("A chat prompt can be presented and dismissed without becoming a message")
