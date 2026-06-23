@@ -29,6 +29,15 @@ public final class ConversationModel {
     public var personaId: UUID?
     public var enabledToolIds: [String]
     public var workspaceId: UUID?
+    /// Stable persona slug ("helpful"/"reviewer"/...) for built-in personas, or the
+    /// `UUID` string of a custom `PersonaModel`. Distinct from `personaId` (the
+    /// agent-instance linkage); this drives the toolbar persona picker selection.
+    public var personaSlug: String?
+    /// When `true`, the conversation requests typed (structured) replies and the Response
+    /// inspector tab shows the schema + parsed/validated JSON (Task 10).
+    public var typedReplyEnabled: Bool
+    /// When `true`, an `AutonomousFollowUpPlugin` injects one bounded follow-up per send.
+    public var autonomousFollowUpEnabled: Bool
 
     public init(
         id: UUID = UUID(),
@@ -36,7 +45,10 @@ public final class ConversationModel {
         createdAt: Date = .now,
         personaId: UUID? = nil,
         enabledToolIds: [String] = [],
-        workspaceId: UUID? = nil
+        workspaceId: UUID? = nil,
+        personaSlug: String? = nil,
+        typedReplyEnabled: Bool = false,
+        autonomousFollowUpEnabled: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -44,6 +56,9 @@ public final class ConversationModel {
         self.personaId = personaId
         self.enabledToolIds = enabledToolIds
         self.workspaceId = workspaceId
+        self.personaSlug = personaSlug
+        self.typedReplyEnabled = typedReplyEnabled
+        self.autonomousFollowUpEnabled = autonomousFollowUpEnabled
     }
 }
 

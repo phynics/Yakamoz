@@ -16,7 +16,7 @@
 - [x] Task 7: Add conversation shell and settings UI
 - [x] Task 8: Add inspector tabs for prompt, sent, journal, and response
 - [x] Task 9: Add demo tools, workspaces, and tools/workspace tabs
-- [ ] Task 10: Add personas, structured replies, and prompt/plugin examples
+- [x] Task 10: Add personas, structured replies, and prompt/plugin examples
 - [ ] Task 11: End-to-end verification and polish
 
 ## Checkpoints

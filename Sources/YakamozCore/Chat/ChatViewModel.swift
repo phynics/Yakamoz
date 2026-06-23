@@ -69,6 +69,11 @@ public final class ChatViewModel {
     private let systemInstructions: String?
     private let maxTurns: Int
     private let generationParameters: GenerationParameters?
+    private let typedReplyEnabled: Bool
+    /// Called on the main actor immediately before each user send, before the runner runs.
+    /// Used to reset the autonomous-follow-up plugin's per-send guard (see
+    /// `AutonomousFollowUpPlugin.beginUserSend()`); `nil` when no plugin is wired.
+    private let onBeginUserSend: (@MainActor @Sendable () async -> Void)?
     private let clock: ContinuousClock
     private var nextTurnIndex = 0
 
@@ -81,6 +86,8 @@ public final class ChatViewModel {
         systemInstructions: String? = nil,
         maxTurns: Int = 5,
         generationParameters: GenerationParameters? = nil,
+        typedReplyEnabled: Bool = false,
+        onBeginUserSend: (@MainActor @Sendable () async -> Void)? = nil,
         initialTranscript: [TranscriptItem] = [],
         clock: ContinuousClock = ContinuousClock()
     ) {
@@ -92,8 +99,10 @@ public final class ChatViewModel {
         self.systemInstructions = systemInstructions
         self.maxTurns = maxTurns
         self.generationParameters = generationParameters
-        self.transcript = initialTranscript
-        self.nextTurnIndex = Self.nextTurnIndex(for: initialTranscript)
+        self.typedReplyEnabled = typedReplyEnabled
+        self.onBeginUserSend = onBeginUserSend
+        transcript = initialTranscript
+        nextTurnIndex = Self.nextTurnIndex(for: initialTranscript)
         self.clock = clock
     }
 
@@ -113,6 +122,7 @@ public final class ChatViewModel {
         errorMessage = nil
 
         sendTask = Task { [weak self] in
+            await self?.onBeginUserSend?()
             await self?.consume(trimmed)
         }
     }
@@ -233,12 +243,26 @@ public final class ChatViewModel {
             try await inspector.updateResponse(
                 conversationId: timelineId,
                 turnIndex: turnIndex,
-                response: state.responseDTO
+                response: enrichedResponseDTO(from: state)
             )
         } catch {
             errorMessage = error.localizedDescription
             appendErrorItem(error.localizedDescription)
         }
+    }
+
+    /// For typed-reply conversations, decodes the turn's final text against the
+    /// `TypedReplyPayload` schema and folds the schema JSON / parsed JSON / validation error
+    /// onto the persisted `ResponseDTO` (see `TypedReply` for why this happens here rather
+    /// than through `run()`).
+    private func enrichedResponseDTO(from state: ChatTurnState) -> ResponseDTO {
+        var dto = state.responseDTO
+        guard typedReplyEnabled else { return dto }
+        let decoded = TypedReply.decode(from: dto.reconstructedText)
+        dto.structuredSchemaJSON = TypedReply.schemaJSON()
+        dto.structuredParsedJSON = decoded.parsedJSON
+        dto.structuredError = decoded.error
+        return dto
     }
 
     private static func nextTurnIndex(for transcript: [TranscriptItem]) -> Int {

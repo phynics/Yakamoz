@@ -21,6 +21,18 @@ struct ChatView: View {
     @SceneStorage("inspector.isOpen") private var isInspectorOpen = false
 
     @Query private var workspaces: [WorkspaceModel]
+    @Query private var customPersonas: [PersonaModel]
+
+    /// Resolves the conversation's `personaSlug` to system instructions: a built-in persona's
+    /// instructions, a custom `PersonaModel`'s instructions, or `nil` for the default persona.
+    private var resolvedSystemInstructions: String? {
+        guard let slug = conversation.personaSlug else { return nil }
+        if let builtIn = PersonaCatalog.builtIn(id: slug) { return builtIn.instructions }
+        if let custom = customPersonas.first(where: { $0.id.uuidString == slug }) {
+            return custom.systemInstructions
+        }
+        return nil
+    }
 
     private var attachedWorkspace: WorkspaceModel? {
         guard let workspaceId = conversation.workspaceId else { return nil }
@@ -55,6 +67,14 @@ struct ChatView: View {
             }
 
             ToolbarItem(placement: .automatic) {
+                PersonaPicker(conversation: conversation)
+            }
+
+            ToolbarItem(placement: .automatic) {
+                TypedReplyControls(conversation: conversation)
+            }
+
+            ToolbarItem(placement: .automatic) {
                 WorkspacePicker(conversation: conversation)
             }
         }
@@ -64,6 +84,17 @@ struct ChatView: View {
         .task(id: conversation.workspaceId) {
             await refreshWorkspacePresentation()
         }
+        // Rebuild the view model when persona/typed-reply/follow-up settings change, so the
+        // next send uses the updated system instructions, schema, and plugin wiring.
+        .task(id: rebuildKey) {
+            await buildViewModelIfNeeded()
+        }
+    }
+
+    /// A composite key over the settings that influence how the `ChatViewModel` is built.
+    /// Changing any of them re-triggers `buildViewModelIfNeeded`.
+    private var rebuildKey: String {
+        "\(conversation.personaSlug ?? "-")|\(conversation.typedReplyEnabled)|\(conversation.autonomousFollowUpEnabled)"
     }
 
     private func chatBody(viewModel: ChatViewModel) -> some View {
@@ -142,8 +173,11 @@ struct ChatView: View {
         workspacePromptId = nil
         let chat = await runtime.makeChatViewModel(
             timelineId: conversation.id,
+            systemInstructions: resolvedSystemInstructions,
             enabledToolIds: conversation.enabledToolIds,
-            workspaceRoot: workspaceRoot
+            workspaceRoot: workspaceRoot,
+            typedReplyEnabled: conversation.typedReplyEnabled,
+            autonomousFollowUpEnabled: conversation.autonomousFollowUpEnabled
         )
         let inspection = await runtime.makeInspectionViewModel()
         viewModel = chat

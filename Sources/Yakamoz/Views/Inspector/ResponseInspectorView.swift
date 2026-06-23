@@ -39,10 +39,36 @@ struct ResponseInspectorView: View {
                     secondary: false
                 )
 
-                // Structured output (Task 10) renders here; left intentionally blank.
+                structuredOutput(response)
             }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// Typed-reply (structured-output) section: schema requested, parsed/validated JSON, or
+    /// the validation error. Renders nothing for conversations that didn't enable typed replies
+    /// (all three fields `nil`).
+    @ViewBuilder
+    private func structuredOutput(_ response: ResponseDTO) -> some View {
+        if response.structuredSchemaJSON != nil
+            || response.structuredParsedJSON != nil
+            || response.structuredError != nil
+        {
+            Divider()
+            Text("Structured Reply")
+                .font(.caption.weight(.bold))
+
+            if let schema = response.structuredSchemaJSON {
+                labeledBlock("Requested Schema", text: schema, mono: true, secondary: true)
+            }
+            if let parsed = response.structuredParsedJSON {
+                labeledBlock("Parsed JSON", text: parsed, mono: true, secondary: false)
+            }
+            if let error = response.structuredError {
+                labeledBlock("Validation Error", text: error, mono: false, secondary: false)
+                    .foregroundStyle(.red)
+            }
         }
     }
 

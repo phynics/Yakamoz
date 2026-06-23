@@ -69,16 +69,16 @@ public actor YakamozRuntime: ChatRunning {
     ) throws {
         stores = YakamozStores(modelContainer: modelContainer)
         inspector = SwiftDataTurnInspector(modelContainer: modelContainer)
-        self.settingsSnapshotProvider = { @MainActor in settings.snapshot }
+        settingsSnapshotProvider = { @MainActor in settings.snapshot }
         self.secrets = secrets
         self.llmServiceFactory = llmServiceFactory
 
         let settingsSnapshot = settings.snapshot
-        kit = Self.makeKit(
+        kit = try Self.makeKit(
             stores: stores,
             inspector: inspector,
             settingsSnapshot: settingsSnapshot,
-            apiKey: try ProviderSettings.storedAPIKey(for: settingsSnapshot.preset, secrets: secrets),
+            apiKey: ProviderSettings.storedAPIKey(for: settingsSnapshot.preset, secrets: secrets),
             llmServiceFactory: llmServiceFactory
         )
     }
@@ -154,12 +154,29 @@ public actor YakamozRuntime: ChatRunning {
         agentInstanceId: UUID? = nil,
         systemInstructions: String? = nil,
         enabledToolIds: [String] = [],
-        workspaceRoot: URL? = nil
+        workspaceRoot: URL? = nil,
+        typedReplyEnabled: Bool = false,
+        autonomousFollowUpEnabled: Bool = false
     ) async -> ChatViewModel {
-        let runner: any ChatRunning = self
         let turnInspector = inspector
         let tools = resolveTools(enabledToolIds: enabledToolIds, workspaceRoot: workspaceRoot)
         let transcript = (try? await loadTranscript(for: timelineId)) ?? []
+
+        // The autonomous-follow-up plugin is opt-in per conversation. When enabled, the
+        // conversation runs through a runner that injects the plugin into the per-turn kit
+        // (the base `run` path never adds plugins). Its per-send guard is reset by the view
+        // model via `onBeginUserSend` before each user message.
+        let runner: any ChatRunning
+        let onBeginUserSend: (@MainActor @Sendable () async -> Void)?
+        if autonomousFollowUpEnabled {
+            let plugin = AutonomousFollowUpPlugin()
+            runner = FollowUpRunner(runtime: self, plugin: plugin)
+            onBeginUserSend = { await plugin.beginUserSend() }
+        } else {
+            runner = self
+            onBeginUserSend = nil
+        }
+
         return ChatViewModel(
             timelineId: timelineId,
             runner: runner,
@@ -167,8 +184,17 @@ public actor YakamozRuntime: ChatRunning {
             agentInstanceId: agentInstanceId,
             tools: tools,
             systemInstructions: systemInstructions,
+            typedReplyEnabled: typedReplyEnabled,
+            onBeginUserSend: onBeginUserSend,
             initialTranscript: transcript
         )
+    }
+
+    /// Builds the per-turn kit with the autonomous-follow-up `plugin` attached. Used by
+    /// `FollowUpRunner` so a follow-up-enabled conversation gets the plugin without changing
+    /// the shared `run(...)` path that every other conversation uses.
+    func makeConfiguredKit(addingPlugin plugin: any ChatTurnPlugin) async throws -> PositronicKit {
+        try await makeConfiguredKit().addPlugin(plugin)
     }
 
     /// Builds an `InspectionViewModel` backed by this runtime's turn inspector, boxing
@@ -261,6 +287,7 @@ public actor YakamozRuntime: ChatRunning {
             workspacePersistence: stores.workspaces,
             toolPersistence: stores.tools,
             workspaceCreator: FileSystemWorkspaceFactory(),
+            sectionProviders: [CurrentTimeSectionProvider()],
             turnInspector: inspector,
             generationParameters: settingsSnapshot.generationParameters
         )
@@ -292,5 +319,42 @@ public actor YakamozRuntime: ChatRunning {
         }
 
         return transcript
+    }
+}
+
+/// A `ChatRunning` adapter that routes each turn through a plugin-augmented kit.
+///
+/// `YakamozRuntime.run(...)` deliberately never attaches `ChatTurnPlugin`s (every
+/// conversation shares the same runtime). Conversations that opt into autonomous follow-up
+/// run through this adapter instead, which rebuilds the per-turn kit with the conversation's
+/// own `AutonomousFollowUpPlugin` attached. The runtime stays the single composition root;
+/// this only changes which kit a single conversation's turns execute on.
+struct FollowUpRunner: ChatRunning {
+    let runtime: YakamozRuntime
+    let plugin: AutonomousFollowUpPlugin
+
+    func run(
+        timelineId: UUID,
+        message: String,
+        tools: [AnyTool],
+        toolOutputs: [ToolOutputSubmission]?,
+        systemInstructions: String?,
+        agentInstanceId: UUID?,
+        maxTurns: Int,
+        generationParameters: GenerationParameters?,
+        promptAssemblyLogger: Logger?
+    ) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+        let kit = try await runtime.makeConfiguredKit(addingPlugin: plugin)
+        return try await kit.run(
+            timelineId: timelineId,
+            message: message,
+            tools: tools,
+            toolOutputs: toolOutputs,
+            systemInstructions: systemInstructions,
+            agentInstanceId: agentInstanceId,
+            maxTurns: maxTurns,
+            generationParameters: generationParameters,
+            promptAssemblyLogger: promptAssemblyLogger
+        )
     }
 }
