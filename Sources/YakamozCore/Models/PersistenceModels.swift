@@ -1,6 +1,25 @@
 import Foundation
 import SwiftData
 
+/// Single source of truth for the full SwiftData schema: every `@Model` type that must
+/// be registered with the production `ModelContainer`. Use `Schema(YakamozSchema.models)`
+/// when building the app's container so persistence never silently drops a model type.
+public enum YakamozSchema {
+    public static let models: [any PersistentModel.Type] = [
+        ConversationModel.self,
+        MessageModel.self,
+        TurnInspectionModel.self,
+        PersonaModel.self,
+        WorkspaceModel.self,
+        TimelineModel.self,
+        WorkspaceReferenceModel.self,
+        ToolReferenceModel.self,
+        AgentInstanceModel.self,
+        AgentTemplateModel.self,
+        RequestOriginModel.self,
+    ]
+}
+
 /// A persisted conversation (timeline) shell.
 @Model
 public final class ConversationModel {

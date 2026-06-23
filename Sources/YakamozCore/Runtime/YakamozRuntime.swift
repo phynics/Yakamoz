@@ -18,6 +18,27 @@ public func defaultLLMServiceFactory(configuration: LLMConfiguration) -> any LLM
     return LLMService(configuration: configuration)
 }
 
+/// App-facing mirror of `PKShared.HealthStatus`.
+///
+/// The `Yakamoz` app target links only `YakamozCore` (see `project.yml`); it must never
+/// name a `PositronicKit`/`PKShared` type directly, or the optimized `test` build's
+/// linker pass fails with undefined symbols for that framework's metadata (the app
+/// binary never embeds it). This boundary type lets `SettingsView` show a health badge
+/// without importing `PKShared`.
+public enum AppHealthStatus: String, Sendable, Equatable {
+    case ok
+    case degraded
+    case down
+
+    init(_ status: HealthStatus) {
+        switch status {
+        case .ok: self = .ok
+        case .degraded: self = .degraded
+        case .down: self = .down
+        }
+    }
+}
+
 /// The single composition root for Yakamoz's runtime: wires SwiftData-backed persistence
 /// (`YakamozStores`), turn inspection (`SwiftDataTurnInspector`), provider settings/secrets, and
 /// the `PositronicKit` facade together behind one `actor`.
@@ -61,5 +82,48 @@ public actor YakamozRuntime {
     /// Delegates to the underlying LLM service's health check exactly once per call.
     public func healthCheck() async -> HealthStatus {
         await llmService.checkHealth()
+    }
+
+    /// `healthCheck()` mapped to the app-safe `AppHealthStatus`, for callers (the
+    /// `Yakamoz` app target) that must not name `PKShared.HealthStatus` directly.
+    public func appHealthCheck() async -> AppHealthStatus {
+        AppHealthStatus(await healthCheck())
+    }
+
+    /// Builds a `ChatViewModel` for the given conversation/timeline id, boxing this
+    /// runtime's `PositronicKit` facade into `any ChatRunning` entirely inside
+    /// `YakamozCore` so the app target never needs to name the `PositronicKit` type
+    /// (which it does not link directly — see `AppHealthStatus`'s doc comment).
+    @MainActor
+    public func makeChatViewModel(
+        timelineId: UUID,
+        agentInstanceId: UUID? = nil,
+        systemInstructions: String? = nil
+    ) async -> ChatViewModel {
+        let runner = kit
+        let turnInspector = inspector
+        return ChatViewModel(
+            timelineId: timelineId,
+            runner: runner,
+            inspector: turnInspector,
+            agentInstanceId: agentInstanceId,
+            systemInstructions: systemInstructions
+        )
+    }
+
+    /// Creates a new conversation, pairing a `ConversationModel` row with a
+    /// PositronicKit `Timeline` sharing the same id (see `ConversationCoordinator`),
+    /// without requiring the caller to extract `stores.timelines` itself (that value's
+    /// type, `SwiftDataTimelineStore`, is `YakamozCore`-defined and safe, but routing
+    /// through here keeps all `Timeline`-touching code in one place).
+    @MainActor
+    public func createConversation(
+        modelContext: ModelContext,
+        title: String = "New Chat",
+        personaId: UUID? = nil,
+        workspaceId: UUID? = nil
+    ) async throws -> ConversationModel {
+        let coordinator = ConversationCoordinator(modelContext: modelContext, timelineStore: stores.timelines)
+        return try await coordinator.createConversation(title: title, personaId: personaId, workspaceId: workspaceId)
     }
 }

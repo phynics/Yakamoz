@@ -13,7 +13,7 @@
 - [x] Task 4: Add SwiftData persistence adapters
 - [x] Task 5: Add provider settings, Keychain, and runtime composition
 - [x] Task 6: Add chat event reduction and view model orchestration
-- [ ] Task 7: Add conversation shell and settings UI
+- [x] Task 7: Add conversation shell and settings UI
 - [ ] Task 8: Add inspector tabs for prompt, sent, journal, and response
 - [ ] Task 9: Add demo tools, workspaces, and tools/workspace tabs
 - [ ] Task 10: Add personas, structured replies, and prompt/plugin examples
