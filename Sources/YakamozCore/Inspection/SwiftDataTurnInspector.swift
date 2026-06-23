@@ -53,4 +53,22 @@ public actor SwiftDataTurnInspector: TurnInspecting {
         guard let model = try modelContext.fetch(descriptor).first else { return nil }
         return try PersistedTurnInspection(model: model)
     }
+
+    /// Enriches an already-persisted `TurnInspectionModel` with response metadata
+    /// captured after the turn completes (reconstructed text/thinking, model,
+    /// finish reason, token usage).
+    ///
+    /// `didComposeTurn` runs at prompt-assembly time, before the LLM has produced any
+    /// output, so `responseData` starts `nil`; this is the seam that fills it in once
+    /// `ChatViewModel.consume` observes `.streamCompleted` for the turn. JSON
+    /// encode/decode happens inside the actor — the `@Model` itself never crosses the
+    /// boundary.
+    public func updateResponse(conversationId: UUID, turnIndex: Int, response: ResponseDTO) throws {
+        let key = "\(conversationId.uuidString):\(turnIndex)"
+        var descriptor = FetchDescriptor<TurnInspectionModel>(predicate: #Predicate { $0.id == key })
+        descriptor.fetchLimit = 1
+        guard let model = try modelContext.fetch(descriptor).first else { return }
+        model.responseData = try JSONEncoder().encode(response)
+        try modelContext.save()
+    }
 }
