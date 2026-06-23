@@ -111,6 +111,14 @@ public actor YakamozRuntime {
         )
     }
 
+    /// Builds an `InspectionViewModel` backed by this runtime's turn inspector, boxing
+    /// the `SwiftDataTurnInspector` into `any InspectionReading` inside `YakamozCore` so
+    /// the app target never names a `PositronicKit`-linked type (see `AppHealthStatus`).
+    @MainActor
+    public func makeInspectionViewModel() -> InspectionViewModel {
+        InspectionViewModel(repository: inspector)
+    }
+
     /// Creates a new conversation, pairing a `ConversationModel` row with a
     /// PositronicKit `Timeline` sharing the same id (see `ConversationCoordinator`),
     /// without requiring the caller to extract `stores.timelines` itself (that value's

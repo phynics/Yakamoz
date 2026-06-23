@@ -10,6 +10,7 @@ struct ChatView: View {
     @Environment(\.yakamozRuntime) private var runtime
 
     @State private var viewModel: ChatViewModel?
+    @State private var inspectionViewModel: InspectionViewModel?
     @State private var draft = ""
 
     var body: some View {
@@ -30,6 +31,43 @@ struct ChatView: View {
     }
 
     private func chatBody(viewModel: ChatViewModel) -> some View {
+        VStack(spacing: 0) {
+            GeometryReader { proxy in
+                conversationStack(viewModel: viewModel)
+                    .overlay(alignment: .bottom) {
+                        if let inspectionViewModel {
+                            InspectorDrawer(
+                                viewModel: inspectionViewModel,
+                                detailHeight: proxy.size.height,
+                                onSelectTurn: { viewModel.selectedTurnIndex = $0 }
+                            )
+                        }
+                    }
+            }
+            .onChange(of: viewModel.selectedTurnIndex) { _, newIndex in
+                Task { await inspectionViewModel?.select(conversationId: conversation.id, turnIndex: newIndex) }
+            }
+
+            if let errorMessage = viewModel.errorMessage {
+                Text(errorMessage)
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                    .padding(.horizontal)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Divider()
+
+            ComposerView(
+                text: $draft,
+                isSending: viewModel.isSending,
+                onSend: { send(viewModel: viewModel) },
+                onCancel: { viewModel.cancel() }
+            )
+        }
+    }
+
+    private func conversationStack(viewModel: ChatViewModel) -> some View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
@@ -52,23 +90,6 @@ struct ChatView: View {
                     }
                 }
             }
-
-            if let errorMessage = viewModel.errorMessage {
-                Text(errorMessage)
-                    .font(.callout)
-                    .foregroundStyle(.red)
-                    .padding(.horizontal)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            Divider()
-
-            ComposerView(
-                text: $draft,
-                isSending: viewModel.isSending,
-                onSend: { send(viewModel: viewModel) },
-                onCancel: { viewModel.cancel() }
-            )
         }
     }
 
@@ -85,6 +106,10 @@ struct ChatView: View {
 
     private func buildViewModelIfNeeded() async {
         guard let runtime else { return }
-        viewModel = await runtime.makeChatViewModel(timelineId: conversation.id)
+        let chat = await runtime.makeChatViewModel(timelineId: conversation.id)
+        let inspection = await runtime.makeInspectionViewModel()
+        viewModel = chat
+        inspectionViewModel = inspection
+        await inspection.select(conversationId: conversation.id, turnIndex: chat.selectedTurnIndex)
     }
 }
