@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 import YakamozCore
 
@@ -5,13 +6,25 @@ import YakamozCore
 /// `conversation.id` — the same `UUID` used as the PositronicKit `timelineId`
 /// (see `ConversationCoordinator`).
 struct ChatView: View {
-    let conversation: ConversationModel
+    @Bindable var conversation: ConversationModel
 
     @Environment(\.yakamozRuntime) private var runtime
 
     @State private var viewModel: ChatViewModel?
     @State private var inspectionViewModel: InspectionViewModel?
     @State private var draft = ""
+    @State private var workspacePresentation: WorkspacePresentation?
+
+    @Query private var workspaces: [WorkspaceModel]
+
+    private var attachedWorkspace: WorkspaceModel? {
+        guard let workspaceId = conversation.workspaceId else { return nil }
+        return workspaces.first { $0.id == workspaceId }
+    }
+
+    private var workspaceRoot: URL? {
+        attachedWorkspace.map { URL(fileURLWithPath: $0.folderPath) }
+    }
 
     var body: some View {
         Group {
@@ -25,8 +38,16 @@ struct ChatView: View {
             }
         }
         .navigationTitle(conversation.title)
+        .toolbar {
+            ToolbarItem(placement: .automatic) {
+                WorkspacePicker(conversation: conversation)
+            }
+        }
         .task(id: conversation.id) {
             await buildViewModelIfNeeded()
+        }
+        .task(id: conversation.workspaceId) {
+            await refreshWorkspacePresentation()
         }
     }
 
@@ -39,6 +60,9 @@ struct ChatView: View {
                             InspectorDrawer(
                                 viewModel: inspectionViewModel,
                                 detailHeight: proxy.size.height,
+                                selectedTurnState: viewModel.selectedTurnState,
+                                workspacePresentation: workspacePresentation,
+                                onRefreshWorkspace: { Task { await refreshWorkspacePresentation() } },
                                 onSelectTurn: { viewModel.selectedTurnIndex = $0 }
                             )
                         }
@@ -106,10 +130,29 @@ struct ChatView: View {
 
     private func buildViewModelIfNeeded() async {
         guard let runtime else { return }
-        let chat = await runtime.makeChatViewModel(timelineId: conversation.id)
+        let chat = await runtime.makeChatViewModel(
+            timelineId: conversation.id,
+            enabledToolIds: conversation.enabledToolIds,
+            workspaceRoot: workspaceRoot
+        )
         let inspection = await runtime.makeInspectionViewModel()
         viewModel = chat
         inspectionViewModel = inspection
         await inspection.select(conversationId: conversation.id, turnIndex: chat.selectedTurnIndex)
+        await refreshWorkspacePresentation()
+    }
+
+    /// Rebuilds the Workspace-tab presentation from the conversation's attached folder
+    /// workspace (or clears it when none is attached). Runs on conversation open and
+    /// whenever `conversation.workspaceId` changes.
+    private func refreshWorkspacePresentation() async {
+        guard let runtime, let workspace = attachedWorkspace else {
+            workspacePresentation = nil
+            return
+        }
+        // Extract Sendable values on the MainActor; never send the @Model across the boundary.
+        let folderPath = workspace.folderPath
+        let displayName = workspace.displayName
+        workspacePresentation = await runtime.makeWorkspacePresentation(folderPath: folderPath, displayName: displayName)
     }
 }

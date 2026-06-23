@@ -9,6 +9,8 @@ enum InspectorTab: String, CaseIterable, Identifiable {
     case sent
     case journal
     case response
+    case tools
+    case workspace
 
     var id: String {
         rawValue
@@ -20,6 +22,8 @@ enum InspectorTab: String, CaseIterable, Identifiable {
         case .sent: "Sent"
         case .journal: "Journal"
         case .response: "Response"
+        case .tools: "Tools"
+        case .workspace: "Workspace"
         }
     }
 
@@ -29,6 +33,8 @@ enum InspectorTab: String, CaseIterable, Identifiable {
         case .sent: "paperplane"
         case .journal: "book.closed"
         case .response: "bubble.left.and.bubble.right"
+        case .tools: "wrench.and.screwdriver"
+        case .workspace: "folder"
         }
     }
 }
@@ -49,6 +55,15 @@ struct InspectorDrawer: View {
     let viewModel: InspectionViewModel
     /// Height of the detail area the drawer lives in, used to clamp the max drawer height.
     let detailHeight: CGFloat
+
+    /// The selected turn's live, in-memory tool-call state for the Tools tab (see
+    /// `ToolsInspectorView`'s doc comment on why this is sourced from `ChatViewModel`
+    /// rather than `InspectionPresentation`).
+    let selectedTurnState: ChatTurnState?
+    /// The conversation's attached folder workspace, if any, for the Workspace tab.
+    let workspacePresentation: WorkspacePresentation?
+    /// Re-fetches `workspacePresentation` (e.g. after files changed on disk).
+    let onRefreshWorkspace: () -> Void
 
     @SceneStorage("inspector.isOpen") private var isOpen = false
     @SceneStorage("inspector.tab") private var selectedTabRaw = InspectorTab.prompt.rawValue
@@ -151,12 +166,23 @@ struct InspectorDrawer: View {
 
     @ViewBuilder
     private var tabContent: some View {
-        if let inspection = viewModel.inspection {
-            view(for: selectedTab, inspection: inspection)
-        } else if let error = viewModel.loadError {
-            ContentUnavailableView("Inspection Unavailable", systemImage: "exclamationmark.triangle", description: Text(error))
-        } else {
-            ContentUnavailableView("No Turn Selected", systemImage: "cursorarrow.rays", description: Text("Select an assistant turn to inspect its prompt."))
+        switch selectedTab {
+        case .tools:
+            ToolsInspectorView(turn: selectedTurnState)
+        case .workspace:
+            WorkspaceInspectorView(
+                presentation: workspacePresentation,
+                touchedFiles: selectedTurnState?.workspaceFiles ?? [],
+                onRefresh: onRefreshWorkspace
+            )
+        case .prompt, .sent, .journal, .response:
+            if let inspection = viewModel.inspection {
+                view(for: selectedTab, inspection: inspection)
+            } else if let error = viewModel.loadError {
+                ContentUnavailableView("Inspection Unavailable", systemImage: "exclamationmark.triangle", description: Text(error))
+            } else {
+                ContentUnavailableView("No Turn Selected", systemImage: "cursorarrow.rays", description: Text("Select an assistant turn to inspect its prompt."))
+            }
         }
     }
 
@@ -171,6 +197,8 @@ struct InspectorDrawer: View {
             JournalInspectorView(inspection: inspection, onSelectTurn: onSelectTurn)
         case .response:
             ResponseInspectorView(inspection: inspection)
+        case .tools, .workspace:
+            EmptyView()
         }
     }
 

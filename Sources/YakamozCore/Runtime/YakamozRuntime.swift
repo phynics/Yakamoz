@@ -74,9 +74,55 @@ public actor YakamozRuntime {
             timelinePersistence: stores.timelines,
             workspacePersistence: stores.workspaces,
             toolPersistence: stores.tools,
+            workspaceCreator: FileSystemWorkspaceFactory(),
             turnInspector: inspector,
             generationParameters: settings.generationParameters
         )
+    }
+
+    // MARK: - Tools
+
+    /// All demo tools (`calculator`, `current_datetime`) plus the folder-workspace
+    /// filesystem tools (`cat`/`ls`/`find`/`search_files`/`grep`/`change_directory`,
+    /// jailed to `workspaceRoot`), filtered down to `enabledToolIds`. Pass the result to
+    /// `ChatViewModel`'s `tools:` parameter so a conversation only offers the tools the
+    /// user actually enabled for it.
+    ///
+    /// `workspaceRoot` is `nil` when the conversation has no attached folder workspace —
+    /// in that case only demo tools are offered, even if filesystem tool ids happen to be
+    /// present in `enabledToolIds` (there is nothing to jail them to).
+    public nonisolated func resolveTools(enabledToolIds: [String], workspaceRoot: URL?) -> [AnyTool] {
+        var available: [AnyTool] = [
+            CalculatorTool().toAnyTool(),
+            CurrentDateTimeTool().toAnyTool(),
+        ]
+
+        if let workspaceRoot {
+            let root = workspaceRoot.path
+            available.append(contentsOf: [
+                ReadFileTool(currentDirectory: root, jailRoot: root).toAnyTool(),
+                ListDirectoryTool(currentDirectory: root, jailRoot: root).toAnyTool(),
+                FindFileTool(currentDirectory: root, jailRoot: root).toAnyTool(),
+                SearchFilesTool(currentDirectory: root, jailRoot: root).toAnyTool(),
+                SearchFileContentTool(currentDirectory: root, jailRoot: root).toAnyTool(),
+            ])
+        }
+
+        let enabled = Set(enabledToolIds)
+        guard !enabled.isEmpty else { return available }
+        return available.filter { enabled.contains($0.id) }
+    }
+
+    /// Builds a `WorkspacePresentation` for the given folder-backed `WorkspaceModel`, for
+    /// the Workspace inspector tab. Returns `nil` if the folder no longer exists.
+    public nonisolated func makeWorkspacePresentation(folderPath: String, displayName: String) async -> WorkspacePresentation? {
+        let rootURL = URL(fileURLWithPath: folderPath)
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: rootURL.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return nil
+        }
+        let fsWorkspace = FileSystemWorkspace(rootURL: rootURL, displayName: displayName)
+        return await WorkspacePresentation.build(from: fsWorkspace, displayName: displayName)
     }
 
     /// Delegates to the underlying LLM service's health check exactly once per call.
@@ -98,15 +144,19 @@ public actor YakamozRuntime {
     public func makeChatViewModel(
         timelineId: UUID,
         agentInstanceId: UUID? = nil,
-        systemInstructions: String? = nil
+        systemInstructions: String? = nil,
+        enabledToolIds: [String] = [],
+        workspaceRoot: URL? = nil
     ) async -> ChatViewModel {
         let runner = kit
         let turnInspector = inspector
+        let tools = resolveTools(enabledToolIds: enabledToolIds, workspaceRoot: workspaceRoot)
         return ChatViewModel(
             timelineId: timelineId,
             runner: runner,
             inspector: turnInspector,
             agentInstanceId: agentInstanceId,
+            tools: tools,
             systemInstructions: systemInstructions
         )
     }

@@ -44,6 +44,22 @@ public final class ChatViewModel {
     public var selectedTurnIndex: Int?
     public var errorMessage: String?
 
+    /// The `ChatTurnState` for `selectedTurnIndex`, if that turn is an assistant turn
+    /// currently in `transcript`. This is the live, in-memory source the Tools inspector
+    /// tab reads from in CP9's v1 (see `ToolsInspectorView`'s doc comment): tool traces
+    /// are NOT persisted, so this is `nil`/empty again after the conversation reloads
+    /// from disk, even though the turn's prompt/response data persists via
+    /// `SwiftDataTurnInspector`.
+    public var selectedTurnState: ChatTurnState? {
+        guard let selectedTurnIndex else { return nil }
+        for item in transcript {
+            if case let .assistant(_, turn) = item, turn.turnIndex == selectedTurnIndex {
+                return turn
+            }
+        }
+        return nil
+    }
+
     private var sendTask: Task<Void, Never>?
     private let runner: any ChatRunning
     private let inspector: SwiftDataTurnInspector?
