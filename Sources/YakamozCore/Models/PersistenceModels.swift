@@ -21,6 +21,23 @@ public enum YakamozSchema {
 }
 
 /// A persisted conversation (timeline) shell.
+///
+/// **Ownership boundary (YAK-6).** Yakamoz keeps two distinct model families that a
+/// conversation pairs on one shared `UUID` (see `ConversationCoordinator`):
+/// - `ConversationModel` (this type) is the **UI shell** and is the source of truth
+///   for the user-facing conversation surface the app drives directly: `title`,
+///   `createdAt`, persona/tool selection (`personaId`, `personaSlug`, `enabledToolIds`),
+///   attached `workspaceId`, and the typed-reply / autonomous-follow-up toggles.
+/// - `TimelineModel` is the **PositronicKit-protocol surface** (`TimelinePersistenceProtocol`)
+///   and owns the runtime timeline lifecycle: `isArchived`, `workingDirectory`,
+///   attached workspace/agent ids, `isPrivate`, and `updatedAt`.
+///
+/// Fields that overlap by name (`title`, `createdAt`) are duplicated by design: the
+/// UI shell writes its own copy and does not currently derive from the timeline. The
+/// two id spaces share a value but are separate columns; if they ever disagree,
+/// `ConversationModel` wins for anything the UI renders and `TimelineModel` wins for
+/// anything the runtime/protocol consumes (archival, working directory). Reconciling
+/// the duplication into a derived/synced relationship is deferred (YAK-6 part 2).
 @Model
 public final class ConversationModel {
     @Attribute(.unique) public var id: UUID
@@ -69,7 +86,12 @@ public final class MessageModel {
     public var conversationId: UUID
     public var role: String
     public var content: String
-    public var toolCallsData: Data?
+    /// JSON-encoded `ConversationMessage` envelope carrying every non-scalar field
+    /// (recalledMemories, parentId, think, toolCalls, toolCallId, agentInstanceId,
+    /// snapshotData, …). The scalar columns above are the authoritative queryable
+    /// copy; this blob carries the rest. (Renamed from the historical `toolCallsData`,
+    /// which only described one of the fields it actually stores — YAK-6.)
+    public var messageEnvelopeData: Data?
     public var createdAt: Date
     public var remoteDepth: Int
 
@@ -78,7 +100,7 @@ public final class MessageModel {
         conversationId: UUID,
         role: String,
         content: String,
-        toolCallsData: Data? = nil,
+        messageEnvelopeData: Data? = nil,
         createdAt: Date = .now,
         remoteDepth: Int = 0
     ) {
@@ -86,7 +108,7 @@ public final class MessageModel {
         self.conversationId = conversationId
         self.role = role
         self.content = content
-        self.toolCallsData = toolCallsData
+        self.messageEnvelopeData = messageEnvelopeData
         self.createdAt = createdAt
         self.remoteDepth = remoteDepth
     }

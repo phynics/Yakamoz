@@ -246,7 +246,6 @@ public actor YakamozRuntime: ChatRunning {
             agentInstanceId: agentInstanceId,
             maxTurns: maxTurns,
             generationParameters: generationParameters,
-            structuredOutput: structuredOutput,
             promptAssemblyLogger: promptAssemblyLogger
         )
     }
@@ -380,7 +379,6 @@ struct FollowUpRunner: ChatRunning {
             agentInstanceId: agentInstanceId,
             maxTurns: maxTurns,
             generationParameters: generationParameters,
-            structuredOutput: structuredOutput,
             promptAssemblyLogger: promptAssemblyLogger
         )
     }

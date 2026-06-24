@@ -15,9 +15,9 @@ public enum PersistenceError: Error, Sendable {
 
 extension MessageModel {
     convenience init(_ message: ConversationMessage) throws {
-        let toolCallsData: Data?
+        let messageEnvelopeData: Data?
         do {
-            toolCallsData = try JSONEncoder().encode(MessageStoreEnvelope(message: message))
+            messageEnvelopeData = try JSONEncoder().encode(MessageStoreEnvelope(message: message))
         } catch {
             throw PersistenceError.encoding("ConversationMessage envelope: \(error)")
         }
@@ -26,14 +26,14 @@ extension MessageModel {
             conversationId: message.timelineId,
             role: message.role,
             content: message.content,
-            toolCallsData: toolCallsData,
+            messageEnvelopeData: messageEnvelopeData,
             createdAt: message.timestamp,
             remoteDepth: message.remoteDepth
         )
     }
 
     func toConversationMessage() throws -> ConversationMessage {
-        guard let toolCallsData else {
+        guard let messageEnvelopeData else {
             return ConversationMessage(
                 id: id,
                 timelineId: conversationId,
@@ -45,7 +45,7 @@ extension MessageModel {
         }
         let envelope: MessageStoreEnvelope
         do {
-            envelope = try JSONDecoder().decode(MessageStoreEnvelope.self, from: toolCallsData)
+            envelope = try JSONDecoder().decode(MessageStoreEnvelope.self, from: messageEnvelopeData)
         } catch {
             throw PersistenceError.decoding("ConversationMessage envelope: \(error)")
         }
@@ -63,8 +63,7 @@ extension MessageModel {
 
 /// Wraps the full `ConversationMessage` so non-scalar fields (recalledMemories,
 /// parentId, think, toolCalls, toolCallId, agentInstanceId, snapshotData) survive
-/// the round trip through `MessageModel.toolCallsData`, despite the field's name
-/// only describing one of those fields historically.
+/// the round trip through `MessageModel.messageEnvelopeData`.
 private struct MessageStoreEnvelope: Codable {
     var message: ConversationMessage
 }

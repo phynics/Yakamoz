@@ -15,10 +15,6 @@ inspector drawer. It is a showcase/dev app, not a shipping product.
 - The sibling **`../PositronicKit`** checkout must remain a sibling of this directory
   (consumed via a local SwiftPM path dependency).
 
-> The transitive `swift-json-schema` dependency is pinned to **0.11.2** in `project.yml`
-> to match PositronicKit's resolved graph. Do not bump it — newer versions fail to compile
-> against the resolved `swift-collections`.
-
 ## Build, test, run
 
 All commands run from this directory and go through the [`Makefile`](Makefile), which wraps
@@ -62,6 +58,22 @@ To keep folder access friction-free for a local dev tool, **the app is not sandb
 security-scoped bookmark is still captured when a folder is attached so the path survives
 relaunches. If you harden this into a sandboxed build, you must resolve and `startAccessing`
 those bookmarks before tool use.
+
+## Where data is stored
+
+The SwiftData store location is **explicit**, not left to SwiftData's implicit default
+(YAK-7). On a normal (non-sandboxed) run the database lands at:
+
+```
+~/Library/Application Support/com.atakandulker.Yakamoz/Yakamoz.store
+```
+
+`YakamozApp` computes this from `FileManager`'s `.applicationSupportDirectory`, the
+hard-coded bundle identifier `com.atakandulker.Yakamoz`, and the stable filename
+`Yakamoz.store`, creating the directory if missing and passing the resolved `url:` into
+`ModelConfiguration`. The resolved path is included in the on-screen `setupError` if the
+container fails to open, for diagnosability. Tests are unaffected — they use in-memory or
+temp-directory `ModelContainer`s and never touch this path.
 
 ## The inspector — six tabs
 

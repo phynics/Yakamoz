@@ -4,6 +4,7 @@ import Testing
 @testable import YakamozCore
 
 @Suite("ConversationToolSupport")
+@MainActor
 struct ConversationToolSupportTests {
     @Test("Empty stored ids mean all currently available tools")
     func emptyMeansAllAvailableTools() {

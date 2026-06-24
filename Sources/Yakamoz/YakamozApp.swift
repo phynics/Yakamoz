@@ -54,9 +54,12 @@ struct YakamozApp: App {
         self.settings = settings
         self.secrets = secrets
 
+        var resolvedStoreDescription = "(store URL not yet resolved)"
         do {
+            let storeURL = try Self.resolveStoreURL()
+            resolvedStoreDescription = storeURL.path
             let schema = Schema(YakamozSchema.models)
-            let configuration = ModelConfiguration(schema: schema)
+            let configuration = ModelConfiguration(schema: schema, url: storeURL)
             let container = try ModelContainer(for: schema, configurations: configuration)
             let builtRuntime = try YakamozRuntime(modelContainer: container, settings: settings, secrets: secrets)
             modelContainer = container
@@ -65,8 +68,30 @@ struct YakamozApp: App {
         } catch {
             modelContainer = nil
             runtime = nil
-            setupError = error.localizedDescription
+            setupError = "\(error.localizedDescription) (store path: \(resolvedStoreDescription))"
         }
+    }
+
+    /// Bundle identifier used as the per-app subdirectory under Application Support.
+    /// Hard-coded rather than read from `Bundle.main.bundleIdentifier` so the store
+    /// location stays stable even if the bundle id is ever changed in `project.yml`
+    /// (a change there must be a deliberate, migration-aware decision — YAK-7).
+    private static let storeBundleIdentifier = "com.atakandulker.Yakamoz"
+
+    /// Resolves the explicit SwiftData store location:
+    /// `~/Library/Application Support/com.atakandulker.Yakamoz/Yakamoz.store`.
+    /// Creates the containing directory if it does not yet exist.
+    private static func resolveStoreURL() throws -> URL {
+        let fileManager = FileManager.default
+        let appSupport = try fileManager.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )
+        let storeDirectory = appSupport.appendingPathComponent(storeBundleIdentifier, isDirectory: true)
+        try fileManager.createDirectory(at: storeDirectory, withIntermediateDirectories: true)
+        return storeDirectory.appendingPathComponent("Yakamoz.store", isDirectory: false)
     }
 
     var body: some Scene {
