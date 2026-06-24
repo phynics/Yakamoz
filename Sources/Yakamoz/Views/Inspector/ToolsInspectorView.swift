@@ -16,6 +16,9 @@ struct ToolsInspectorView: View {
     /// The selected turn's live, in-memory state — used only for the turn currently
     /// streaming, before its response (and traces) have been persisted.
     let liveTurn: ChatTurnState?
+    let availableTools: [ConversationToolOption]
+    let enabledToolIds: Set<String>
+    let onSetToolEnabled: (String, Bool) -> Void
 
     /// Persisted traces win when present; otherwise project the live turn's traces.
     private var traces: [ToolTraceDTO] {
@@ -24,26 +27,50 @@ struct ToolsInspectorView: View {
     }
 
     var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                availableToolsSection
+                traceSection
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var availableToolsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Available Tools")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            ForEach(availableTools) { tool in
+                Toggle(isOn: toolBinding(for: tool.id)) {
+                    Label(tool.title, systemImage: tool.systemImage)
+                        .labelStyle(.titleAndIcon)
+                }
+                .disabled(enabledToolIds.count == 1 && enabledToolIds.contains(tool.id))
+                .help(tool.requiresWorkspace ? "Available because this conversation has a workspace attached." : "")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var traceSection: some View {
         if !traces.isEmpty {
-            content
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Tool Calls This Turn")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                ForEach(traces) { trace in
+                    traceCard(trace)
+                }
+            }
         } else {
             ContentUnavailableView(
                 "No Tool Calls",
                 systemImage: "wrench.and.screwdriver",
                 description: Text("This turn did not call any tools.")
             )
-        }
-    }
-
-    private var content: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(traces) { trace in
-                    traceCard(trace)
-                }
-            }
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -100,5 +127,12 @@ struct ToolsInspectorView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityLabel("\(title): \(text)")
         }
+    }
+
+    private func toolBinding(for toolID: String) -> Binding<Bool> {
+        Binding(
+            get: { enabledToolIds.contains(toolID) },
+            set: { onSetToolEnabled(toolID, $0) }
+        )
     }
 }

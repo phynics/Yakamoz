@@ -64,7 +64,7 @@ public final class ChatViewModel {
     private let inspector: SwiftDataTurnInspector?
     private let timelineId: UUID
     private let agentInstanceId: UUID?
-    private let tools: [AnyTool]
+    private var tools: [AnyTool]
     private let systemInstructions: String?
     private let maxTurns: Int
     private let generationParameters: GenerationParameters?
@@ -167,6 +167,12 @@ public final class ChatViewModel {
 
     public func dismissTranscriptItem(id: UUID) {
         transcript.removeAll { $0.id == id }
+    }
+
+    /// Replaces the tool list in place so the next send uses the latest workspace
+    /// attachment state without discarding the transcript or selection state.
+    public func updateTools(_ tools: [AnyTool]) {
+        self.tools = tools
     }
 
     private func consume(_ text: String) async {

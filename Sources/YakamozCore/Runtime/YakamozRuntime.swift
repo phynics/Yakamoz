@@ -108,6 +108,7 @@ public actor YakamozRuntime: ChatRunning {
                 FindFileTool(currentDirectory: root, jailRoot: root).toAnyTool(),
                 SearchFilesTool(currentDirectory: root, jailRoot: root).toAnyTool(),
                 SearchFileContentTool(currentDirectory: root, jailRoot: root).toAnyTool(),
+                ChangeDirectoryTool(currentPath: root, root: root, onChange: { _ in }).toAnyTool(),
             ])
         }
 

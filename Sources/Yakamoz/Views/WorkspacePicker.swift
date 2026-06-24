@@ -65,32 +65,3 @@ struct WorkspacePicker: View {
         WorkspaceAttachmentSupport.detachWorkspace(from: conversation, modelContext: modelContext)
     }
 }
-
-enum WorkspaceAttachmentSupport {
-    static let filesystemToolIds = ["cat", "ls", "find", "search_files", "grep", "change_directory"]
-
-    static var defaultDocumentsURL: URL? {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
-    }
-
-    @discardableResult
-    static func attachWorkspace(to conversation: ConversationModel, modelContext: ModelContext, url: URL) -> WorkspaceModel {
-        let bookmark = try? url.bookmarkData(options: .withSecurityScope)
-        let workspace = WorkspaceModel(displayName: url.lastPathComponent, folderPath: url.path, bookmarkData: bookmark)
-        modelContext.insert(workspace)
-        conversation.workspaceId = workspace.id
-
-        var enabledToolIds = Set(conversation.enabledToolIds)
-        enabledToolIds.formUnion(filesystemToolIds)
-        conversation.enabledToolIds = Array(enabledToolIds)
-
-        try? modelContext.save()
-        return workspace
-    }
-
-    static func detachWorkspace(from conversation: ConversationModel, modelContext: ModelContext) {
-        conversation.workspaceId = nil
-        conversation.enabledToolIds.removeAll { filesystemToolIds.contains($0) }
-        try? modelContext.save()
-    }
-}

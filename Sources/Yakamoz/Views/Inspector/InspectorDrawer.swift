@@ -39,22 +39,22 @@ enum InspectorTab: String, CaseIterable, Identifiable {
     }
 }
 
-/// A resizable, Xcode-style bottom drawer that hosts the inspector tabs for the
+/// A resizable, Xcode-style right inspector that hosts the tabs for the
 /// currently-selected turn.
 ///
-/// Layout: a divider with a drag handle on top, then a segmented tab picker, then the
-/// selected tab's content. The drawer height is drag-resizable and clamped to
-/// `180...(0.7 * detailHeight)`. Open state, selected tab, and height persist across
+/// Layout: a leading resize handle, then a segmented tab picker, then the selected
+/// tab's content. The panel width is drag-resizable and clamped to
+/// `280...(0.55 * detailWidth)`. Open state, selected tab, and width persist across
 /// launches via `@SceneStorage`.
 ///
-/// The drawer never owns turn selection: it renders whatever `viewModel.inspection`
+/// The inspector never owns turn selection: it renders whatever `viewModel.inspection`
 /// currently holds. `ChatView` drives loading by calling `InspectionViewModel.select`
-/// when the selected turn or conversation changes; toggling the drawer closed here does
+/// when the selected turn or conversation changes; toggling the inspector closed here does
 /// not discard that selection.
 struct InspectorDrawer: View {
     let viewModel: InspectionViewModel
-    /// Height of the detail area the drawer lives in, used to clamp the max drawer height.
-    let detailHeight: CGFloat
+    /// Width of the detail area the inspector lives in, used to clamp the max panel width.
+    let detailWidth: CGFloat
 
     /// The selected turn's live, in-memory tool-call state for the Tools tab (see
     /// `ToolsInspectorView`'s doc comment on why this is sourced from `ChatViewModel`
@@ -62,17 +62,23 @@ struct InspectorDrawer: View {
     let selectedTurnState: ChatTurnState?
     /// The conversation's attached folder workspace, if any, for the Workspace tab.
     let workspacePresentation: WorkspacePresentation?
+    let availableTools: [ConversationToolOption]
+    let enabledToolIds: Set<String>
     /// Re-fetches `workspacePresentation` (e.g. after files changed on disk).
     let onRefreshWorkspace: () -> Void
+    let onAttachDocuments: () -> Void
+    let onChooseWorkspace: () -> Void
+    let onDetachWorkspace: () -> Void
+    let onSetToolEnabled: (String, Bool) -> Void
     @Binding var isOpen: Bool
     /// The selected inspector tab's raw value, owned by `ChatView` (via `@SceneStorage`)
     /// so menu-bar commands (Command-1…6) can drive it. Bound here so the segmented picker
     /// stays the single source of truth either way.
     @Binding var selectedTabRaw: String
 
-    @SceneStorage("inspector.height") private var storedHeight: Double = 280
+    @SceneStorage("inspector.width") private var storedWidth: Double = 360
 
-    @State private var dragStartHeight: Double?
+    @State private var dragStartWidth: Double?
 
     /// Navigates to an adjacent turn within the same conversation. Wired by `ChatView`
     /// so the Journal tab's prev/next buttons reuse the same selection path as bubble taps.
@@ -82,89 +88,73 @@ struct InspectorDrawer: View {
         InspectorTab(rawValue: selectedTabRaw) ?? .prompt
     }
 
-    private var minHeight: CGFloat {
-        180
-    }
-
-    private var maxHeight: CGFloat {
-        max(minHeight, detailHeight * 0.7)
+    private var minWidth: CGFloat {
+        280
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Spacer(minLength: 0)
+        Group {
             if isOpen {
                 drawer
-                    .transition(.move(edge: .bottom))
+                    .transition(.move(edge: .trailing))
             }
         }
-        .overlay(alignment: .topTrailing) {
-            toggleButton
-                .padding(8)
-        }
-    }
-
-    private var toggleButton: some View {
-        Button {
-            withAnimation(.snappy) { isOpen.toggle() }
-        } label: {
-            Image(systemName: "info.circle")
-                .symbolVariant(isOpen ? .fill : .none)
-        }
-        .buttonStyle(.borderless)
-        .help("Toggle inspector")
-        .accessibilityLabel(isOpen ? "Hide inspector" : "Show inspector")
     }
 
     private var drawer: some View {
-        VStack(spacing: 0) {
+        HStack(spacing: 0) {
             resizeHandle
-            Picker("Inspector Tab", selection: tabBinding) {
-                ForEach(InspectorTab.allCases) { tab in
-                    Label(tab.title, systemImage: tab.systemImage).tag(tab)
+
+            VStack(spacing: 0) {
+                Picker("Inspector Tab", selection: tabBinding) {
+                    ForEach(InspectorTab.allCases) { tab in
+                        Label(tab.title, systemImage: tab.systemImage).tag(tab)
+                    }
                 }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+
+                Divider()
+
+                tabContent
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-
-            Divider()
-
-            tabContent
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(width: clampedWidth)
+            .background(.bar)
         }
-        .frame(height: clampedHeight)
-        .background(.bar)
     }
 
-    private var clampedHeight: CGFloat {
-        min(max(CGFloat(storedHeight), minHeight), maxHeight)
+    private var clampedWidth: CGFloat {
+        min(max(CGFloat(storedWidth), minWidth), maxWidth)
     }
 
     private var resizeHandle: some View {
-        VStack(spacing: 2) {
+        ZStack {
             Divider()
             Capsule()
                 .fill(.secondary)
-                .frame(width: 36, height: 4)
-                .padding(.vertical, 3)
+                .frame(width: 4, height: 36)
         }
-        .frame(maxWidth: .infinity)
+        .frame(width: 10)
         .contentShape(Rectangle())
         .gesture(
             DragGesture(coordinateSpace: .global)
                 .onChanged { value in
-                    let start = dragStartHeight ?? Double(clampedHeight)
-                    if dragStartHeight == nil { dragStartHeight = start }
-                    // Dragging up (negative translation) grows the drawer.
-                    let proposed = start - Double(value.translation.height)
-                    storedHeight = min(max(proposed, Double(minHeight)), Double(maxHeight))
+                    let start = dragStartWidth ?? Double(clampedWidth)
+                    if dragStartWidth == nil { dragStartWidth = start }
+                    let proposed = start - Double(value.translation.width)
+                    storedWidth = min(max(proposed, Double(minWidth)), Double(maxWidth))
                 }
-                .onEnded { _ in dragStartHeight = nil }
+                .onEnded { _ in dragStartWidth = nil }
         )
         .accessibilityLabel("Resize inspector")
-        .accessibilityHint("Drag to change the inspector height")
+        .accessibilityHint("Drag to change the inspector width")
+    }
+
+    private var maxWidth: CGFloat {
+        max(minWidth, detailWidth * 0.55)
     }
 
     @ViewBuilder
@@ -173,13 +163,19 @@ struct InspectorDrawer: View {
         case .tools:
             ToolsInspectorView(
                 persistedTools: viewModel.inspection?.response?.tools ?? [],
-                liveTurn: selectedTurnState
+                liveTurn: selectedTurnState,
+                availableTools: availableTools,
+                enabledToolIds: enabledToolIds,
+                onSetToolEnabled: onSetToolEnabled
             )
         case .workspace:
             WorkspaceInspectorView(
                 presentation: workspacePresentation,
                 touchedFiles: selectedTurnState?.workspaceFiles ?? [],
-                onRefresh: onRefreshWorkspace
+                onRefresh: onRefreshWorkspace,
+                onAttachDocuments: onAttachDocuments,
+                onChooseFolder: onChooseWorkspace,
+                onDetach: onDetachWorkspace
             )
         case .prompt, .sent, .journal, .response:
             if let inspection = viewModel.inspection {

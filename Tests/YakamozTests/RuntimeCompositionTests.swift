@@ -1,4 +1,5 @@
 import Foundation
+import Logging
 import PKPrompt
 import PKShared
 import PKTestSupport
@@ -9,6 +10,34 @@ import Testing
 
 @Suite("RuntimeComposition")
 struct RuntimeCompositionTests {
+    private final class ScriptedRunner: ChatRunning, @unchecked Sendable {
+        private(set) var capturedMessages: [String] = []
+        private(set) var capturedToolIds: [[String]] = []
+        var continuation: AsyncThrowingStream<ChatEvent, Error>.Continuation?
+
+        func run(
+            timelineId _: UUID,
+            message: String,
+            tools: [AnyTool],
+            toolOutputs _: [ToolOutputSubmission]?,
+            systemInstructions _: String?,
+            agentInstanceId _: UUID?,
+            maxTurns _: Int,
+            generationParameters _: GenerationParameters?,
+            structuredOutput _: StructuredOutputRequest?,
+            promptAssemblyLogger _: Logger?
+        ) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+            capturedMessages.append(message)
+            capturedToolIds.append(tools.map(\.id))
+            return AsyncThrowingStream { continuation in
+                self.continuation = continuation
+                continuation.onTermination = { @Sendable _ in
+                    continuation.finish()
+                }
+            }
+        }
+    }
+
     private func makeModelContainer() throws -> ModelContainer {
         let schema = Schema([
             ConversationModel.self,
@@ -35,6 +64,17 @@ struct RuntimeCompositionTests {
         settings.applyPreset(.openAI)
         settings.model = "gpt-4o-test"
         return settings
+    }
+
+    private func makeTempRoot() throws -> URL {
+        let base = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("RuntimeCompositionTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        return base.resolvingSymlinksInPath()
+    }
+
+    private func cleanup(_ url: URL) {
+        try? FileManager.default.removeItem(at: url)
     }
 
     /// Builds a runtime with a mock LLM factory so the test never touches the network. Captures
@@ -182,6 +222,56 @@ struct RuntimeCompositionTests {
         _ = kit.toolRouter
     }
 
+    @Test("The runtime can refresh an existing chat view model's tools in place")
+    @MainActor
+    func toolResolutionUpdatesExistingViewModel() async throws {
+        let settings = makeSettings()
+        let secrets = FakeSecretStore()
+        let mock = MockLLMService()
+        let runtime = try makeRuntime(settings: settings, secrets: secrets, mock: mock) { _ in }
+        let runner = ScriptedRunner()
+        let viewModel = ChatViewModel(
+            timelineId: UUID(),
+            runner: runner,
+            tools: runtime.resolveTools(enabledToolIds: [], workspaceRoot: nil)
+        )
+
+        viewModel.send("before attach")
+        try await waitUntil { runner.capturedMessages.count == 1 }
+        #expect(runner.capturedToolIds[0] == ["calculator", "current_datetime"])
+        runner.continuation?.yield(.streamCompleted())
+        runner.continuation?.finish()
+        try await waitUntil { !viewModel.isSending }
+
+        let workspaceRoot = try makeTempRoot()
+        defer { cleanup(workspaceRoot) }
+
+        viewModel.updateTools(
+            runtime.resolveTools(
+                enabledToolIds: FileSystemWorkspace.toolIds,
+                workspaceRoot: workspaceRoot
+            )
+        )
+
+        viewModel.send("after attach")
+        try await waitUntil { runner.capturedMessages.count == 2 }
+        #expect(Set(runner.capturedToolIds[1]) == Set(FileSystemWorkspace.toolIds))
+        #expect(!runner.capturedToolIds[1].contains("calculator"))
+        runner.continuation?.yield(.streamCompleted())
+        runner.continuation?.finish()
+        try await waitUntil { !viewModel.isSending }
+
+        viewModel.updateTools(runtime.resolveTools(enabledToolIds: [], workspaceRoot: nil))
+
+        viewModel.send("after detach")
+        try await waitUntil { runner.capturedMessages.count == 3 }
+        #expect(runner.capturedToolIds[2] == ["calculator", "current_datetime"])
+        #expect(!runner.capturedToolIds[2].contains { FileSystemWorkspace.toolIds.contains($0) })
+        runner.continuation?.yield(.streamCompleted())
+        runner.continuation?.finish()
+        try await waitUntil { !viewModel.isSending }
+    }
+
     @Test("healthCheck() delegates to the injected LLM service exactly once")
     @MainActor
     func healthCheckDelegatesOnce() async throws {
@@ -226,5 +316,20 @@ struct RuntimeCompositionTests {
         #expect(captured[1].modelName == "gpt-4o-test")
         #expect(captured[2].apiKey == "sk-secret-updated")
         #expect(captured[2].modelName == "updated-model")
+    }
+
+    @MainActor
+    private func waitUntil(
+        timeout: Duration = .seconds(2),
+        _ condition: @MainActor () -> Bool
+    ) async throws {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while !condition() {
+            if ContinuousClock.now > deadline {
+                Issue.record("Timed out waiting for condition")
+                return
+            }
+            try await Task.sleep(for: .milliseconds(5))
+        }
     }
 }

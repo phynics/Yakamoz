@@ -17,16 +17,23 @@ struct WorkspaceInspectorView: View {
     let presentation: WorkspacePresentation?
     let touchedFiles: [String]
     let onRefresh: () -> Void
+    let onAttachDocuments: () -> Void
+    let onChooseFolder: () -> Void
+    let onDetach: () -> Void
 
     var body: some View {
         if let presentation {
             content(presentation)
         } else {
-            ContentUnavailableView(
-                "No Workspace Attached",
-                systemImage: "folder.badge.questionmark",
-                description: Text("Attach a folder to this conversation to enable filesystem tools.")
-            )
+            VStack(spacing: 12) {
+                ContentUnavailableView(
+                    "No Workspace Attached",
+                    systemImage: "folder.badge.questionmark",
+                    description: Text("Attach a folder to this conversation to enable filesystem tools.")
+                )
+                emptyStateActions
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -59,6 +66,14 @@ struct WorkspaceInspectorView: View {
                 .buttonStyle(.borderless)
                 .help("Refresh workspace")
                 .accessibilityLabel("Refresh workspace")
+                Button {
+                    onDetach()
+                } label: {
+                    Image(systemName: "xmark.circle")
+                }
+                .buttonStyle(.borderless)
+                .help("Detach workspace")
+                .accessibilityLabel("Detach workspace")
             }
             Text(presentation.folderPath)
                 .font(.system(.caption, design: .monospaced))
@@ -97,6 +112,14 @@ struct WorkspaceInspectorView: View {
                     .textSelection(.enabled)
             }
         }
+    }
+
+    private var emptyStateActions: some View {
+        VStack(spacing: 8) {
+            Button("Attach Documents", action: onAttachDocuments)
+            Button("Choose Folder", action: onChooseFolder)
+        }
+        .buttonStyle(.borderedProminent)
     }
 
     private func fileTreeSection(_ presentation: WorkspacePresentation) -> some View {

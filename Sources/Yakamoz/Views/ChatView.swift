@@ -46,6 +46,17 @@ struct ChatView: View {
         attachedWorkspace.map { URL(fileURLWithPath: $0.folderPath) }
     }
 
+    private var availableInspectorTools: [ConversationToolOption] {
+        ConversationToolSupport.toolOptions(hasWorkspace: attachedWorkspace != nil)
+    }
+
+    private var effectiveEnabledToolIds: Set<String> {
+        ConversationToolSupport.effectiveEnabledToolIDs(
+            conversation.enabledToolIds,
+            hasWorkspace: attachedWorkspace != nil
+        )
+    }
+
     var body: some View {
         Group {
             if let viewModel {
@@ -77,16 +88,15 @@ struct ChatView: View {
             ToolbarItem(placement: .automatic) {
                 TypedReplyControls(conversation: conversation)
             }
-
-            ToolbarItem(placement: .automatic) {
-                WorkspacePicker(conversation: conversation)
-            }
         }
         .task(id: conversation.id) {
             await buildViewModelIfNeeded()
         }
         .task(id: conversation.workspaceId) {
             await refreshWorkspacePresentation()
+        }
+        .task(id: toolSyncKey) {
+            await refreshViewModelTools()
         }
         // Rebuild the view model when persona/typed-reply/follow-up settings change, so the
         // next send uses the updated system instructions, schema, and plugin wiring.
@@ -117,38 +127,52 @@ struct ChatView: View {
         "\(conversation.personaSlug ?? "-")|\(conversation.typedReplyEnabled)|\(conversation.autonomousFollowUpEnabled)"
     }
 
+    /// Tracks the conversation state that affects which tools the view model should
+    /// offer on its next send.
+    private var toolSyncKey: String {
+        let enabledToolIds = conversation.enabledToolIds.sorted().joined(separator: ",")
+        return "\(conversation.workspaceId?.uuidString ?? "-")|\(enabledToolIds)"
+    }
+
     private func chatBody(viewModel: ChatViewModel) -> some View {
-        VStack(spacing: 0) {
-            GeometryReader { proxy in
-                conversationStack(viewModel: viewModel)
-                    .overlay(alignment: .bottom) {
-                        if let inspectionViewModel {
-                            InspectorDrawer(
-                                viewModel: inspectionViewModel,
-                                detailHeight: proxy.size.height,
-                                selectedTurnState: viewModel.selectedTurnState,
-                                workspacePresentation: workspacePresentation,
-                                onRefreshWorkspace: { Task { await refreshWorkspacePresentation() } },
-                                isOpen: $isInspectorOpen,
-                                selectedTabRaw: $selectedInspectorTabRaw,
-                                onSelectTurn: { viewModel.selectInspectionTurn($0) }
-                            )
+        GeometryReader { proxy in
+            HStack(spacing: 0) {
+                VStack(spacing: 0) {
+                    conversationStack(viewModel: viewModel)
+                        .onChange(of: viewModel.selectedInspectionTurnIndex) { _, newIndex in
+                            Task { await inspectionViewModel?.select(conversationId: conversation.id, turnIndex: newIndex) }
                         }
-                    }
-            }
-            .onChange(of: viewModel.selectedInspectionTurnIndex) { _, newIndex in
-                Task { await inspectionViewModel?.select(conversationId: conversation.id, turnIndex: newIndex) }
-            }
 
-            Divider()
+                    Divider()
 
-            ComposerView(
-                text: $draft,
-                isSending: viewModel.isSending,
-                onSend: { send(viewModel: viewModel) },
-                onCancel: { viewModel.cancel() },
-                focusToken: composerFocusToken
-            )
+                    ComposerView(
+                        text: $draft,
+                        isSending: viewModel.isSending,
+                        onSend: { send(viewModel: viewModel) },
+                        onCancel: { viewModel.cancel() },
+                        focusToken: composerFocusToken
+                    )
+                }
+
+                if let inspectionViewModel {
+                    InspectorDrawer(
+                        viewModel: inspectionViewModel,
+                        detailWidth: proxy.size.width,
+                        selectedTurnState: viewModel.selectedTurnState,
+                        workspacePresentation: workspacePresentation,
+                        availableTools: availableInspectorTools,
+                        enabledToolIds: effectiveEnabledToolIds,
+                        onRefreshWorkspace: { Task { await refreshWorkspacePresentation() } },
+                        onAttachDocuments: attachDefaultWorkspace,
+                        onChooseWorkspace: pickFolderForPrompt,
+                        onDetachWorkspace: detachWorkspace,
+                        onSetToolEnabled: setToolEnabled,
+                        isOpen: $isInspectorOpen,
+                        selectedTabRaw: $selectedInspectorTabRaw,
+                        onSelectTurn: { viewModel.selectInspectionTurn($0) }
+                    )
+                }
+            }
         }
     }
 
@@ -226,6 +250,15 @@ struct ChatView: View {
         workspacePresentation = await runtime.makeWorkspacePresentation(folderPath: folderPath, displayName: displayName)
     }
 
+    private func refreshViewModelTools() async {
+        guard let runtime, let viewModel else { return }
+        let tools = runtime.resolveTools(
+            enabledToolIds: conversation.enabledToolIds,
+            workspaceRoot: workspaceRoot
+        )
+        viewModel.updateTools(tools)
+    }
+
     private func offerWorkspacePromptIfNeeded(in viewModel: ChatViewModel) {
         guard conversation.workspaceId == nil else { return }
         guard dismissedWorkspacePromptConversationId != conversation.id else { return }
@@ -277,5 +310,31 @@ struct ChatView: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         WorkspaceAttachmentSupport.attachWorkspace(to: conversation, modelContext: modelContext, url: url)
         Task { await buildViewModelIfNeeded() }
+    }
+
+    private func attachDefaultWorkspace() {
+        guard let url = WorkspaceAttachmentSupport.defaultDocumentsURL else { return }
+        WorkspaceAttachmentSupport.attachWorkspace(to: conversation, modelContext: modelContext, url: url)
+        Task { await buildViewModelIfNeeded() }
+    }
+
+    private func detachWorkspace() {
+        WorkspaceAttachmentSupport.detachWorkspace(from: conversation, modelContext: modelContext)
+        Task { await buildViewModelIfNeeded() }
+    }
+
+    private func setToolEnabled(id: String, isEnabled: Bool) {
+        var selected = effectiveEnabledToolIds
+        if isEnabled {
+            selected.insert(id)
+        } else {
+            guard selected.count > 1 else { return }
+            selected.remove(id)
+        }
+        conversation.enabledToolIds = ConversationToolSupport.persistedEnabledToolIDs(
+            selected,
+            hasWorkspace: attachedWorkspace != nil
+        )
+        try? modelContext.save()
     }
 }
