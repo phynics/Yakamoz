@@ -1,6 +1,6 @@
 # YAK-5 — Phase 2: embeddings cluster + pipeline customization
 
-- **Status:** Open (deferred by design)
+- **Status:** Delayed (explicitly deprioritized; revisit later)
 - **Priority:** Medium
 - **Repos:** Yakamoz (+ possibly PositronicKit for API embeddings)
 - **Surfaced by:** design spec §7 / §2 (explicitly deferred from v1)

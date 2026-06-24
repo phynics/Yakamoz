@@ -1,6 +1,6 @@
 # YAK-3 — Re-wire tools when a workspace is attached mid-conversation
 
-- **Status:** Open
+- **Status:** Done
 - **Priority:** Medium
 - **Repos:** Yakamoz
 - **Surfaced by:** CP9 / Task 9 (folder workspaces)
