@@ -417,6 +417,34 @@ struct ChatViewModelTests {
         runner.continuation?.finish()
         try await waitUntil { !viewModel.isSending }
     }
+
+    @Test("Bubble selection can target a distinct persisted inspection row")
+    func bubbleSelectionMapsToInspectionRow() {
+        let runner = ScriptedRunner()
+        let viewModel = ChatViewModel(
+            timelineId: UUID(),
+            runner: runner,
+            initialTranscript: [
+                .assistant(
+                    id: UUID(),
+                    turn: {
+                        var turn = ChatTurnState(turnIndex: 3)
+                        turn.inspectionTurnIndex = 7
+                        return turn
+                    }()
+                ),
+            ]
+        )
+
+        viewModel.selectTurn(3)
+
+        #expect(viewModel.selectedTurnIndex == 3)
+        #expect(viewModel.selectedInspectionTurnIndex == 7)
+
+        viewModel.selectInspectionTurn(7)
+        #expect(viewModel.selectedTurnIndex == 3)
+        #expect(viewModel.selectedInspectionTurnIndex == 7)
+    }
 }
 
 /// A `ChatRunning` fake whose `run` throws immediately, for exercising the

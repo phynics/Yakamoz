@@ -5,10 +5,9 @@ import PositronicKit
 
 /// The seam between `ChatViewModel` and `PositronicKit.run`.
 ///
-/// Mirrors the facade's `run(...)` signature exactly so `PositronicKit` itself can
-/// conform via a trivial extension below, while tests substitute a scripted fake that
-/// yields a hand-built `AsyncThrowingStream<ChatEvent, Error>` — no network, no real
-/// `ChatEngine`, no sleeps.
+/// Mirrors the facade's `run(...)` signature exactly so the runtime can pass a
+/// concrete `ChatRunning` implementation through the same seam that tests replace
+/// with a scripted fake — no network, no real `ChatEngine`, no sleeps.
 public protocol ChatRunning: Sendable {
     func run(
         timelineId: UUID,
@@ -23,8 +22,6 @@ public protocol ChatRunning: Sendable {
         promptAssemblyLogger: Logger?
     ) async throws -> AsyncThrowingStream<ChatEvent, Error>
 }
-
-extension PositronicKit: ChatRunning {}
 
 /// Main-actor, `@Observable` view model that drives a single chat conversation:
 /// sends user text through a `ChatRunning` runner, live-reduces the resulting
@@ -43,6 +40,7 @@ public final class ChatViewModel {
     public private(set) var transcript: [TranscriptItem] = []
     public private(set) var isSending = false
     public var selectedTurnIndex: Int?
+    public private(set) var selectedInspectionTurnIndex: Int?
     public var errorMessage: String?
 
     /// The `ChatTurnState` for `selectedTurnIndex`, if that turn is an assistant turn
@@ -78,6 +76,7 @@ public final class ChatViewModel {
     private let onBeginUserSend: (@MainActor @Sendable () async -> Void)?
     private let clock: ContinuousClock
     private var nextTurnIndex = 0
+    private var nextInspectionTurnIndex = 0
 
     public init(
         timelineId: UUID,
@@ -107,7 +106,28 @@ public final class ChatViewModel {
         self.onBeginUserSend = onBeginUserSend
         transcript = initialTranscript
         nextTurnIndex = Self.nextTurnIndex(for: initialTranscript)
+        nextInspectionTurnIndex = Self.nextInspectionTurnIndex(for: initialTranscript)
         self.clock = clock
+    }
+
+    /// Selects an assistant bubble by its logical transcript turn index and updates the
+    /// inspector row to the persisted inspection row currently associated with that bubble.
+    public func selectTurn(_ turnIndex: Int?) {
+        selectedTurnIndex = turnIndex
+        selectedInspectionTurnIndex = inspectionTurnIndex(forTranscriptTurnIndex: turnIndex)
+    }
+
+    /// Selects a persisted inspection row directly. Used by the journal navigation buttons,
+    /// which operate on inspection rows rather than transcript bubble indices.
+    public func selectInspectionTurn(_ turnIndex: Int?) {
+        selectedInspectionTurnIndex = turnIndex
+        guard let turnIndex else { return }
+        if let matchingBubble = transcript.first(where: { item in
+            guard case let .assistant(_, turn) = item else { return false }
+            return turn.inspectionTurnIndex == turnIndex
+        }), case let .assistant(_, turn) = matchingBubble {
+            selectedTurnIndex = turn.turnIndex
+        }
     }
 
     /// Sends `text` as the next user message, starting a new turn.
@@ -154,9 +174,11 @@ public final class ChatViewModel {
         nextTurnIndex += 1
 
         var state = ChatTurnState(turnIndex: turnIndex)
+        state.inspectionTurnIndex = nextInspectionTurnIndex
         let assistantItemId = UUID()
         transcript.append(.assistant(id: assistantItemId, turn: state))
         selectedTurnIndex = turnIndex
+        selectedInspectionTurnIndex = nextInspectionTurnIndex
         var lastRecordedErrorMessage: String?
 
         defer { isSending = false }
@@ -246,6 +268,7 @@ public final class ChatViewModel {
         transcript.removeAll { $0.id == id }
         if selectedTurnIndex == turnIndex {
             selectedTurnIndex = nil
+            selectedInspectionTurnIndex = nil
         }
     }
 
@@ -265,6 +288,20 @@ public final class ChatViewModel {
                 conversationId: timelineId,
                 response: enrichedResponseDTO(from: state)
             )
+            if let latestTurnIndex = try await inspector.latestTurnIndex(conversationId: timelineId) {
+                nextInspectionTurnIndex = latestTurnIndex + 1
+                if let assistantIndex = transcript.firstIndex(where: { item in
+                    guard case let .assistant(_, turn) = item else { return false }
+                    return turn.turnIndex == state.turnIndex
+                }) {
+                    var completedState = state
+                    completedState.inspectionTurnIndex = latestTurnIndex
+                    transcript[assistantIndex] = .assistant(id: transcript[assistantIndex].id, turn: completedState)
+                }
+                if selectedTurnIndex == state.turnIndex {
+                    selectedInspectionTurnIndex = latestTurnIndex
+                }
+            }
         } catch {
             errorMessage = error.localizedDescription
             appendErrorItem(error.localizedDescription)
@@ -293,5 +330,21 @@ public final class ChatViewModel {
             guard case let .assistant(_, turn) = item else { return nil }
             return turn.turnIndex
         }.max().map { $0 + 1 } ?? 0
+    }
+
+    private static func nextInspectionTurnIndex(for transcript: [TranscriptItem]) -> Int {
+        transcript.compactMap { item -> Int? in
+            guard case let .assistant(_, turn) = item else { return nil }
+            return turn.inspectionTurnIndex
+        }.max().map { $0 + 1 } ?? 0
+    }
+
+    private func inspectionTurnIndex(forTranscriptTurnIndex turnIndex: Int?) -> Int? {
+        guard let turnIndex else { return nil }
+        for item in transcript {
+            guard case let .assistant(_, turn) = item, turn.turnIndex == turnIndex else { continue }
+            return turn.inspectionTurnIndex
+        }
+        return nil
     }
 }

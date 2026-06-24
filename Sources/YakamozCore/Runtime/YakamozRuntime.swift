@@ -160,7 +160,7 @@ public actor YakamozRuntime: ChatRunning {
     ) async -> ChatViewModel {
         let turnInspector = inspector
         let tools = resolveTools(enabledToolIds: enabledToolIds, workspaceRoot: workspaceRoot)
-        let transcript = (try? await loadTranscript(for: timelineId)) ?? []
+        let loadedTranscript = (try? await loadTranscript(for: timelineId)) ?? .empty
 
         // The autonomous-follow-up plugin is opt-in per conversation. When enabled, the
         // conversation runs through a runner that injects the plugin into the per-turn kit
@@ -187,7 +187,7 @@ public actor YakamozRuntime: ChatRunning {
             structuredOutput: typedReplyEnabled ? TypedReply.request() : nil,
             typedReplyEnabled: typedReplyEnabled,
             onBeginUserSend: onBeginUserSend,
-            initialTranscript: transcript
+            initialTranscript: loadedTranscript.transcript
         )
     }
 
@@ -296,32 +296,53 @@ public actor YakamozRuntime: ChatRunning {
         )
     }
 
-    private func loadTranscript(for timelineId: UUID) async throws -> [TranscriptItem] {
+    private struct LoadedTranscript: Sendable {
+        static let empty = LoadedTranscript(transcript: [])
+
+        let transcript: [TranscriptItem]
+    }
+
+    private func loadTranscript(for timelineId: UUID) async throws -> LoadedTranscript {
         let messages = try await stores.messages.fetchMessages(for: timelineId)
         return Self.transcriptItems(from: messages)
     }
 
-    private static func transcriptItems(from messages: [ConversationMessage]) -> [TranscriptItem] {
+    private static func transcriptItems(from messages: [ConversationMessage]) -> LoadedTranscript {
         var assistantTurnIndex = 0
+        var nextInspectionTurnIndex = 0
         var transcript: [TranscriptItem] = []
+        var pendingAssistantMessage: ConversationMessage?
+
+        func appendPendingAssistantIfNeeded() {
+            guard let message = pendingAssistantMessage else { return }
+
+            var turn = ChatTurnState(turnIndex: assistantTurnIndex)
+            turn.inspectionTurnIndex = nextInspectionTurnIndex - 1
+            turn.response.reconstructedText = message.content
+            turn.response.thinking = message.think ?? ""
+            turn.isComplete = true
+            transcript.append(.assistant(id: message.id, turn: turn))
+
+            assistantTurnIndex += 1
+            pendingAssistantMessage = nil
+        }
 
         for message in messages {
             switch message.messageRole {
             case .user:
+                appendPendingAssistantIfNeeded()
                 transcript.append(.user(id: message.id, text: message.content, timestamp: message.timestamp))
             case .assistant:
-                var turn = ChatTurnState(turnIndex: assistantTurnIndex)
-                assistantTurnIndex += 1
-                turn.response.reconstructedText = message.content
-                turn.response.thinking = message.think ?? ""
-                turn.isComplete = true
-                transcript.append(.assistant(id: message.id, turn: turn))
+                pendingAssistantMessage = message
+                nextInspectionTurnIndex += 1
             case .tool, .system, .summary:
                 continue
             }
         }
 
-        return transcript
+        appendPendingAssistantIfNeeded()
+
+        return LoadedTranscript(transcript: transcript)
     }
 }
 

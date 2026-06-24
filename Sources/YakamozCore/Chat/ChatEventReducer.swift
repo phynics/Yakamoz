@@ -65,6 +65,12 @@ public struct ChatTurnState: Sendable, Equatable {
     }
 
     public let turnIndex: Int
+    /// The persisted inspection row currently associated with this logical assistant turn.
+    ///
+    /// The transcript still uses `turnIndex` as the stable bubble-selection key, but the
+    /// inspector drawer needs to follow the persisted inspection row that carries the
+    /// turn's prompt/response/tool-trace payload.
+    public var inspectionTurnIndex: Int?
     public var response = Response()
     public var workspaceFiles: [String] = []
     /// Tool traces in first-seen order, keyed by `toolCallId`.
@@ -76,6 +82,7 @@ public struct ChatTurnState: Sendable, Equatable {
 
     public init(turnIndex: Int) {
         self.turnIndex = turnIndex
+        self.inspectionTurnIndex = nil
     }
 
     /// Tool traces in the order they were first observed.

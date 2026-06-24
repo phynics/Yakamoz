@@ -131,12 +131,12 @@ struct ChatView: View {
                                 onRefreshWorkspace: { Task { await refreshWorkspacePresentation() } },
                                 isOpen: $isInspectorOpen,
                                 selectedTabRaw: $selectedInspectorTabRaw,
-                                onSelectTurn: { viewModel.selectedTurnIndex = $0 }
+                                onSelectTurn: { viewModel.selectInspectionTurn($0) }
                             )
                         }
                     }
             }
-            .onChange(of: viewModel.selectedTurnIndex) { _, newIndex in
+            .onChange(of: viewModel.selectedInspectionTurnIndex) { _, newIndex in
                 Task { await inspectionViewModel?.select(conversationId: conversation.id, turnIndex: newIndex) }
             }
 
@@ -161,7 +161,7 @@ struct ChatView: View {
                             MessageBubble(
                                 item: item,
                                 isSelected: isSelected(item, viewModel: viewModel),
-                                onSelectTurn: { viewModel.selectedTurnIndex = $0 },
+                                onSelectTurn: { viewModel.selectTurn($0) },
                                 onSelectPromptOption: handlePromptSelection
                             )
                             .id(item.id)
@@ -207,7 +207,7 @@ struct ChatView: View {
         let inspection = await runtime.makeInspectionViewModel()
         viewModel = chat
         inspectionViewModel = inspection
-        await inspection.select(conversationId: conversation.id, turnIndex: chat.selectedTurnIndex)
+        await inspection.select(conversationId: conversation.id, turnIndex: chat.selectedInspectionTurnIndex)
         await refreshWorkspacePresentation()
         offerWorkspacePromptIfNeeded(in: chat)
     }

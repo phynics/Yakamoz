@@ -133,6 +133,8 @@ struct InspectableChatIntegrationTests {
         #expect(latestPresentation.response?.tools.first?.status == .success)
         // The view model still tracks a single logical turn for selection/highlighting.
         #expect(viewModel.selectedTurnIndex == 0)
+        // But the inspector follows the persisted row that carries the response/tool traces.
+        #expect(viewModel.selectedInspectionTurnIndex == 1)
 
         // The transcript persisted as ConversationMessage rows (user + assistant).
         let messages = try await stores.messages.fetchMessages(for: timelineId)
@@ -152,6 +154,9 @@ struct InspectableChatIntegrationTests {
 
         // And the runtime rebuilds the transcript from disk for a fresh view model.
         let reloaded = await runtime.makeChatViewModel(timelineId: timelineId)
+        reloaded.selectTurn(0)
+        #expect(reloaded.selectedTurnIndex == 0)
+        #expect(reloaded.selectedInspectionTurnIndex == 1)
         #expect(reloaded.transcript.contains { item in
             if case let .user(_, text, _) = item { return text == "Inspect this" }
             return false
