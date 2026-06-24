@@ -1,9 +1,15 @@
 # YAK-1 — Provider-enforced structured output (run() response-format seam)
 
-- **Status:** Open
+- **Status:** Done
 - **Priority:** High
 - **Repos:** PositronicKit (new public seam) + Yakamoz (consumer)
 - **Surfaced by:** CP10 / Task 10 (typed replies)
+
+> **Resolved.** PositronicKit's `run(...)` now takes `structuredOutput:
+> StructuredOutputRequest?` (`PositronicKit.swift:233`), threaded through
+> `ChatEngine` → `LLMStreamingStage` → `chatStream(structuredOutput:)`, with
+> coverage in `StructuredOutputRunTests`. Yakamoz forwards `TypedReply.request()`
+> from `makeChatViewModel` → `ChatViewModel` → `run(...)` (commit `088f06f`).
 
 ## Problem
 

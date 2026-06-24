@@ -1,9 +1,11 @@
 # YAK-4 — Land facade store-consistency refactor (Monad double memory store)
 
-- **Status:** Open (design plan already written)
+- **Status:** Done
 - **Priority:** Medium
 - **Repos:** PositronicKit + Monad
 - **Surfaced by:** noticed while wiring Yakamoz's facade composition (CP5)
+
+Implemented in-tree and verified with `swift build && swift test` in both `PositronicKit` and `Monad` on 2026-06-24.
 
 ## Problem
 

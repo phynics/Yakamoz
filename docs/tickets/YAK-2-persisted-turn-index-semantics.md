@@ -1,9 +1,14 @@
 # YAK-2 — Verify persisted-turn-index vs view-model turn selection
 
-- **Status:** Open
+- **Status:** Done
 - **Priority:** High
 - **Repos:** Yakamoz
 - **Surfaced by:** CP11 / Task 11 (E2E test fixes)
+
+> **Resolved** in commit `7db71bc` ("split bubble and inspection selection"):
+> the transcript bubble's turn selection and the inspection turn index were
+> decoupled, with added `ChatViewModelTests` + `InspectableChatIntegrationTests`
+> coverage for the multi-round-trip mapping.
 
 ## Problem
 

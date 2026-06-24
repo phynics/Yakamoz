@@ -1,9 +1,15 @@
 # YAK-9 — Move the Inspector from a bottom drawer to a side panel
 
-- **Status:** Open
+- **Status:** Done
 - **Priority:** Medium
 - **Repos:** Yakamoz
 - **Surfaced by:** post-CP11 follow-up request (revises an earlier design decision)
+
+> **Resolved** in commit `eb3cc2b` ("move inspector to the right side"):
+> `ChatView.chatBody` now hosts the inspector as a trailing column in an
+> `HStack` (transcript + composer on the left, `InspectorDrawer` on the right),
+> reusing the same tab views, view models, `@SceneStorage` keys, and ⌘I / ⌘1–6
+> shortcuts.
 
 ## Problem
 

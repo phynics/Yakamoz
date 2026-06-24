@@ -1,9 +1,15 @@
 # YAK-8 — UI to show/toggle available tools ("skills")
 
-- **Status:** Open
+- **Status:** Done
 - **Priority:** Medium
 - **Repos:** Yakamoz
 - **Surfaced by:** post-CP11 follow-up request
+
+> **Resolved.** `ConversationToolSupport` enumerates demo + (workspace-gated)
+> filesystem tools; the Tools inspector tab (`ToolsInspectorView`) renders a
+> `Toggle` per tool bound to `conversation.enabledToolIds` via `onSetToolEnabled`,
+> with empty = "all enabled" semantics and a guard against disabling the last
+> remaining tool. Toggling flows through `toolSyncKey`/`refreshViewModelTools`.
 
 ## Problem
 
