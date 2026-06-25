@@ -1,6 +1,6 @@
 # YAK-23 — [BUG] A turn that invokes a tool hangs forever (follow-up LLM round never ends)
 
-- **Status:** Done (diagnosed)
+- **Status:** Done (fixed — OpenRouter SSE snake_case decoder)
 - **Priority:** High
 - **Repos:** Yakamoz + PositronicKit (engine/provider)
 - **Surfaced by:** real-provider testing (2026-06-25), after YAK-19 made tools actually execute
@@ -44,7 +44,29 @@ error with the underlying `ChatEngineError.streamTimedOut` cause. The ticket rem
 the live-provider root cause still needs reproduction/log capture to determine whether
 the follow-up request shape or provider SSE termination handling is wrong.
 
-## CORRECTION (2026-06-25, later) — multiple models fail; decisive test pending
+## ✅ ACTUAL ROOT CAUSE & FIX (2026-06-25) — OpenRouter SSE decoder dropped snake_case fields
+
+Fixed in PositronicKit commit `b325577`. The OpenRouter streaming decoder used a plain
+`JSONDecoder()`, but `LLMStreamChunk` and its nested delta types are camelCase with **no
+explicit CodingKeys**, while the wire format is snake_case. So `tool_calls` and
+`finish_reason` silently decoded to `nil` on every streamed chunk — **every streamed tool
+call was dropped**, and the recovery path never fired (`finishReason` was always nil).
+Result: any turn where the model invoked a tool produced an empty response, for *every*
+model via OpenRouter (DeepSeek, Qwen, and gpt-5.4-mini all reproduced it). Plain text
+worked only because `content`→`content` matched without conversion.
+
+Proof (captured raw SSE from gpt-5.4-mini): the model DID emit a correct `ls` tool call
+with streamed arguments and `finish_reason:"tool_calls"` — our decoder just threw it away.
+
+Fix: decode `LLMStreamChunk` with `keyDecodingStrategy = .convertFromSnakeCase` (all the
+stream types are camelCase with no explicit keys, so this is conflict-free). Regression
+test built from the exact field-captured wire chunks. The earlier "model incompatibility"
+and "request payload malformed" conclusions were both wrong — disproven by capturing the
+request body (valid) and the raw response (a valid tool call we dropped).
+
+Everything below is the superseded investigation trail, kept for history.
+
+## (SUPERSEDED) CORRECTION (2026-06-25, later) — multiple models fail; decisive test pending
 
 A second model, `qwen/qwen3.7-plus`, reproduces the exact same signature
 (`yieldedAnything=false`, `toolsAdvertised=8`, HTTP 200, no tool call, empty content),
