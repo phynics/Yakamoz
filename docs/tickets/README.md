@@ -38,5 +38,6 @@ own **Status** line.
 
 **Open:** YAK-24 (High — empty-response UX), YAK-25 (Medium — context latency),
 YAK-22 (Low — settings polish, needs design direction). **Delayed:** YAK-5 (phase 2).
-Everything else is Done. Note (YAK-23): tool calling requires a tool-capable model;
-DeepSeek v4 Flash returns an empty completion when a tools array is present.
+Everything else is Done. Note (YAK-23, FIXED): streamed tool calls were dropped for every
+model via OpenRouter because the SSE decoder ignored snake_case (`tool_calls`/`finish_reason`);
+fixed with a convertFromSnakeCase decoder.
