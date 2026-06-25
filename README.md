@@ -24,11 +24,15 @@ All commands run from this directory and go through the [`Makefile`](Makefile), 
 make generate   # regenerate Yakamoz.xcodeproj from project.yml
 make build      # generate + build the app
 make test       # generate + run the full test suite (macOS destination)
-make verify     # build + test (the primary gate)
+make verify     # generate + headless xcodebuild test, failing if zero tests execute
 
 # Run a single Swift Testing suite or XCTest class:
 make test TEST_FILTER=InspectableChatIntegrationTests
 ```
+
+`make verify` is the CI gate. It runs `xcodegen generate`, then
+`xcodebuild test -scheme Yakamoz -destination 'platform=macOS' -skipMacroValidation`,
+and parses the `xcodebuild` output to fail the command if the executed test count is zero.
 
 To run the app, open the generated `Yakamoz.xcodeproj` in Xcode and run the **Yakamoz**
 scheme (the app target links only `YakamozCore`; see the boundary note below).
