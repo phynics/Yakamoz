@@ -37,13 +37,37 @@ struct ToolsInspectorView: View {
         }
     }
 
+    /// Built-in tools (always available, e.g. calculator, current date/time).
+    private var builtInTools: [ConversationToolOption] {
+        availableTools.filter { !$0.requiresWorkspace }
+    }
+
+    /// Workspace tools (filesystem tools confined to the attached folder). Only non-empty
+    /// when a workspace is attached — `availableTools` already excludes them otherwise.
+    private var workspaceTools: [ConversationToolOption] {
+        availableTools.filter(\.requiresWorkspace)
+    }
+
+    /// YAK-18: groups the flat tool list into "Built-in" (always available) and
+    /// "Workspace" (only present, and confined to, an attached folder) sections, using
+    /// `ConversationToolOption.requiresWorkspace` to split. The Workspace group renders
+    /// only when non-empty, i.e. only when a workspace is attached.
     private var availableToolsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            toolGroup(title: "Built-in", tools: builtInTools)
+            if !workspaceTools.isEmpty {
+                toolGroup(title: "Workspace", tools: workspaceTools)
+            }
+        }
+    }
+
+    private func toolGroup(title: String, tools: [ConversationToolOption]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Available Tools")
+            Text(title)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
 
-            ForEach(availableTools) { tool in
+            ForEach(tools) { tool in
                 Toggle(isOn: toolBinding(for: tool.id)) {
                     Label(tool.title, systemImage: tool.systemImage)
                         .labelStyle(.titleAndIcon)

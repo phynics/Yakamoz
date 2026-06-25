@@ -167,6 +167,140 @@ struct InspectableChatIntegrationTests {
         })
     }
 
+    @Test("YAK-15: selecting a just-completed turn live (no second turn) immediately loads its inspection")
+    func selectingFreshlyCompletedTurnLoadsImmediately() async throws {
+        let container = try makeModelContainer()
+        let settings = makeSettings()
+        let secrets = FakeSecretStore()
+        try secrets.write("sk-e2e-key", account: ProviderSettings.apiKeyAccount)
+
+        // Script a single model turn with a tool call, so the engine still drives two
+        // internal LLM round-trips (turn 0 pre-tool, turn 1 post-tool) within one logical
+        // `ChatViewModel` turn — the exact shape that produces the index mismatch in YAK-15.
+        let mock = MockLLMService()
+        mock.mockClient.nextResponses = ["", "Inspection complete"]
+        mock.mockClient.nextToolCalls = [
+            [MockToolCall(id: "call_calc", name: "calculator", arguments: "{\"expression\": \"2 + 2\"}")],
+        ]
+
+        let runtime = try YakamozRuntime(
+            modelContainer: container,
+            settings: settings,
+            secrets: secrets,
+            llmServiceFactory: { _ in mock }
+        )
+
+        let conversation = try await runtime.createConversation(
+            modelContext: ModelContext(container),
+            title: "YAK-15"
+        )
+        let timelineId = conversation.id
+
+        let workspaceURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("yakamoz-yak15-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workspaceURL) }
+
+        let workspace = WorkspaceReference(
+            uri: .timelineWorkspace(timelineId),
+            location: .runtime,
+            rootPath: workspaceURL.path,
+            trustLevel: .full
+        )
+        let kit = await runtime.kit
+        try await kit.timelineManager.hydrateTimeline(id: timelineId)
+        let stores = await runtime.stores
+        try await stores.workspaces.saveWorkspace(workspace)
+        try await kit.timelineManager.attachWorkspace(workspace.id, to: timelineId)
+
+        let viewModel = await runtime.makeChatViewModel(
+            timelineId: timelineId,
+            enabledToolIds: ["calculator"]
+        )
+        let inspectionViewModel = InspectionViewModel(repository: await runtime.inspector)
+
+        viewModel.send("Inspect this")
+        try await waitUntil { !viewModel.isSending && viewModel.transcript.contains { item in
+            if case let .assistant(_, turn) = item { return turn.isComplete }
+            return false
+        } }
+
+        // Simulate the user's FIRST click on the just-finished bubble — no second turn has
+        // been sent. Before the fix, `selectTurn` could resolve a stale `inspectionTurnIndex`
+        // here, and `inspectionViewModel.select` would load `nil`.
+        viewModel.selectTurn(0)
+        #expect(viewModel.selectedTurnIndex == 0)
+
+        await inspectionViewModel.select(
+            conversationId: timelineId,
+            turnIndex: viewModel.selectedInspectionTurnIndex
+        )
+
+        let presentation = try #require(inspectionViewModel.inspection)
+        #expect(presentation.response?.reconstructedText == "Inspection complete")
+        #expect(presentation.response?.tools.first?.status == .success)
+        #expect(inspectionViewModel.loadError == nil)
+    }
+
+    @Test("YAK-16: a second turn reports a non-zero stable prefix and a non-trivial diff against the first")
+    func secondTurnJournalReportsRealDiffData() async throws {
+        let container = try makeModelContainer()
+        let settings = makeSettings()
+        let secrets = FakeSecretStore()
+        try secrets.write("sk-e2e-key", account: ProviderSettings.apiKeyAccount)
+
+        // Two plain-text turns (no tool calls) — the simplest shape that still exercises the
+        // `TimelinePromptHistory` diff across sends. Turn 0 has nothing to diff against
+        // (legitimately `stablePrefixCount == 0`, everything "added"); turn 1 should report
+        // real stable-prefix growth and an empty/near-empty diff against turn 0's prompt.
+        let mock = MockLLMService()
+        mock.mockClient.nextResponses = ["First reply", "Second reply"]
+
+        let runtime = try YakamozRuntime(
+            modelContainer: container,
+            settings: settings,
+            secrets: secrets,
+            llmServiceFactory: { _ in mock }
+        )
+
+        let conversation = try await runtime.createConversation(
+            modelContext: ModelContext(container),
+            title: "YAK-16"
+        )
+        let timelineId = conversation.id
+
+        let viewModel = await runtime.makeChatViewModel(timelineId: timelineId)
+
+        viewModel.send("First message")
+        try await waitUntil { !viewModel.isSending && viewModel.transcript.contains { item in
+            if case let .assistant(_, turn) = item { return turn.response.reconstructedText == "First reply" }
+            return false
+        } }
+
+        viewModel.send("Second message")
+        try await waitUntil { !viewModel.isSending && viewModel.transcript.contains { item in
+            if case let .assistant(_, turn) = item { return turn.response.reconstructedText == "Second reply" }
+            return false
+        } }
+
+        let inspector = await runtime.inspector
+        let firstTurn = try #require(try await inspector.inspection(conversationId: timelineId, turnIndex: 0))
+        let secondTurn = try #require(try await inspector.inspection(conversationId: timelineId, turnIndex: 1))
+
+        // Turn 0 has no prior prompt to diff against.
+        #expect(firstTurn.journal.stablePrefixCount == 0)
+
+        // Turn 1 must show real evolution: a non-zero stable prefix carried over from turn 0,
+        // and/or a non-empty diff (changed/added/removed) — i.e. NOT the all-zero/all-volatile
+        // shape this ticket reports.
+        let secondJournal = secondTurn.journal
+        let hasRealDiffData = secondJournal.stablePrefixCount > 0
+            || !secondJournal.changedSemiStableIDs.isEmpty
+            || !secondJournal.addedSemiStableIDs.isEmpty
+            || !secondJournal.removedSemiStableIDs.isEmpty
+        #expect(hasRealDiffData)
+    }
+
     /// Loads each persisted inspection in turn order, stopping at the first missing turn.
     private func loadInspections(
         _ inspector: SwiftDataTurnInspector,

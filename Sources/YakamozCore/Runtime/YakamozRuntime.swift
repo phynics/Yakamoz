@@ -60,6 +60,18 @@ public actor YakamozRuntime: ChatRunning {
     private let secrets: any SecretStoring
     private let llmServiceFactory: LLMServiceFactory
 
+    /// Per-timeline prompt-history/journal-diff state (YAK-16), held once for this runtime's
+    /// lifetime and injected into every `PositronicKit` instance `makeConfiguredKit()` builds.
+    ///
+    /// `run(...)` resolves fresh provider settings/API key on every send, so it calls
+    /// `makeConfiguredKit()` which constructs a brand-new `PositronicKit` value per send. If
+    /// each of those got `PositronicKit`'s default fresh registry, the inspection-turn-index
+    /// counter and prompt-diff baseline would reset every send — the first round-trip of every
+    /// send would collide with turn index 0 of the previous send's first round-trip, silently
+    /// overwriting its persisted `TurnInspectionModel` row. Holding one registry here and
+    /// passing it into every `makeKit` call keeps that state alive across sends.
+    private let promptHistoryRegistry = TimelinePromptHistoryRegistry()
+
     @MainActor
     public init(
         modelContainer: ModelContainer,
@@ -79,7 +91,8 @@ public actor YakamozRuntime: ChatRunning {
             inspector: inspector,
             settingsSnapshot: settingsSnapshot,
             apiKey: ProviderSettings.storedAPIKey(for: settingsSnapshot.preset, secrets: secrets),
-            llmServiceFactory: llmServiceFactory
+            llmServiceFactory: llmServiceFactory,
+            promptHistoryRegistry: promptHistoryRegistry
         )
     }
 
@@ -269,7 +282,8 @@ public actor YakamozRuntime: ChatRunning {
             inspector: inspector,
             settingsSnapshot: settings,
             apiKey: key,
-            llmServiceFactory: llmServiceFactory
+            llmServiceFactory: llmServiceFactory,
+            promptHistoryRegistry: promptHistoryRegistry
         )
     }
 
@@ -278,7 +292,8 @@ public actor YakamozRuntime: ChatRunning {
         inspector: SwiftDataTurnInspector,
         settingsSnapshot: ProviderSettingsSnapshot,
         apiKey: String,
-        llmServiceFactory: LLMServiceFactory
+        llmServiceFactory: LLMServiceFactory,
+        promptHistoryRegistry: TimelinePromptHistoryRegistry
     ) -> PositronicKit {
         let configuration = settingsSnapshot.configuration(apiKey: apiKey)
         let llmService = llmServiceFactory(configuration)
@@ -293,6 +308,7 @@ public actor YakamozRuntime: ChatRunning {
             workspaceCreator: FileSystemWorkspaceFactory(),
             sectionProviders: [CurrentTimeSectionProvider()],
             turnInspector: inspector,
+            promptHistoryRegistry: promptHistoryRegistry,
             generationParameters: settingsSnapshot.generationParameters
         )
     }

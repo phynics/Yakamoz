@@ -1,9 +1,13 @@
 import SwiftUI
 import YakamozCore
 
-/// Workspace tab: the folder attached to the conversation (if any) — its path, health,
-/// a recursive file tree, the filesystem tools it exposes, and the files the model has
-/// touched so far in the selected turn.
+/// Workspace tab: the folder attached to the conversation (if any) — its name, path,
+/// health, the filesystem tools it exposes, and the files the model has touched so far in
+/// the selected turn. A **Detach** action clears the conversation's workspace mid-conversation.
+///
+/// **YAK-17:** this tab no longer renders a file listing — `WorkspacePresentation` stopped
+/// enumerating the folder's contents, so there is nothing to project here. Identity
+/// (name/path/health) and a Detach action are the essential content.
 ///
 /// **Gap 2 note:** a workspace is attached at the conversation level, not per-turn, so
 /// this tab's primary content (`presentation`) is independent of `InspectionViewModel`'s
@@ -45,7 +49,6 @@ struct WorkspaceInspectorView: View {
                 if !touchedFiles.isEmpty {
                     touchedFilesSection
                 }
-                fileTreeSection(presentation)
             }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -120,38 +123,6 @@ struct WorkspaceInspectorView: View {
             Button("Choose Folder", action: onChooseFolder)
         }
         .buttonStyle(.borderedProminent)
-    }
-
-    private func fileTreeSection(_ presentation: WorkspacePresentation) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Files").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            if presentation.fileTree.isEmpty {
-                Text("Empty folder").font(.caption).foregroundStyle(.secondary)
-            } else {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(flattenedRows(presentation.fileTree, depth: 0), id: \.node.id) { row in
-                        HStack(spacing: 4) {
-                            Image(systemName: row.node.isDirectory ? "folder" : "doc")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text(row.node.name)
-                                .font(.caption)
-                                .textSelection(.enabled)
-                        }
-                        .padding(.leading, CGFloat(row.depth) * 14)
-                    }
-                }
-            }
-        }
-    }
-
-    /// Flattens the recursive file tree into a depth-tagged row list so the view body
-    /// doesn't need a recursive `some View`-returning function (which Swift can't infer
-    /// an opaque return type for).
-    private func flattenedRows(_ nodes: [WorkspaceFileNode], depth: Int) -> [(node: WorkspaceFileNode, depth: Int)] {
-        nodes.flatMap { node in
-            [(node: node, depth: depth)] + flattenedRows(node.children, depth: depth + 1)
-        }
     }
 }
 

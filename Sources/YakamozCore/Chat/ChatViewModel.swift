@@ -233,13 +233,22 @@ public final class ChatViewModel {
             // exits the loop here with `isComplete == false`. Treat a normal,
             // non-cancelled, non-errored loop exit as completion so the response is
             // finalized and persisted exactly as a `.streamCompleted` would have.
-            if !state.isCancelled, state.errorMessage == nil, !state.isComplete {
+            //
+            // IMPORTANT (YAK-15): do NOT mark `isComplete` / publish the bubble update
+            // until *after* `persistResponse` has corrected `inspectionTurnIndex` to the
+            // engine's actual last inspection row. Marking the bubble complete first opened
+            // a window where a click resolved `selectedInspectionTurnIndex` from the
+            // turn's *pre-tool-loop guess* (`nextInspectionTurnIndex` at turn start), which
+            // either pointed at the wrong row or a row that doesn't exist yet — yielding an
+            // empty inspector until a later turn's `persistResponse` happened to fix the
+            // index in passing. Persisting first and writing the corrected state once
+            // closes that window entirely.
+            if !state.isCancelled, state.errorMessage == nil {
                 state.isComplete = true
+                if let persisted = await persistResponse(turnIndex: turnIndex, state: state) {
+                    state = persisted
+                }
                 updateAssistantItem(id: assistantItemId, turn: state)
-            }
-
-            if state.isComplete {
-                await persistResponse(turnIndex: turnIndex, state: state)
             }
         } catch is CancellationError {
             state.isCancelled = true
@@ -282,8 +291,15 @@ public final class ChatViewModel {
         transcript.append(.error(id: UUID(), message: message))
     }
 
-    private func persistResponse(turnIndex _: Int, state: ChatTurnState) async {
-        guard let inspector else { return }
+    /// Persists the turn's response/tool traces onto the engine's latest inspection row
+    /// and returns `state` with `inspectionTurnIndex` corrected to that row's index, so the
+    /// caller can publish the bubble update and the inspection-row index together — there
+    /// is no intermediate state visible to a click where the bubble looks complete but
+    /// `inspectionTurnIndex` still points at the pre-tool-loop guess (see YAK-15).
+    /// Returns `nil` if there is no inspector wired, or the index lookup failed, in which
+    /// case the caller keeps its already-current `state`.
+    private func persistResponse(turnIndex _: Int, state: ChatTurnState) async -> ChatTurnState? {
+        guard let inspector else { return nil }
         do {
             // A single user send can drive several engine LLM round-trips (one per tool
             // loop), each creating its own inspection row; the final assistant text and
@@ -294,23 +310,20 @@ public final class ChatViewModel {
                 conversationId: timelineId,
                 response: enrichedResponseDTO(from: state)
             )
-            if let latestTurnIndex = try await inspector.latestTurnIndex(conversationId: timelineId) {
-                nextInspectionTurnIndex = latestTurnIndex + 1
-                if let assistantIndex = transcript.firstIndex(where: { item in
-                    guard case let .assistant(_, turn) = item else { return false }
-                    return turn.turnIndex == state.turnIndex
-                }) {
-                    var completedState = state
-                    completedState.inspectionTurnIndex = latestTurnIndex
-                    transcript[assistantIndex] = .assistant(id: transcript[assistantIndex].id, turn: completedState)
-                }
-                if selectedTurnIndex == state.turnIndex {
-                    selectedInspectionTurnIndex = latestTurnIndex
-                }
+            guard let latestTurnIndex = try await inspector.latestTurnIndex(conversationId: timelineId) else {
+                return nil
             }
+            nextInspectionTurnIndex = latestTurnIndex + 1
+            var completedState = state
+            completedState.inspectionTurnIndex = latestTurnIndex
+            if selectedTurnIndex == state.turnIndex {
+                selectedInspectionTurnIndex = latestTurnIndex
+            }
+            return completedState
         } catch {
             errorMessage = error.localizedDescription
             appendErrorItem(error.localizedDescription)
+            return nil
         }
     }
 
