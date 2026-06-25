@@ -1,6 +1,6 @@
 # YAK-23 — [BUG] A turn that invokes a tool hangs forever (follow-up LLM round never ends)
 
-- **Status:** Open
+- **Status:** Done (diagnosed)
 - **Priority:** High
 - **Repos:** Yakamoz + PositronicKit (engine/provider)
 - **Surfaced by:** real-provider testing (2026-06-25), after YAK-19 made tools actually execute
@@ -34,6 +34,41 @@ follow-up round, reached only when a tool is *actually* invoked. Reproduce with 
 the model cannot answer without a tool (e.g. "what is the current date and time?" →
 `current_datetime`). Also observed: `Context gathered in 4.939s` on an empty conversation
 — unrelated perf smell, track separately if it persists.
+
+## Mitigation update (2026-06-25)
+
+Added a per-stream watchdog in `LLMStreamingStage`, wired through `ChatEngine.Dependencies`
+with a 60s production default and a focused regression test for a post-tool follow-up
+stream that never terminates. This prevents an infinite spinner by surfacing a pipeline
+error with the underlying `ChatEngineError.streamTimedOut` cause. The ticket remains open:
+the live-provider root cause still needs reproduction/log capture to determine whether
+the follow-up request shape or provider SSE termination handling is wrong.
+
+## ROOT CAUSE FOUND (2026-06-25) — model incompatibility, not a code bug
+
+Diagnostic logs (commit `74eecac`) with `deepseek/deepseek-v4-flash` via OpenRouter:
+
+```
+OpenRouter stream complete (deepseek-v4-flash): finishedWithToolCalls=false sawStreamedToolCalls=false yieldedAnything=false toolsAdvertised=8
+Turn 1: no tool calls; assistant content chars=0
+```
+
+The model returns a **completely empty completion when tools are advertised** — no
+content, no tool call. The same model returns content fine when `toolsAdvertised=0` (an
+auxiliary context-stage call in the same trace yielded content). So:
+- Yakamoz wiring is correct (8 tools advertised).
+- The OpenRouter adapter is correct (advertises tools, parses the response).
+- **DeepSeek v4 Flash simply returns empty output when a `tools` array is present** — a
+  model/provider compatibility issue.
+
+No infinite hang was ever reproduced in this round; the earlier hang report was either
+transient or is now covered by the per-stream watchdog (Mitigation update above). The
+"tools don't work" symptom is entirely the empty-completion behavior above.
+
+**Resolution:** tool calling requires a tool-capable model (e.g. `openai/gpt-4o`,
+`anthropic/claude-3.5-sonnet`). Two genuine product gaps this exposed are split out:
+[YAK-24] (surface empty responses) and [YAK-25] (context-assembly LLM call latency).
+Closing YAK-23 as diagnosed; watchdog mitigation retained.
 
 ## Hypothesis
 

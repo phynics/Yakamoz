@@ -29,11 +29,14 @@ review items left for the next person.
 | [YAK-20](YAK-20-selection-indicator-too-strong.md) | Turn-selection indicator overpowers message bubbles | Yakamoz | Low | Done |
 | [YAK-21](YAK-21-new-conversation-list-jump.md) | [BUG] Creating a conversation causes a list jump/reorder | Yakamoz | Medium | Done |
 | [YAK-22](YAK-22-settings-ux-polish.md) | Settings UX polish | Yakamoz | Low | Open |
-| [YAK-23](YAK-23-tool-followup-turn-hangs.md) | [BUG] A turn that invokes a tool hangs forever (follow-up LLM round never ends) | Yakamoz + PositronicKit | High | Open |
+| [YAK-23](YAK-23-tool-followup-turn-hangs.md) | [BUG] Tool turn appears broken — root cause: DeepSeek returns empty when tools advertised | Yakamoz + PositronicKit | High | Done |
+| [YAK-24](YAK-24-surface-empty-model-response.md) | Surface empty model responses instead of a silent blank bubble | Yakamoz | High | Open |
+| [YAK-25](YAK-25-context-assembly-latency.md) | Context assembly makes a slow LLM call on every send | PositronicKit | Medium | Open |
 
 Status legend: Open / Delayed / In progress / Done. Each ticket also carries its
-own **Status** line. **All Done except YAK-5 (delayed) and YAK-22 (needs design direction).**
+own **Status** line.
 
-**Next batch (open):** YAK-13–YAK-22, from manual-testing field feedback (2026-06-25).
-Bugs first: YAK-15, YAK-19 (High); YAK-16, YAK-21 (Medium bugs). **Delayed:** YAK-5.
-Everything ≤ YAK-12 is Done.
+**Open:** YAK-24 (High — empty-response UX), YAK-25 (Medium — context latency),
+YAK-22 (Low — settings polish, needs design direction). **Delayed:** YAK-5 (phase 2).
+Everything else is Done. Note (YAK-23): tool calling requires a tool-capable model;
+DeepSeek v4 Flash returns an empty completion when a tools array is present.
