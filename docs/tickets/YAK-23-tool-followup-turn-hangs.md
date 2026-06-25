@@ -44,7 +44,26 @@ error with the underlying `ChatEngineError.streamTimedOut` cause. The ticket rem
 the live-provider root cause still needs reproduction/log capture to determine whether
 the follow-up request shape or provider SSE termination handling is wrong.
 
-## ROOT CAUSE FOUND (2026-06-25) — model incompatibility, not a code bug
+## CORRECTION (2026-06-25, later) — multiple models fail; decisive test pending
+
+A second model, `qwen/qwen3.7-plus`, reproduces the exact same signature
+(`yieldedAnything=false`, `toolsAdvertised=8`, HTTP 200, no tool call, empty content),
+while its `toolsAdvertised=0` auxiliary call returns content. Two different models failing
+identically weakens the "this one model can't do tools" read below and leaves two
+possibilities:
+- **(A)** Neither model supports function calling — OpenRouter returns an empty 200 when a
+  `tools` array is sent to a non-tool-capable model. (DeepSeek Flash / Qwen Plus are both
+  cheaper models that may lack tool support.)
+- **(B)** Our OpenRouter tools payload is malformed and the upstream returns empty for any
+  model.
+
+HTTP non-2xx *is* surfaced (status guard in `streamChatResponse`), so this is a 200 with
+empty content, not a swallowed error. The serialization looks standard. **Decisive test
+not yet run: try a known tool-capable model (`openai/gpt-4o`).** If it works → (A), no code
+change. If it's also empty → (B), fix the OpenRouter tool serialization. Until then this is
+diagnosed-but-not-fully-resolved; YAK-24 (surface empty responses) is valuable either way.
+
+## EARLIER (and likely too-narrow) CONCLUSION — model incompatibility
 
 Diagnostic logs (commit `74eecac`) with `deepseek/deepseek-v4-flash` via OpenRouter:
 
