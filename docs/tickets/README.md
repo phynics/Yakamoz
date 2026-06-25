@@ -33,12 +33,17 @@ review items left for the next person.
 | [YAK-24](YAK-24-surface-empty-model-response.md) | Surface empty model responses instead of a silent blank bubble | Yakamoz | High | Done |
 | [YAK-25](YAK-25-context-assembly-latency.md) | Context assembly makes a slow LLM call on every send | PositronicKit | Medium | Done |
 | [YAK-26](YAK-26-tool-call-id-coercion-breaks-history.md) | [BUG] Tool-call id coerced to random UUID breaks a conversation's next turn (HTTP 400) | PositronicKit | High | Done |
+| [YAK-27](YAK-27-markdown-visualizer.md) | Integrate a Markdown visualizer for assistant responses | Yakamoz | Medium | Open |
+| [YAK-28](YAK-28-quick-model-switching.md) | Quick model switching with favorites and recency | Yakamoz + PositronicKit | Medium | Open |
+| [YAK-29](YAK-29-timeline-state-dots.md) | Timeline state dots in the chat list | Yakamoz + PositronicKit | Medium | Open |
 
 Status legend: Open / Delayed / In progress / Done. Each ticket also carries its
 own **Status** line.
 
-**Open:** YAK-22 (Low — settings polish, needs design direction). **Delayed:**
-YAK-5 (phase 2). Everything else is Done. Note
+**Open:** YAK-29 (Medium — timeline state dots), YAK-28 (Medium — quick model
+switching), YAK-27 (Medium — Markdown response rendering), YAK-22 (Low —
+settings polish, needs design direction).
+**Delayed:** YAK-5 (phase 2). Note
 (YAK-23, FIXED): streamed tool calls were dropped for every
 model via OpenRouter because the SSE decoder ignored snake_case (`tool_calls`/`finish_reason`);
 fixed with a convertFromSnakeCase decoder.
