@@ -1,6 +1,6 @@
 # YAK-13 — Rename bundle identifier to me.atkn.Yakamoz
 
-- **Status:** Open
+- **Status:** Done
 - **Priority:** Medium
 - **Repos:** Yakamoz
 - **Surfaced by:** field feedback (2026-06-25)

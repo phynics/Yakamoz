@@ -19,8 +19,8 @@ review items left for the next person.
 | [YAK-10](YAK-10-json-schema-pin-and-macro-trust.md) | Decide swift-json-schema resolution + document macro-trust gate | Yakamoz | Medium | Done |
 | [YAK-11](YAK-11-ci-test-gate.md) | Add an automated build + test gate (CI) | Yakamoz | Medium | Done |
 | [YAK-12](YAK-12-run-overload-footgun.md) | Make the run() structured-output overload hard to drop silently | PositronicKit + Yakamoz | Low | Done |
-| [YAK-13](YAK-13-bundle-identifier-rename.md) | Rename bundle identifier to me.atkn.Yakamoz | Yakamoz | Medium | Open |
-| [YAK-14](YAK-14-userdefaults-secret-storage.md) | Replace Keychain secret storage with UserDefaults | Yakamoz | Medium | Open |
+| [YAK-13](YAK-13-bundle-identifier-rename.md) | Rename bundle identifier to me.atkn.Yakamoz | Yakamoz | Medium | Done |
+| [YAK-14](YAK-14-userdefaults-secret-storage.md) | Replace Keychain secret storage with UserDefaults | Yakamoz | Medium | Done |
 | [YAK-15](YAK-15-inspector-selection-not-reacting.md) | [BUG] Inspector doesn't react to message selection until a later turn | Yakamoz | High | Open |
 | [YAK-16](YAK-16-journal-tab-all-volatile.md) | [BUG] Journal tab marks everything volatile / no updates | Yakamoz + PositronicKit | Medium | Open |
 | [YAK-17](YAK-17-inspector-workspace-tab-cleanup.md) | Inspector Workspace tab: drop file list, add detach | Yakamoz | Medium | Open |
