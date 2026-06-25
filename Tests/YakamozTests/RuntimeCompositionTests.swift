@@ -205,6 +205,34 @@ struct RuntimeCompositionTests {
         #expect(text == "hello")
     }
 
+    @Test("run() forwards a structured-output request through to the LLM transport")
+    @MainActor
+    func runForwardsStructuredOutputToTransport() async throws {
+        // Regression guard for YAK-1: `YakamozRuntime.run` (and `FollowUpRunner.run`) must pass
+        // `structuredOutput:` to `kit.run`. Dropping that argument silently selects the
+        // PositronicKit convenience overload that hardcodes `structuredOutput: nil`, which
+        // compiles and passes every other test while quietly disabling typed replies.
+        let settings = makeSettings()
+        let secrets = FakeSecretStore()
+        try secrets.write("sk-secret-runtime-key", account: ProviderSettings.apiKeyAccount)
+        let mock = MockLLMService()
+        mock.nextResponse = #"{"tags":["a"]}"#
+
+        let runtime = try makeRuntime(settings: settings, secrets: secrets, mock: mock) { _ in }
+
+        let stream = try await runtime.run(
+            timelineId: UUID(),
+            message: "tag this",
+            tools: [],
+            structuredOutput: .jsonSchema(StructuredOutputFixtures.tagSchemaDefinition())
+        )
+        for try await _ in stream {}
+
+        // The openAI preset maps a structured-output request to a native response_format, which
+        // the mock's client records. Nil here means the request never reached the transport.
+        #expect(mock.mockClient.lastResponseFormat != nil)
+    }
+
     @Test("The runtime's PositronicKit facade is constructed and runnable")
     @MainActor
     func runtimeExposesPositronicKitFacade() async throws {

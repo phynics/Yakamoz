@@ -246,6 +246,7 @@ public actor YakamozRuntime: ChatRunning {
             agentInstanceId: agentInstanceId,
             maxTurns: maxTurns,
             generationParameters: generationParameters,
+            structuredOutput: structuredOutput,
             promptAssemblyLogger: promptAssemblyLogger
         )
     }
@@ -296,7 +297,7 @@ public actor YakamozRuntime: ChatRunning {
         )
     }
 
-    private struct LoadedTranscript: Sendable {
+    private struct LoadedTranscript {
         static let empty = LoadedTranscript(transcript: [])
 
         let transcript: [TranscriptItem]
@@ -379,6 +380,7 @@ struct FollowUpRunner: ChatRunning {
             agentInstanceId: agentInstanceId,
             maxTurns: maxTurns,
             generationParameters: generationParameters,
+            structuredOutput: structuredOutput,
             promptAssemblyLogger: promptAssemblyLogger
         )
     }
