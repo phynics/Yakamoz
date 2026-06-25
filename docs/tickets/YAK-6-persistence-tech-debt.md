@@ -1,9 +1,15 @@
 # YAK-6 — Persistence tech-debt cleanup
 
-- **Status:** Open
+- **Status:** Done
 - **Priority:** Low
 - **Repos:** Yakamoz
 - **Surfaced by:** CP4 / CP7 (persistence adapters + shell)
+
+> **Resolved** in commit `23c0858`: `toolCallsData` renamed to
+> `messageEnvelopeData` (`PersistenceModels.swift`, `MessageStore.swift`), and the
+> `ConversationModel` (UI shell) vs `TimelineModel` (PositronicKit surface)
+> ownership boundary documented in `PersistenceModels.swift`. Field-derivation
+> sync (part 2's stretch) intentionally left as future work.
 
 Two small, non-blocking cleanups in the SwiftData layer. Both are documented in
 code today; this ticket tracks paying them down.

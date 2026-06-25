@@ -1,9 +1,21 @@
 # YAK-7 — Make SwiftData's storage location explicit
 
-- **Status:** Open
+- **Status:** Done
 - **Priority:** Low
 - **Repos:** Yakamoz
 - **Surfaced by:** post-CP11 follow-up request
+
+> **Resolved.** `YakamozApp.resolveStoreURL()` (commit `23c0858`) builds an
+> explicit `~/Library/Application Support/com.atakandulker.Yakamoz/Yakamoz.store`,
+> creates the directory, surfaces the path in `setupError`, and documents it in the
+> README. Because that path differs from SwiftData's prior implicit default,
+> `migrateLegacyStoreIfNeeded` (commit `ba16e5a`) relocates an existing
+> `default.store` (+ `-shm`/`-wal`) once, guarded to never clobber.
+>
+> Caveat for the next person: the legacy `default.store` lives at the **shared**
+> (non-sandboxed) Application Support root, so the migration assumes that file
+> belongs to Yakamoz. Fine for this local showcase app; revisit if Yakamoz ever
+> ships sandboxed or alongside other non-sandboxed SwiftData apps.
 
 ## Problem
 
