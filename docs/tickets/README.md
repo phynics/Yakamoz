@@ -29,6 +29,7 @@ review items left for the next person.
 | [YAK-20](YAK-20-selection-indicator-too-strong.md) | Turn-selection indicator overpowers message bubbles | Yakamoz | Low | Done |
 | [YAK-21](YAK-21-new-conversation-list-jump.md) | [BUG] Creating a conversation causes a list jump/reorder | Yakamoz | Medium | Done |
 | [YAK-22](YAK-22-settings-ux-polish.md) | Settings UX polish | Yakamoz | Low | Open |
+| [YAK-23](YAK-23-tool-followup-turn-hangs.md) | [BUG] A turn that invokes a tool hangs forever (follow-up LLM round never ends) | Yakamoz + PositronicKit | High | Open |
 
 Status legend: Open / Delayed / In progress / Done. Each ticket also carries its
 own **Status** line. **All Done except YAK-5 (delayed) and YAK-22 (needs design direction).**
