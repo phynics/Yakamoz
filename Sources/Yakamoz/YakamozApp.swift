@@ -58,6 +58,7 @@ struct YakamozApp: App {
         do {
             let storeURL = try Self.resolveStoreURL()
             resolvedStoreDescription = storeURL.path
+            Self.migrateLegacyStoreIfNeeded(to: storeURL)
             let schema = Schema(YakamozSchema.models)
             let configuration = ModelConfiguration(schema: schema, url: storeURL)
             let container = try ModelContainer(for: schema, configurations: configuration)
@@ -92,6 +93,38 @@ struct YakamozApp: App {
         let storeDirectory = appSupport.appendingPathComponent(storeBundleIdentifier, isDirectory: true)
         try fileManager.createDirectory(at: storeDirectory, withIntermediateDirectories: true)
         return storeDirectory.appendingPathComponent("Yakamoz.store", isDirectory: false)
+    }
+
+    /// One-time relocation of a store left at SwiftData's *implicit* default location
+    /// (`~/Library/Application Support/default.store`, the path used before YAK-7 made
+    /// the location explicit) to the new explicit `destination`.
+    ///
+    /// Only runs when a legacy store exists *and* nothing is present at the new path,
+    /// so it never clobbers data and becomes a no-op on every subsequent launch (and
+    /// on fresh installs, where there is nothing to move). SwiftData keeps the store as
+    /// three files — `default.store` plus `-shm`/`-wal` sidecars — so all three are
+    /// moved together. Best-effort: any failure is swallowed and the container simply
+    /// opens fresh at `destination`, matching the pre-YAK-7 fresh-start behavior.
+    private static func migrateLegacyStoreIfNeeded(to destination: URL) {
+        let fileManager = FileManager.default
+        guard let appSupport = try? fileManager.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: false
+        ) else { return }
+
+        let legacyStore = appSupport.appendingPathComponent("default.store", isDirectory: false)
+        // Don't move anything if the legacy store is absent or the new store already exists.
+        guard fileManager.fileExists(atPath: legacyStore.path),
+              !fileManager.fileExists(atPath: destination.path) else { return }
+
+        for suffix in ["", "-shm", "-wal"] {
+            let source = appSupport.appendingPathComponent("default.store\(suffix)", isDirectory: false)
+            let target = URL(fileURLWithPath: destination.path + suffix)
+            guard fileManager.fileExists(atPath: source.path) else { continue }
+            try? fileManager.moveItem(at: source, to: target)
+        }
     }
 
     var body: some Scene {

@@ -75,6 +75,13 @@ hard-coded bundle identifier `com.atakandulker.Yakamoz`, and the stable filename
 container fails to open, for diagnosability. Tests are unaffected — they use in-memory or
 temp-directory `ModelContainer`s and never touch this path.
 
+Because earlier builds relied on SwiftData's *implicit* default
+(`~/Library/Application Support/default.store`), the app performs a **one-time, best-effort
+migration**: on launch, if a store exists at that legacy path and nothing exists yet at the
+new explicit path, the `default.store` file and its `-shm`/`-wal` sidecars are moved over.
+The move is skipped on fresh installs and on every subsequent launch, and never overwrites an
+existing store.
+
 ## The inspector — six tabs
 
 Open with the toolbar info button or **⌘I**. Each tab inspects the currently selected
