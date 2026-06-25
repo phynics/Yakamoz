@@ -277,6 +277,13 @@ public actor YakamozRuntime: ChatRunning {
     private func makeConfiguredKit() async throws -> PositronicKit {
         let settings = await currentSettingsSnapshot()
         let key = try ProviderSettings.storedAPIKey(for: settings.preset, secrets: secrets)
+        // Fail fast before streaming: a provider that requires a key but has none configured
+        // would otherwise issue a request with an empty key and hang with no error surfaced
+        // (the assistant bubble spins forever). Throwing here propagates through `run` to
+        // `ChatViewModel`'s catch, which shows the message inline.
+        if settings.preset.requiresAPIKey, key.isEmpty {
+            throw ProviderSettingsError.missingAPIKey
+        }
         return Self.makeKit(
             stores: stores,
             inspector: inspector,

@@ -233,6 +233,21 @@ struct RuntimeCompositionTests {
         #expect(mock.mockClient.lastResponseFormat != nil)
     }
 
+    @Test("run() fails fast with missingAPIKey when a key-requiring provider has no key")
+    @MainActor
+    func runWithoutAPIKeyFailsFastInsteadOfHanging() async throws {
+        // Regression: with no key configured for a provider that requires one, run() must throw
+        // (surfaced inline by ChatViewModel) rather than stream with an empty key and hang.
+        let settings = makeSettings() // openAI preset: requiresAPIKey == true
+        let secrets = FakeSecretStore() // no key written
+        let mock = MockLLMService()
+        let runtime = try makeRuntime(settings: settings, secrets: secrets, mock: mock) { _ in }
+
+        await #expect(throws: ProviderSettingsError.missingAPIKey) {
+            _ = try await runtime.run(timelineId: UUID(), message: "hi", tools: [])
+        }
+    }
+
     @Test("The runtime's PositronicKit facade is constructed and runnable")
     @MainActor
     func runtimeExposesPositronicKitFacade() async throws {
