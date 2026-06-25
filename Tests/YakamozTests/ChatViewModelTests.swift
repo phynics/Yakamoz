@@ -265,6 +265,31 @@ struct ChatViewModelTests {
         #expect(persisted?.response?.reconstructedText == "final answer")
     }
 
+    @Test("A clean empty stream surfaces an explicit empty-response notice")
+    func emptyStreamSurfacesNotice() async throws {
+        let runner = ScriptedRunner()
+        let viewModel = ChatViewModel(
+            timelineId: UUID(),
+            runner: runner,
+            tools: [CalculatorTool().toAnyTool()]
+        )
+
+        viewModel.send("use a tool if needed")
+        try await waitUntil { runner.continuation != nil }
+
+        runner.continuation?.finish()
+
+        try await waitUntil { !viewModel.isSending }
+
+        guard case let .assistant(_, turn) = viewModel.transcript.last else {
+            Issue.record("Expected assistant item")
+            return
+        }
+        #expect(turn.isComplete)
+        #expect(turn.response.reconstructedText.contains("The model returned an empty response."))
+        #expect(turn.response.reconstructedText.contains("tool-capable model"))
+    }
+
     @Test("Cancelling marks the in-flight turn as cancelled and stops sending")
     func cancelMarksTurnCancelled() async throws {
         let runner = ScriptedRunner()

@@ -1,9 +1,16 @@
 # YAK-24 — Surface empty model responses instead of a silent blank bubble
 
-- **Status:** Open
+- **Status:** Done
 - **Priority:** High
 - **Repos:** Yakamoz
 - **Surfaced by:** YAK-23 diagnosis (DeepSeek v4 Flash returns empty when tools are advertised)
+
+> **Resolved.** `ChatViewModel.consume` now turns a clean, no-content/no-thinking/no-tool
+> completion into an explicit assistant notice, with a tool-capability hint when tools were
+> advertised. Tool-call indicators were also expanded: `ChatEventReducer` captures
+> ID-bearing tool-call parameters into `ToolTrace`/`ToolTraceDTO`, chat bubbles show compact
+> parameter/result summaries, and the Tools inspector shows full Parameters plus Output/Error
+> blocks. Verified locally with `make verify` (135 tests).
 
 ## Problem
 

@@ -244,6 +244,9 @@ public final class ChatViewModel {
             // index in passing. Persisting first and writing the corrected state once
             // closes that window entirely.
             if !state.isCancelled, state.errorMessage == nil {
+                if state.isEmptyModelResponse {
+                    state.response.reconstructedText = emptyModelResponseNotice(advertisedTools: !tools.isEmpty)
+                }
                 state.isComplete = true
                 if let persisted = await persistResponse(turnIndex: turnIndex, state: state) {
                     state = persisted
@@ -289,6 +292,13 @@ public final class ChatViewModel {
 
     private func appendErrorItem(_ message: String) {
         transcript.append(.error(id: UUID(), message: message))
+    }
+
+    private func emptyModelResponseNotice(advertisedTools: Bool) -> String {
+        if advertisedTools {
+            return "The model returned an empty response. This model may not support tool calling; try disabling tools or using a tool-capable model."
+        }
+        return "The model returned an empty response."
     }
 
     /// Persists the turn's response/tool traces onto the engine's latest inspection row

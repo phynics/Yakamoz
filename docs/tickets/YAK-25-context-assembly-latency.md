@@ -1,6 +1,6 @@
 # YAK-25 — Context assembly makes a slow LLM call on every send
 
-- **Status:** Open
+- **Status:** Done
 - **Priority:** Medium
 - **Repos:** PositronicKit (+ Yakamoz observation)
 - **Surfaced by:** YAK-23 diagnosis logs (2026-06-25)
@@ -34,3 +34,21 @@ round-trips, and the first (context) one dominates the latency.
 ## Pointers
 - `../PositronicKit/Sources/PositronicKit/...` ContextAssemblyStage / MemoryRetrievalStage / ContextManager
 - Yakamoz wires `sectionProviders: [CurrentTimeSectionProvider()]` and a no-op embedding service by default — confirm whether the context LLM call is even desired in Yakamoz's configuration.
+
+## Resolution
+
+- The extra provider call was not in `ContextAssemblyStage`; it was in
+  `MemoryRetrievalStage`, which generated tags via the LLM before checking whether any
+  memory corpus existed to search.
+- Added a `MemoryStoreProtocol.hasAnyMemory()` preflight and short-circuited memory
+  retrieval before tag generation and embedding when the store is empty.
+- Preserved non-empty retrieval behavior, including injected/mock memory stores with
+  semantic search results.
+
+## Verification
+
+- `swift test --filter ContextManagerTests` in PositronicKit
+- `swift test --filter MemoryStoreWiringTests` in PositronicKit
+- `make verify` in PositronicKit
+- `swift build` in Monad
+- `swift build` in Shuttle

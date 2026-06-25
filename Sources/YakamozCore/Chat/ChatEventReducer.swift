@@ -18,6 +18,7 @@ public struct ToolTrace: Sendable, Equatable, Identifiable {
     public var id: String
     public var name: String
     public var state: ToolTraceState
+    public var arguments: String?
     public var output: String?
     public var error: String?
     public var startedAt: ContinuousClock.Instant?
@@ -27,6 +28,7 @@ public struct ToolTrace: Sendable, Equatable, Identifiable {
         id: String,
         name: String,
         state: ToolTraceState = .attempting,
+        arguments: String? = nil,
         output: String? = nil,
         error: String? = nil,
         startedAt: ContinuousClock.Instant? = nil,
@@ -35,6 +37,7 @@ public struct ToolTrace: Sendable, Equatable, Identifiable {
         self.id = id
         self.name = name
         self.state = state
+        self.arguments = arguments
         self.output = output
         self.error = error
         self.startedAt = startedAt
@@ -92,6 +95,30 @@ public struct ChatTurnState: Sendable, Equatable {
 
     var hasVisibleTranscriptContent: Bool {
         !response.reconstructedText.isEmpty || !orderedTools.isEmpty
+    }
+
+    var isEmptyModelResponse: Bool {
+        response.reconstructedText.isEmpty && response.thinking.isEmpty && orderedTools.isEmpty
+    }
+
+    /// Records a streamed tool-call delta so the UI can show the model's requested
+    /// parameters before and after execution. Anonymous partial deltas are ignored here;
+    /// the engine later emits an ID-bearing final delta before executing tools.
+    public mutating func applyToolCallDelta(_ delta: ToolCallDelta) {
+        guard !isComplete, let id = delta.id else { return }
+
+        if !tools.keys.contains(id) {
+            toolOrder.append(id)
+        }
+
+        var trace = tools[id] ?? ToolTrace(id: id, name: delta.name ?? id)
+        if let name = delta.name, !name.isEmpty {
+            trace.name = name
+        }
+        if let arguments = delta.arguments, !arguments.isEmpty {
+            trace.arguments = (trace.arguments ?? "") + arguments
+        }
+        tools[id] = trace
     }
 
     /// Applies a tool execution status update, creating the trace on first sight and
@@ -230,8 +257,8 @@ public enum ChatEventReducer {
         case let .meta(event: .generationContext(metadata: metadata)):
             state.workspaceFiles = metadata.files
 
-        case let .delta(event: .toolCall):
-            break
+        case let .delta(event: .toolCall(delta)):
+            state.applyToolCallDelta(delta)
 
         case let .meta(event: .generationCompleted(message: _, metadata: metadata)):
             state.apply(metadata)

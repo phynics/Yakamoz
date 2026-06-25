@@ -211,6 +211,7 @@ public struct ToolTraceDTO: Codable, Sendable, Identifiable, Equatable {
     public let id: String
     public let name: String
     public let status: ToolTraceStatus
+    public let arguments: String?
     public let output: String?
     public let error: String?
     public let elapsedMillis: Double?
@@ -219,6 +220,7 @@ public struct ToolTraceDTO: Codable, Sendable, Identifiable, Equatable {
         id: String,
         name: String,
         status: ToolTraceStatus,
+        arguments: String? = nil,
         output: String? = nil,
         error: String? = nil,
         elapsedMillis: Double? = nil
@@ -226,9 +228,25 @@ public struct ToolTraceDTO: Codable, Sendable, Identifiable, Equatable {
         self.id = id
         self.name = name
         self.status = status
+        self.arguments = arguments
         self.output = output
         self.error = error
         self.elapsedMillis = elapsedMillis
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, status, arguments, output, error, elapsedMillis
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        status = try container.decode(ToolTraceStatus.self, forKey: .status)
+        arguments = try container.decodeIfPresent(String.self, forKey: .arguments)
+        output = try container.decodeIfPresent(String.self, forKey: .output)
+        error = try container.decodeIfPresent(String.self, forKey: .error)
+        elapsedMillis = try container.decodeIfPresent(Double.self, forKey: .elapsedMillis)
     }
 }
 
@@ -245,6 +263,7 @@ public extension ToolTraceDTO {
             id: trace.id,
             name: trace.name,
             status: status,
+            arguments: trace.arguments,
             output: trace.output,
             error: trace.error,
             elapsedMillis: trace.elapsed.map { duration in

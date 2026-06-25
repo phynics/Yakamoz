@@ -123,6 +123,7 @@ struct TurnInspectionProjectionTests {
                 id: "call_1",
                 name: "calculator",
                 status: .success,
+                arguments: "{\"expression\":\"2 + 2\"}",
                 output: "4",
                 error: nil,
                 elapsedMillis: 12
@@ -145,6 +146,7 @@ struct TurnInspectionProjectionTests {
         #expect(response.tools.first?.id == "call_1")
         #expect(response.tools.first?.name == "calculator")
         #expect(response.tools.first?.status == .success)
+        #expect(response.tools.first?.arguments == "{\"expression\":\"2 + 2\"}")
         #expect(response.tools.first?.output == "4")
         #expect(response.tools.first?.elapsedMillis == 12)
         #expect(response.tools.last?.status == .failure)
@@ -160,6 +162,7 @@ struct TurnInspectionProjectionTests {
         var state = ChatTurnState(turnIndex: 0)
         let clock = ContinuousClock()
         let start = clock.now
+        state.applyToolCallDelta(ToolCallDelta(index: 0, id: "c1", name: "calculator", arguments: "{\"expression\":\"2 + 2\"}"))
         state.applyToolStatus(
             id: "c1",
             status: .attempting(name: "calculator", reference: .known("calculator")),
@@ -176,6 +179,7 @@ struct TurnInspectionProjectionTests {
         #expect(dtos.first?.id == "c1")
         #expect(dtos.first?.name == "calculator")
         #expect(dtos.first?.status == .success)
+        #expect(dtos.first?.arguments == "{\"expression\":\"2 + 2\"}")
         #expect(dtos.first?.output == "4")
         #expect((dtos.first?.elapsedMillis ?? 0) > 0)
     }

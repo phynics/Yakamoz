@@ -156,7 +156,38 @@ private struct ToolTraceRow: View {
             Text(trace.name)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            if let arguments = trace.arguments, !arguments.isEmpty {
+                Text("(\(Self.snippet(arguments, limit: 80)))")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            if let result = trace.resultSummary {
+                Text("-> \(Self.snippet(result, limit: 100))")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(trace.state == .failed ? .red : .secondary)
+                    .lineLimit(1)
+            }
         }
         .accessibilityElement(children: .combine)
+    }
+
+    private static func snippet(_ text: String, limit: Int) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count > limit else { return trimmed }
+        let end = trimmed.index(trimmed.startIndex, offsetBy: limit)
+        return String(trimmed[..<end]) + "..."
+    }
+}
+
+private extension ToolTrace {
+    var resultSummary: String? {
+        if let error, !error.isEmpty {
+            return error
+        }
+        if let output, !output.isEmpty {
+            return output
+        }
+        return nil
     }
 }

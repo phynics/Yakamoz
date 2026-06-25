@@ -33,18 +33,23 @@ struct ChatEventReducerTests {
         #expect(state.response.reconstructedText == "Here is the answer.")
     }
 
-    @Test("Tool call deltas (streaming assembly) are ignored by the reducer")
-    func toolCallDeltaIsIgnored() {
+    @Test("Tool call deltas capture arguments before execution")
+    func toolCallDeltaCapturesArguments() {
         var state = ChatTurnState(turnIndex: 0)
         let now = clock.now
 
         ChatEventReducer.reduce(
-            .toolCall(ToolCallDelta(index: 0, id: "call-1", name: "search", arguments: "{}")),
+            .toolCall(ToolCallDelta(index: 0, id: "call-1", name: "search", arguments: "{\"query\":\"moon\"}")),
             into: &state,
             now: now
         )
 
-        #expect(state.orderedTools.isEmpty)
+        let trace = state.tools["call-1"]
+        #expect(trace?.name == "search")
+        #expect(trace?.arguments == "{\"query\":\"moon\"}")
+        #expect(trace?.state == .attempting)
+        #expect(trace?.startedAt == nil)
+        #expect(state.orderedTools.map(\.id) == ["call-1"])
         #expect(state.response.reconstructedText.isEmpty)
     }
 
@@ -90,6 +95,27 @@ struct ChatEventReducerTests {
         #expect(trace?.error == nil)
         #expect(trace?.startedAt == startedAt)
         #expect(trace?.finishedAt == finishedAt)
+    }
+
+    @Test("Tool trace DTO preserves arguments and output")
+    func toolTraceDTOPreservesArgumentsAndOutput() throws {
+        var state = ChatTurnState(turnIndex: 0)
+        let now = clock.now
+
+        ChatEventReducer.reduce(
+            .toolCall(ToolCallDelta(index: 0, id: "call-1", name: "calculator", arguments: "{\"expression\":\"2 + 2\"}")),
+            into: &state,
+            now: now
+        )
+        ChatEventReducer.reduce(
+            .toolCompleted(toolCallId: "call-1", status: .success(.success("4"))),
+            into: &state,
+            now: now
+        )
+
+        let dto = try #require(state.toolTraceDTOs.first)
+        #expect(dto.arguments == "{\"expression\":\"2 + 2\"}")
+        #expect(dto.output == "4")
     }
 
     @Test("Failed status transitions a trace, captures error, and uses the reference display name")

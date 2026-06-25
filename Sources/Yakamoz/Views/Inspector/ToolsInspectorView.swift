@@ -114,6 +114,9 @@ struct ToolsInspectorView: View {
                 }
             }
 
+            if let arguments = trace.arguments, !arguments.isEmpty {
+                labeledBlock("Parameters", text: arguments)
+            }
             if let output = trace.output, !output.isEmpty {
                 labeledBlock("Output", text: output)
             }
