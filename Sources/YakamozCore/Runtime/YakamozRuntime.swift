@@ -56,6 +56,8 @@ public actor YakamozRuntime: ChatRunning {
     public let stores: YakamozStores
     public let inspector: SwiftDataTurnInspector
 
+    private static let logger = Logger(label: "me.atkn.Yakamoz.runtime")
+
     private let settingsSnapshotProvider: @MainActor () -> ProviderSettingsSnapshot
     private let secrets: any SecretStoring
     private let llmServiceFactory: LLMServiceFactory
@@ -249,6 +251,10 @@ public actor YakamozRuntime: ChatRunning {
         structuredOutput: StructuredOutputRequest? = nil,
         promptAssemblyLogger: Logger? = nil
     ) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+        // Diagnostic (YAK-23): make it visible in logs exactly which tools are advertised to
+        // the model for this turn, so "the model never calls a tool" can be told apart from
+        // "no tools were offered".
+        Self.logger.info("run: advertising \(tools.count) tool(s) to the model: \(tools.map(\.id))")
         let kit = try await makeConfiguredKit()
         return try await kit.run(
             timelineId: timelineId,
