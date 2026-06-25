@@ -32,7 +32,7 @@ review items left for the next person.
 | [YAK-23](YAK-23-tool-followup-turn-hangs.md) | [BUG] Streamed tool calls dropped via OpenRouter (SSE decoder ignored snake_case) — FIXED | Yakamoz + PositronicKit | High | Done |
 | [YAK-24](YAK-24-surface-empty-model-response.md) | Surface empty model responses instead of a silent blank bubble | Yakamoz | High | Open |
 | [YAK-25](YAK-25-context-assembly-latency.md) | Context assembly makes a slow LLM call on every send | PositronicKit | Medium | Open |
-| [YAK-26](YAK-26-tool-call-id-coercion-breaks-history.md) | [BUG] Tool-call id coerced to random UUID breaks a conversation's next turn (HTTP 400) | PositronicKit | High | Open |
+| [YAK-26](YAK-26-tool-call-id-coercion-breaks-history.md) | [BUG] Tool-call id coerced to random UUID breaks a conversation's next turn (HTTP 400) | PositronicKit | High | Done |
 
 Status legend: Open / Delayed / In progress / Done. Each ticket also carries its
 own **Status** line.

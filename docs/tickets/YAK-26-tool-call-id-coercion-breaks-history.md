@@ -1,6 +1,6 @@
 # YAK-26 — [BUG] Tool-call id coercion breaks a conversation's next turn (HTTP 400)
 
-- **Status:** Open
+- **Status:** Done (proper fix — ToolCall.id is now String)
 - **Priority:** High
 - **Repos:** PositronicKit (core) + (observed in) Yakamoz
 - **Surfaced by:** real-provider testing after YAK-23 fix (2026-06-25)
