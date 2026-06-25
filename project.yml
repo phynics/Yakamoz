@@ -18,6 +18,16 @@ settings:
 packages:
   PositronicKit:
     path: ../PositronicKit
+  # Pin the transitive swift-json-schema to the same version PositronicKit builds
+  # against (its Package.resolved pins 0.11.2 — verify against
+  # ../PositronicKit/Package.resolved before bumping, don't assume). Without this,
+  # Yakamoz can resolve a different release and the workspace ends up with a
+  # mismatched JSONSchema builder API between the app and its embedded package
+  # graph (this previously broke the build inside the dependency itself, e.g.
+  # OrderedDictionary vs [String: JSONValue]).
+  swift-json-schema:
+    url: https://github.com/ajevans99/swift-json-schema
+    exactVersion: 0.11.2
 targets:
   Yakamoz:
     type: application
