@@ -1,9 +1,17 @@
 # YAK-10 — Decide swift-json-schema resolution + document the macro-trust gate
 
-- **Status:** Open
+- **Status:** Done
 - **Priority:** Medium
 - **Repos:** Yakamoz
 - **Surfaced by:** review of commit `23c0858` ("rely on transitive swift-json-schema")
+
+> **Resolved** in commit `d83729a` (Option A): re-pinned `swift-json-schema` to
+> `exactVersion: 0.11.2` in `project.yml`, matching PositronicKit's
+> `Package.resolved` (verified: PositronicKit was briefly bumped to 0.13.1 in
+> `43f751e` then reverted to 0.11.2 in `49c0a2c`). Added `make
+> check-json-schema-pin` (wired into `make verify`) that fails loudly if the pin
+> ever diverges from PositronicKit's resolved version. Verified: `make verify`
+> prints "project.yml pins swift-json-schema 0.11.2; PositronicKit resolves 0.11.2".
 
 ## Problem
 

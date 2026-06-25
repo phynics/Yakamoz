@@ -1,9 +1,16 @@
 # YAK-11 — Add an automated build + test gate (CI)
 
-- **Status:** Open
+- **Status:** Done
 - **Priority:** Medium
 - **Repos:** Yakamoz
 - **Surfaced by:** the YAK-1 regression (commit `23c0858` → fix `7931d1a`)
+
+> **Resolved.** `make verify` (Makefile, landed with `d83729a`) runs `xcodegen
+> generate` + headless `xcodebuild test -skipMacroValidation`, parses the executed
+> count, and fails if zero tests ran. A GitHub Actions workflow
+> (`.github/workflows/verify.yml`, commit `c4e2c36`) runs `make verify` on
+> macos-latest for every push/PR. Verified locally: "make verify: executed 126
+> tests". Note: CI activates once this repo gains a GitHub remote (none configured yet).
 
 ## Problem
 

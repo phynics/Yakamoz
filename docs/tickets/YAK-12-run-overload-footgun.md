@@ -1,9 +1,16 @@
 # YAK-12 — Make the `run()` structured-output overload hard to drop silently
 
-- **Status:** Open
+- **Status:** Done
 - **Priority:** Low
 - **Repos:** PositronicKit (root cause) + Yakamoz (consumer)
 - **Surfaced by:** root-cause analysis of the YAK-1 regression (`23c0858`)
+
+> **Resolved** in PositronicKit commit `498fc7f` (collapse): deleted the convenience
+> `run()` overload that hardcoded `structuredOutput: nil`; only the full overload
+> remains (with `structuredOutput:` defaulting to `nil`), so omitting the argument
+> can no longer silently resolve to a different overload. Back-compatible — all
+> existing callers still compile. Verified: PositronicKit 536 tests pass; Monad and
+> Shuttle `swift build` clean; Yakamoz `make verify` green (126 tests).
 
 ## Problem
 
