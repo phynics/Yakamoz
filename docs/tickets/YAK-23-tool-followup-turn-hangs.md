@@ -24,6 +24,17 @@ With a valid API key, plain replies stream fine, but any turn that triggers a to
   `continuation.finish()`, so the loop is bounded; infinity can only come from a single
   `runOneTurn` whose LLM stream never terminates.
 
+## Evidence update (2026-06-25)
+
+A later run completed normally with **no tool loop** — logs showed `Starting turn 1`,
+then the assistant answered directly and finished. The model answered the arithmetic
+inline without calling the calculator, so the follow-up round was never reached and there
+was no hang. This corroborates the hypothesis: the hang is specific to the post-tool
+follow-up round, reached only when a tool is *actually* invoked. Reproduce with a prompt
+the model cannot answer without a tool (e.g. "what is the current date and time?" →
+`current_datetime`). Also observed: `Context gathered in 4.939s` on an empty conversation
+— unrelated perf smell, track separately if it persists.
+
 ## Hypothesis
 
 The follow-up LLM streaming round — the request the engine issues *after* executing the
