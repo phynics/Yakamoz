@@ -31,9 +31,21 @@ struct MessageBubble: View {
                     AssistantTurnContent(turn: turn)
                         .padding(10)
                         .background(
-                            isSelected ? Color.accentColor.opacity(0.12) : Color(nsColor: .controlBackgroundColor),
+                            isSelected ? Color.accentColor.opacity(0.06) : Color(nsColor: .controlBackgroundColor),
                             in: RoundedRectangle(cornerRadius: 12)
                         )
+                        .overlay(alignment: .leading) {
+                            // A thin leading accent bar reads as "selected" without the heavy
+                            // fill/outline overpowering the message text (YAK-20).
+                            if isSelected {
+                                RoundedRectangle(cornerRadius: 1.5)
+                                    .fill(Color.accentColor)
+                                    .frame(width: 3)
+                                    .padding(.vertical, 6)
+                                    .padding(.leading, 2)
+                            }
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Assistant turn \(turn.turnIndex + 1)")

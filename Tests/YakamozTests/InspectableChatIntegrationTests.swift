@@ -167,6 +167,69 @@ struct InspectableChatIntegrationTests {
         })
     }
 
+    @Test("YAK-19: a calculator tool call succeeds and its result reaches the reply, even with no folder workspace attached")
+    func toolCallSucceedsWithoutAttachedWorkspace() async throws {
+        let container = try makeModelContainer()
+        let settings = makeSettings()
+        let secrets = FakeSecretStore()
+        try secrets.write("sk-e2e-key", account: ProviderSettings.apiKeyAccount)
+
+        // Script the calculator tool call, exactly as the real app would emit it for
+        // "what is 19273 * 4412?" — no manual workspace attachment this time. A fresh
+        // conversation created via `runtime.createConversation` (the real app's path) has
+        // no folder workspace attached unless the user explicitly attaches one, and the demo
+        // tools (calculator/current_datetime) are workspace-independent — they must still
+        // execute. Before the fix, `ToolRouter.execute` required a primary workspace even
+        // for tools passed directly via `availableTools`, so this scenario silently failed
+        // with `toolNotFound` and the calculator result never reached the reply.
+        let mock = MockLLMService()
+        mock.mockClient.nextResponses = ["", "19273 * 4412 = 85032476"]
+        mock.mockClient.nextToolCalls = [
+            [MockToolCall(id: "call_calc", name: "calculator", arguments: "{\"expression\": \"19273 * 4412\"}")],
+        ]
+
+        let runtime = try YakamozRuntime(
+            modelContainer: container,
+            settings: settings,
+            secrets: secrets,
+            llmServiceFactory: { _ in mock }
+        )
+
+        let conversation = try await runtime.createConversation(
+            modelContext: ModelContext(container),
+            title: "YAK-19"
+        )
+        let timelineId = conversation.id
+
+        // No workspace attachment here — this is the default path every fresh conversation
+        // takes in the real app unless the user explicitly attaches a folder.
+        let viewModel = await runtime.makeChatViewModel(
+            timelineId: timelineId,
+            enabledToolIds: ["calculator"]
+        )
+
+        viewModel.send("what is 19273 * 4412?")
+        try await waitUntil { !viewModel.isSending && viewModel.transcript.contains { item in
+            if case let .assistant(_, turn) = item { return turn.isComplete }
+            return false
+        } }
+
+        let assistantTurn = try #require(viewModel.transcript.compactMap { item -> ChatTurnState? in
+            if case let .assistant(_, turn) = item { return turn }
+            return nil
+        }.first)
+
+        #expect(assistantTurn.isComplete)
+        #expect(assistantTurn.response.reconstructedText == "19273 * 4412 = 85032476")
+
+        // The tool trace reached `.succeeded` with the correct calculator output.
+        let trace = try #require(assistantTurn.orderedTools.first)
+        #expect(trace.name.localizedCaseInsensitiveContains("calc"))
+        #expect(trace.state == .succeeded)
+        #expect(trace.output == "85032476")
+        #expect(trace.error == nil)
+    }
+
     @Test("YAK-15: selecting a just-completed turn live (no second turn) immediately loads its inspection")
     func selectingFreshlyCompletedTurnLoadsImmediately() async throws {
         let container = try makeModelContainer()

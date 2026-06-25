@@ -26,6 +26,12 @@ struct ConversationListView: View {
             }
             .onDelete(perform: deleteConversations)
         }
+        // The `@Query`-driven list reorders whenever a new conversation is inserted (it's
+        // sorted by `createdAt` descending, so a new row always lands at the top). Without an
+        // explicit animation, that reorder plus the subsequent selection change reads as a
+        // jarring snap (YAK-21); this makes the insertion/reorder itself animate smoothly,
+        // matching the `withAnimation` around the selection assignment below.
+        .animation(.default, value: conversations.map(\.id))
         .navigationTitle("Conversations")
         .toolbar {
             ToolbarItem {
@@ -58,7 +64,17 @@ struct ConversationListView: View {
         Task {
             do {
                 let conversation = try await runtime.createConversation(modelContext: modelContext)
-                selection = conversation
+                // The new row must exist in `conversations` (the `@Query`-driven source of
+                // truth for the List) before selection is set — setting it any earlier lets
+                // SwiftUI resolve selection against a list that hasn't reordered/inserted yet,
+                // producing a visible select-then-reorder double movement (YAK-21). `@Query`
+                // republishes synchronously on save, so by the time this `Task` resumes after
+                // `createConversation`'s insert+save, the row is already present; animate the
+                // insertion and selection together so it reads as one smooth change rather than
+                // an unanimated snap.
+                withAnimation {
+                    selection = conversation
+                }
             } catch {
                 creationError = error.localizedDescription
             }
