@@ -1,6 +1,6 @@
 # YAK-17 — Inspector Workspace tab: drop the file list, add a detach action
 
-- **Status:** Open
+- **Status:** Done
 - **Priority:** Medium
 - **Repos:** Yakamoz
 - **Surfaced by:** field feedback (2026-06-25)

@@ -1,6 +1,6 @@
 # YAK-16 — [BUG] Journal tab marks everything volatile / shows no updates
 
-- **Status:** Open
+- **Status:** Done
 - **Priority:** Medium
 - **Repos:** Yakamoz (+ likely PositronicKit seam)
 - **Surfaced by:** field feedback (2026-06-25)

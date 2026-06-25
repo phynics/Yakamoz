@@ -1,6 +1,6 @@
 # YAK-18 — Inspector Tools tab: group tools by workspace vs built-in
 
-- **Status:** Open
+- **Status:** Done
 - **Priority:** Low
 - **Repos:** Yakamoz
 - **Surfaced by:** field feedback (2026-06-25)

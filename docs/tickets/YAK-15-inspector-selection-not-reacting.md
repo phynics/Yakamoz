@@ -1,6 +1,6 @@
 # YAK-15 — [BUG] Inspector doesn't react to selecting a message until a later turn
 
-- **Status:** Open
+- **Status:** Done
 - **Priority:** High
 - **Repos:** Yakamoz
 - **Surfaced by:** field feedback (2026-06-25)
