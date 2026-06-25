@@ -1,6 +1,6 @@
 # YAK-21 — [BUG] Creating a conversation causes a list jump / reorder
 
-- **Status:** Open
+- **Status:** Done
 - **Priority:** Medium
 - **Repos:** Yakamoz
 - **Surfaced by:** field feedback (2026-06-25)

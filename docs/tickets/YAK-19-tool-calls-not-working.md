@@ -1,6 +1,6 @@
 # YAK-19 — [BUG] Tool calls not working; no streaming UI indicator
 
-- **Status:** Open
+- **Status:** Done
 - **Priority:** High
 - **Repos:** Yakamoz (+ investigate PositronicKit execution path)
 - **Surfaced by:** field feedback (2026-06-25)

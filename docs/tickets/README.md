@@ -25,13 +25,13 @@ review items left for the next person.
 | [YAK-16](YAK-16-journal-tab-all-volatile.md) | [BUG] Journal tab marks everything volatile / no updates | Yakamoz + PositronicKit | Medium | Done |
 | [YAK-17](YAK-17-inspector-workspace-tab-cleanup.md) | Inspector Workspace tab: drop file list, add detach | Yakamoz | Medium | Done |
 | [YAK-18](YAK-18-inspector-tools-grouped-by-workspace.md) | Inspector Tools tab: group by workspace vs built-in | Yakamoz | Low | Done |
-| [YAK-19](YAK-19-tool-calls-not-working.md) | [BUG] Tool calls not working; no streaming UI indicator | Yakamoz + PositronicKit | High | Open |
-| [YAK-20](YAK-20-selection-indicator-too-strong.md) | Turn-selection indicator overpowers message bubbles | Yakamoz | Low | Open |
-| [YAK-21](YAK-21-new-conversation-list-jump.md) | [BUG] Creating a conversation causes a list jump/reorder | Yakamoz | Medium | Open |
+| [YAK-19](YAK-19-tool-calls-not-working.md) | [BUG] Tool calls not working; no streaming UI indicator | Yakamoz + PositronicKit | High | Done |
+| [YAK-20](YAK-20-selection-indicator-too-strong.md) | Turn-selection indicator overpowers message bubbles | Yakamoz | Low | Done |
+| [YAK-21](YAK-21-new-conversation-list-jump.md) | [BUG] Creating a conversation causes a list jump/reorder | Yakamoz | Medium | Done |
 | [YAK-22](YAK-22-settings-ux-polish.md) | Settings UX polish | Yakamoz | Low | Open |
 
 Status legend: Open / Delayed / In progress / Done. Each ticket also carries its
-own **Status** line.
+own **Status** line. **All Done except YAK-5 (delayed) and YAK-22 (needs design direction).**
 
 **Next batch (open):** YAK-13–YAK-22, from manual-testing field feedback (2026-06-25).
 Bugs first: YAK-15, YAK-19 (High); YAK-16, YAK-21 (Medium bugs). **Delayed:** YAK-5.

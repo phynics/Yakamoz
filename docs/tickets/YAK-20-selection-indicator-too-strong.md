@@ -1,6 +1,6 @@
 # YAK-20 — Turn-selection indicator overpowers the message bubbles
 
-- **Status:** Open
+- **Status:** Done
 - **Priority:** Low
 - **Repos:** Yakamoz
 - **Surfaced by:** field feedback (2026-06-25)
