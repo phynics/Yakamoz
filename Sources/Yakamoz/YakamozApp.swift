@@ -15,8 +15,8 @@ private struct ProviderSettingsKey: EnvironmentKey {
     static let defaultValue: ProviderSettings? = nil
 }
 
-/// Typed environment key for the secret store (Keychain in production), used by
-/// `SettingsView` to persist the API key on explicit Apply only.
+/// Typed environment key for the secret store (UserDefaults-backed in production — see
+/// YAK-14), used by `SettingsView` to persist the API key on explicit Apply only.
 private struct SecretStoringKey: EnvironmentKey {
     static let defaultValue: (any SecretStoring)? = nil
 }
@@ -50,7 +50,7 @@ struct YakamozApp: App {
 
     init() {
         let settings = ProviderSettings()
-        let secrets = KeychainStore()
+        let secrets = UserDefaultsSecretStore()
         self.settings = settings
         self.secrets = secrets
 
@@ -58,7 +58,8 @@ struct YakamozApp: App {
         do {
             let storeURL = try Self.resolveStoreURL()
             resolvedStoreDescription = storeURL.path
-            Self.migrateLegacyStoreIfNeeded(to: storeURL)
+            Self.migrateLegacyDefaultStoreIfNeeded(to: storeURL)
+            Self.migrateLegacyBundleIdStoreIfNeeded(to: storeURL)
             let schema = Schema(YakamozSchema.models)
             let configuration = ModelConfiguration(schema: schema, url: storeURL)
             let container = try ModelContainer(for: schema, configurations: configuration)
@@ -73,14 +74,19 @@ struct YakamozApp: App {
         }
     }
 
-    /// Bundle identifier used as the per-app subdirectory under Application Support.
-    /// Hard-coded rather than read from `Bundle.main.bundleIdentifier` so the store
-    /// location stays stable even if the bundle id is ever changed in `project.yml`
-    /// (a change there must be a deliberate, migration-aware decision — YAK-7).
-    private static let storeBundleIdentifier = "com.atakandulker.Yakamoz"
+    /// Bundle identifier used as the per-app subdirectory under Application Support, and as
+    /// the basis for the secret store's `UserDefaults` suite name (YAK-14). Hard-coded rather
+    /// than read from `Bundle.main.bundleIdentifier` so both locations stay stable even if the
+    /// bundle id is ever changed in `project.yml` (a change there must be a deliberate,
+    /// migration-aware decision — YAK-7, YAK-13).
+    private static let storeBundleIdentifier = "me.atkn.Yakamoz"
+
+    /// The previous bundle identifier, before the YAK-13 rename. Used only by
+    /// `migrateLegacyBundleIdStoreIfNeeded` to relocate a pre-rename store/suite once.
+    private static let legacyBundleIdentifier = "com.atakandulker.Yakamoz"
 
     /// Resolves the explicit SwiftData store location:
-    /// `~/Library/Application Support/com.atakandulker.Yakamoz/Yakamoz.store`.
+    /// `~/Library/Application Support/me.atkn.Yakamoz/Yakamoz.store`.
     /// Creates the containing directory if it does not yet exist.
     private static func resolveStoreURL() throws -> URL {
         let fileManager = FileManager.default
@@ -105,7 +111,7 @@ struct YakamozApp: App {
     /// three files — `default.store` plus `-shm`/`-wal` sidecars — so all three are
     /// moved together. Best-effort: any failure is swallowed and the container simply
     /// opens fresh at `destination`, matching the pre-YAK-7 fresh-start behavior.
-    private static func migrateLegacyStoreIfNeeded(to destination: URL) {
+    private static func migrateLegacyDefaultStoreIfNeeded(to destination: URL) {
         let fileManager = FileManager.default
         guard let appSupport = try? fileManager.url(
             for: .applicationSupportDirectory,
@@ -121,6 +127,38 @@ struct YakamozApp: App {
 
         for suffix in ["", "-shm", "-wal"] {
             let source = appSupport.appendingPathComponent("default.store\(suffix)", isDirectory: false)
+            let target = URL(fileURLWithPath: destination.path + suffix)
+            guard fileManager.fileExists(atPath: source.path) else { continue }
+            try? fileManager.moveItem(at: source, to: target)
+        }
+    }
+
+    /// One-time relocation of a store left under the *old* bundle identifier's directory
+    /// (`~/Library/Application Support/com.atakandulker.Yakamoz/`, used before the YAK-13
+    /// rename to `me.atkn.Yakamoz`) to the new explicit `destination`.
+    ///
+    /// Same shape as `migrateLegacyDefaultStoreIfNeeded`: only runs when a legacy store exists
+    /// *and* nothing is present at the new path, so it never clobbers data and is a no-op on
+    /// every subsequent launch and on fresh installs. Moves the `Yakamoz.store` file plus its
+    /// `-shm`/`-wal` sidecars. Best-effort: any failure is swallowed and the container simply
+    /// opens fresh at `destination`.
+    private static func migrateLegacyBundleIdStoreIfNeeded(to destination: URL) {
+        let fileManager = FileManager.default
+        guard let appSupport = try? fileManager.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: false
+        ) else { return }
+
+        let legacyDirectory = appSupport.appendingPathComponent(legacyBundleIdentifier, isDirectory: true)
+        let legacyStore = legacyDirectory.appendingPathComponent("Yakamoz.store", isDirectory: false)
+        // Don't move anything if the legacy store is absent or the new store already exists.
+        guard fileManager.fileExists(atPath: legacyStore.path),
+              !fileManager.fileExists(atPath: destination.path) else { return }
+
+        for suffix in ["", "-shm", "-wal"] {
+            let source = legacyDirectory.appendingPathComponent("Yakamoz.store\(suffix)", isDirectory: false)
             let target = URL(fileURLWithPath: destination.path + suffix)
             guard fileManager.fileExists(atPath: source.path) else { continue }
             try? fileManager.moveItem(at: source, to: target)

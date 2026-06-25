@@ -36,7 +36,7 @@ targets:
       - Sources/Yakamoz
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.atakandulker.Yakamoz
+        PRODUCT_BUNDLE_IDENTIFIER: me.atkn.Yakamoz
         PRODUCT_NAME: Yakamoz
         GENERATE_INFOPLIST_FILE: YES
     dependencies:
@@ -48,7 +48,7 @@ targets:
       - Sources/YakamozCore
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.atakandulker.YakamozCore
+        PRODUCT_BUNDLE_IDENTIFIER: me.atkn.YakamozCore
         PRODUCT_NAME: YakamozCore
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGNING_ALLOWED: NO
@@ -72,7 +72,7 @@ targets:
       - Tests/YakamozTests
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.atakandulker.YakamozTests
+        PRODUCT_BUNDLE_IDENTIFIER: me.atkn.YakamozTests
         PRODUCT_NAME: YakamozTests
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGNING_ALLOWED: NO

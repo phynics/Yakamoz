@@ -37,7 +37,7 @@ and parses the `xcodebuild` output to fail the command if the executed test coun
 To run the app, open the generated `Yakamoz.xcodeproj` in Xcode and run the **Yakamoz**
 scheme (the app target links only `YakamozCore`; see the boundary note below).
 
-## Providers, presets, and the Keychain
+## Providers, presets, and secret storage
 
 Provider configuration lives in **Settings** (⌘,) and is backed by `ProviderSettings`.
 Three presets ship, each mapped to a `PositronicKit` provider adapter:
@@ -48,10 +48,17 @@ Three presets ship, each mapped to a `PositronicKit` provider adapter:
 | **OpenRouter** | `PKOpenRouterProvider` | `https://openrouter.ai/api/v1`.              |
 | **Ollama**   | `PKOllamaProvider`     | Local; typically no API key required.        |
 
-- **API keys live only in the macOS Keychain** (`KeychainStore`), never in `UserDefaults`
-  and never on disk in plaintext. Each preset uses its own Keychain account
-  (`provider-api-key`, `provider-api-key.openRouter`, …) so switching presets does not clobber
-  another provider's key. Keys are written **only** on an explicit **Apply** in Settings.
+- **API keys are stored in `UserDefaults`, in plaintext** (`UserDefaultsSecretStore`,
+  YAK-14) — this app previously used the macOS Keychain; that dependency has been removed.
+  Keys are written to the dedicated `me.atkn.Yakamoz.secrets` `UserDefaults` suite, under a
+  provider-specific account (`provider-api-key`, `provider-api-key.openRouter`, …) so switching
+  presets does not clobber another provider's key. Keys are written **only** on an explicit
+  **Apply** in Settings.
+- **⚠️ Security tradeoff, accepted deliberately.** Unlike the Keychain, `UserDefaults` is not
+  encrypted: values land in a `.plist` file under `~/Library/Preferences/`, readable by any
+  process running as the user (no Keychain prompt, no ACL) and included in unencrypted backups
+  of that directory. This is acceptable for Yakamoz as a local, single-user showcase app — do
+  not adopt this pattern for anything that needs real secrecy guarantees.
 - A health badge in Settings runs a one-shot `healthCheck()` against the selected provider.
 
 ## Folder access and the non-sandbox choice
@@ -69,11 +76,11 @@ The SwiftData store location is **explicit**, not left to SwiftData's implicit d
 (YAK-7). On a normal (non-sandboxed) run the database lands at:
 
 ```
-~/Library/Application Support/com.atakandulker.Yakamoz/Yakamoz.store
+~/Library/Application Support/me.atkn.Yakamoz/Yakamoz.store
 ```
 
 `YakamozApp` computes this from `FileManager`'s `.applicationSupportDirectory`, the
-hard-coded bundle identifier `com.atakandulker.Yakamoz`, and the stable filename
+hard-coded bundle identifier `me.atkn.Yakamoz`, and the stable filename
 `Yakamoz.store`, creating the directory if missing and passing the resolved `url:` into
 `ModelConfiguration`. The resolved path is included in the on-screen `setupError` if the
 container fails to open, for diagnosability. Tests are unaffected — they use in-memory or
@@ -85,6 +92,14 @@ migration**: on launch, if a store exists at that legacy path and nothing exists
 new explicit path, the `default.store` file and its `-shm`/`-wal` sidecars are moved over.
 The move is skipped on fresh installs and on every subsequent launch, and never overwrites an
 existing store.
+
+The app's bundle identifier was later renamed from `com.atakandulker.Yakamoz` to
+`me.atkn.Yakamoz` (YAK-13). A second, identically-shaped one-time migration moves an existing
+store from the *old* identifier's directory
+(`~/Library/Application Support/com.atakandulker.Yakamoz/Yakamoz.store`, plus its `-shm`/`-wal`
+sidecars) into the new `me.atkn.Yakamoz/` directory — guarded the same way: only runs if the
+legacy store exists and nothing exists yet at the new path, so it's a no-op on fresh installs
+and on every later launch.
 
 ## The inspector — six tabs
 

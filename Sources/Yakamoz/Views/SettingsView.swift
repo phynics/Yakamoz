@@ -3,7 +3,7 @@ import YakamozCore
 
 /// Provider settings scene (Command-comma). Non-secret fields write straight through
 /// to the injected `ProviderSettings` (and are persisted via `persist()` on change);
-/// the API key is staged in local `@State` and only reaches the Keychain when the user
+/// the API key is staged in local `@State` and only reaches the secret store when the user
 /// taps Apply.
 struct SettingsView: View {
     let runtime: YakamozRuntime

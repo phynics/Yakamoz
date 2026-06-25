@@ -125,16 +125,17 @@ public struct ProviderSettingsSnapshot: Sendable, Equatable {
 /// Observable provider configuration for Yakamoz's settings UI.
 ///
 /// Non-secret fields (preset, base URL, model, generation/retry knobs) persist to the
-/// injected `UserDefaults`. API keys are never written to `UserDefaults` — they live only
-/// in the injected `SecretStoring` (Keychain in production), addressed by provider-specific
+/// injected `UserDefaults`. API keys are never written to *this* `UserDefaults` instance —
+/// they live only in the injected `SecretStoring` (a separately-suited `UserDefaultsSecretStore`
+/// in production as of YAK-14, previously the Keychain), addressed by provider-specific
 /// accounts from `Self.apiKeyAccount(for:)`.
 @MainActor
 @Observable
 public final class ProviderSettings {
-    /// Legacy OpenAI keychain account. Keep this stable so existing OpenAI installs keep working.
-    nonisolated(unsafe) public static let apiKeyAccount = "provider-api-key"
+    /// Legacy OpenAI secret-store account. Keep this stable so existing OpenAI installs keep working.
+    public nonisolated(unsafe) static let apiKeyAccount = "provider-api-key"
 
-    /// Keychain account for a provider preset's API key.
+    /// Secret-store account for a provider preset's API key.
     public nonisolated static func apiKeyAccount(for preset: ProviderPreset) -> String {
         switch preset {
         case .openAI:
