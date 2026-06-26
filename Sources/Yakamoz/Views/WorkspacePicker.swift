@@ -13,25 +13,36 @@ struct WorkspacePicker: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var workspaces: [WorkspaceModel]
 
-    private var attachedWorkspace: WorkspaceModel? {
-        guard let workspaceId = conversation.workspaceId else { return nil }
-        return workspaces.first { $0.id == workspaceId }
+    private var attachedWorkspaces: [WorkspaceModel] {
+        WorkspaceResolutionHelper.attachedWorkspaces(for: conversation, in: workspaces)
     }
 
     var body: some View {
         HStack(spacing: 6) {
-            if let workspace = attachedWorkspace {
-                Label(workspace.displayName, systemImage: "folder.fill")
-                    .font(.caption)
-                    .lineLimit(1)
+            if !attachedWorkspaces.isEmpty {
+                ForEach(attachedWorkspaces) { workspace in
+                    HStack(spacing: 4) {
+                        Label(workspace.displayName, systemImage: "folder.fill")
+                            .font(.caption)
+                            .lineLimit(1)
+                        Button {
+                            detachWorkspace(id: workspace.id)
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Detach workspace")
+                        .accessibilityLabel("Detach workspace '\(workspace.displayName)'")
+                    }
+                }
                 Button {
-                    detachWorkspace()
+                    pickFolder()
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
+                    Image(systemName: "plus.circle.fill")
                 }
                 .buttonStyle(.borderless)
-                .help("Detach workspace")
-                .accessibilityLabel("Detach workspace")
+                .help("Attach another folder workspace")
+                .accessibilityLabel("Attach another folder workspace")
             } else {
                 Button {
                     pickFolder()
@@ -61,7 +72,7 @@ struct WorkspacePicker: View {
         WorkspaceAttachmentSupport.attachWorkspace(to: conversation, modelContext: modelContext, url: url)
     }
 
-    private func detachWorkspace() {
-        WorkspaceAttachmentSupport.detachWorkspace(from: conversation, modelContext: modelContext)
+    private func detachWorkspace(id: UUID) {
+        WorkspaceAttachmentSupport.detachWorkspace(id: id, from: conversation, modelContext: modelContext)
     }
 }
