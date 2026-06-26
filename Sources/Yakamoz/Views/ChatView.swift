@@ -220,6 +220,8 @@ struct ChatView: View {
     private func buildViewModelIfNeeded() async {
         guard let runtime else { return }
         workspacePromptId = nil
+        // Backfill legacy single-workspace attachment into the array (Task 2 one-time migration).
+        WorkspaceAttachmentSupport.backfillLegacyAttachment(conversation)
         let chat = await runtime.makeChatViewModel(
             timelineId: conversation.id,
             systemInstructions: resolvedSystemInstructions,

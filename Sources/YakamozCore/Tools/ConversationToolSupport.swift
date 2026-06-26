@@ -104,4 +104,17 @@ public enum WorkspaceAttachmentSupport {
         conversation.enabledToolIds = ConversationToolSupport.persistedEnabledToolIDs(selectedTools, hasWorkspace: false)
         try? modelContext.save()
     }
+
+    /// One-time backfill: moves a non-nil `workspaceId` into `attachedWorkspaceIds` and nils
+    /// the legacy field. Idempotent — safe to call every time a conversation loads.
+    ///
+    /// If `workspaceId` is nil, this is a no-op. If the legacy id is already present in
+    /// `attachedWorkspaceIds`, it is not duplicated.
+    public static func backfillLegacyAttachment(_ conversation: ConversationModel) {
+        guard let legacyId = conversation.workspaceId else { return }
+        if !conversation.attachedWorkspaceIds.contains(legacyId) {
+            conversation.attachedWorkspaceIds.append(legacyId)
+        }
+        conversation.workspaceId = nil
+    }
 }
