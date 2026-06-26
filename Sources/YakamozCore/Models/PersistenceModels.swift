@@ -55,6 +55,16 @@ public final class ConversationModel {
     public var typedReplyEnabled: Bool
     /// When `true`, an `AutonomousFollowUpPlugin` injects one bounded follow-up per send.
     public var autonomousFollowUpEnabled: Bool
+    /// Multi-attach workspace ids (YAK-T1). `workspaceId` is the deprecated single-attach
+    /// predecessor, retained only so existing stores migrate without a versioned schema.
+    public var attachedWorkspaceIds: [UUID] = []
+
+    /// Legacy single id folded with the new array; the rest of the app reads this.
+    public var allAttachedWorkspaceIds: [UUID] {
+        var ids = attachedWorkspaceIds
+        if let legacy = workspaceId, !ids.contains(legacy) { ids.insert(legacy, at: 0) }
+        return ids
+    }
 
     public init(
         id: UUID = UUID(),
@@ -63,6 +73,7 @@ public final class ConversationModel {
         personaId: UUID? = nil,
         enabledToolIds: [String] = [],
         workspaceId: UUID? = nil,
+        attachedWorkspaceIds: [UUID] = [],
         personaSlug: String? = nil,
         typedReplyEnabled: Bool = false,
         autonomousFollowUpEnabled: Bool = false
@@ -73,6 +84,7 @@ public final class ConversationModel {
         self.personaId = personaId
         self.enabledToolIds = enabledToolIds
         self.workspaceId = workspaceId
+        self.attachedWorkspaceIds = attachedWorkspaceIds
         self.personaSlug = personaSlug
         self.typedReplyEnabled = typedReplyEnabled
         self.autonomousFollowUpEnabled = autonomousFollowUpEnabled
