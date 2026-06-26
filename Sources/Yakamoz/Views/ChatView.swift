@@ -241,7 +241,7 @@ struct ChatView: View {
 
     /// Rebuilds the Workspace-tab presentation from the conversation's attached folder
     /// workspace (or clears it when none is attached). Runs on conversation open and
-    /// whenever `conversation.workspaceId` changes.
+    /// whenever `conversation.allAttachedWorkspaceIds.first` changes.
     private func refreshWorkspacePresentation() async {
         guard let runtime, let workspace = attachedWorkspace else {
             workspacePresentation = nil
