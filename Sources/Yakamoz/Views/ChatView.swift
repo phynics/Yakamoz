@@ -37,24 +37,23 @@ struct ChatView: View {
         return nil
     }
 
-    private var attachedWorkspacesList: [WorkspaceModel] {
-        WorkspaceResolutionHelper.attachedWorkspaces(for: conversation, in: workspaces)
+    private var attachedWorkspace: WorkspaceModel? {
+        guard let workspaceId = conversation.workspaceId else { return nil }
+        return workspaces.first { $0.id == workspaceId }
     }
 
-    /// For now, resolveTools still takes a single workspace root, so we use the first
-    /// attached workspace's folder path. This will be extended to multi-workspace in Task 18.
     private var workspaceRoot: URL? {
-        attachedWorkspacesList.first.map { URL(fileURLWithPath: $0.folderPath) }
+        attachedWorkspace.map { URL(fileURLWithPath: $0.folderPath) }
     }
 
     private var availableInspectorTools: [ConversationToolOption] {
-        ConversationToolSupport.toolOptions(hasWorkspace: !attachedWorkspacesList.isEmpty)
+        ConversationToolSupport.toolOptions(hasWorkspace: attachedWorkspace != nil)
     }
 
     private var effectiveEnabledToolIds: Set<String> {
         ConversationToolSupport.effectiveEnabledToolIDs(
             conversation.enabledToolIds,
-            hasWorkspace: !attachedWorkspacesList.isEmpty
+            hasWorkspace: attachedWorkspace != nil
         )
     }
 
@@ -93,7 +92,7 @@ struct ChatView: View {
         .task(id: conversation.id) {
             await buildViewModelIfNeeded()
         }
-        .task(id: workspaceAttachmentKey) {
+        .task(id: conversation.workspaceId) {
             await refreshWorkspacePresentation()
         }
         .task(id: toolSyncKey) {
@@ -128,18 +127,11 @@ struct ChatView: View {
         "\(conversation.personaSlug ?? "-")|\(conversation.typedReplyEnabled)|\(conversation.autonomousFollowUpEnabled)"
     }
 
-    /// Tracks changes to the workspace attachment list (including legacy single-attach).
-    /// Invalidates whenever any attached workspace changes (add/remove any id).
-    private var workspaceAttachmentKey: String {
-        let attachedIds = conversation.allAttachedWorkspaceIds.map(\.uuidString).joined(separator: ",")
-        return attachedIds.isEmpty ? "-" : attachedIds
-    }
-
     /// Tracks the conversation state that affects which tools the view model should
     /// offer on its next send.
     private var toolSyncKey: String {
         let enabledToolIds = conversation.enabledToolIds.sorted().joined(separator: ",")
-        return "\(workspaceAttachmentKey)|\(enabledToolIds)"
+        return "\(conversation.workspaceId?.uuidString ?? "-")|\(enabledToolIds)"
     }
 
     private func chatBody(viewModel: ChatViewModel) -> some View {
@@ -245,11 +237,11 @@ struct ChatView: View {
         offerWorkspacePromptIfNeeded(in: chat)
     }
 
-    /// Rebuilds the Workspace-tab presentation from the conversation's first attached folder
+    /// Rebuilds the Workspace-tab presentation from the conversation's attached folder
     /// workspace (or clears it when none is attached). Runs on conversation open and
-    /// whenever any attached workspace changes.
+    /// whenever `conversation.workspaceId` changes.
     private func refreshWorkspacePresentation() async {
-        guard let runtime, let workspace = attachedWorkspacesList.first else {
+        guard let runtime, let workspace = attachedWorkspace else {
             workspacePresentation = nil
             return
         }
@@ -342,7 +334,7 @@ struct ChatView: View {
         }
         conversation.enabledToolIds = ConversationToolSupport.persistedEnabledToolIDs(
             selected,
-            hasWorkspace: !attachedWorkspacesList.isEmpty
+            hasWorkspace: attachedWorkspace != nil
         )
         try? modelContext.save()
     }

@@ -77,50 +77,18 @@ public enum ConversationToolSupport {
     }
 }
 
-/// Pure helper for deriving the list of attached workspaces from a conversation.
-/// Given a conversation and all available workspaces, returns the workspaces whose ids
-/// are in `conversation.allAttachedWorkspaceIds`, in that order.
-public enum WorkspaceResolutionHelper {
-    /// Returns the list of `WorkspaceModel`s attached to a conversation, in the order
-    /// they appear in `conversation.allAttachedWorkspaceIds`, filtering out any ids
-    /// that don't have a corresponding workspace in the provided collection.
-    public static func attachedWorkspaces(
-        for conversation: ConversationModel,
-        in allWorkspaces: [WorkspaceModel]
-    ) -> [WorkspaceModel] {
-        let workspaceById = Dictionary(uniqueKeysWithValues: allWorkspaces.map { ($0.id, $0) })
-        return conversation.allAttachedWorkspaceIds.compactMap { workspaceById[$0] }
-    }
-}
-
 public enum WorkspaceAttachmentSupport {
     public static var defaultDocumentsURL: URL? {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
     }
 
-    /// Attaches a new workspace folder to the conversation, adding its id to `attachedWorkspaceIds`
-    /// and enabling its folder-backed tools. Safe to call repeatedly with different URLs;
-    /// each call appends a new workspace id.
-    ///
-    /// For backward compatibility during transition from single-attach to multi-attach, also sets
-    /// `workspaceId` to the first/only attached workspace id (this field is deprecated).
     @discardableResult
     public static func attachWorkspace(to conversation: ConversationModel, modelContext: ModelContext, url: URL) -> WorkspaceModel {
         let bookmark = try? url.bookmarkData(options: .withSecurityScope)
         let workspace = WorkspaceModel(displayName: url.lastPathComponent, folderPath: url.path, bookmarkData: bookmark)
         modelContext.insert(workspace)
+        conversation.workspaceId = workspace.id
 
-        // Add to the multi-attach array
-        if !conversation.attachedWorkspaceIds.contains(workspace.id) {
-            conversation.attachedWorkspaceIds.append(workspace.id)
-        }
-
-        // Also set the legacy single-attach field for backward compat (only if not already set)
-        if conversation.workspaceId == nil {
-            conversation.workspaceId = workspace.id
-        }
-
-        // Enable folder tools (at least one workspace now exists)
         let selectedTools = ConversationToolSupport.effectiveEnabledToolIDs(conversation.enabledToolIds, hasWorkspace: false)
             .union(FileSystemWorkspace.toolIds)
         conversation.enabledToolIds = ConversationToolSupport.persistedEnabledToolIDs(selectedTools, hasWorkspace: true)
@@ -129,62 +97,11 @@ public enum WorkspaceAttachmentSupport {
         return workspace
     }
 
-    /// Detaches a specific workspace by id from the conversation, removing it from `attachedWorkspaceIds`.
-    /// Also removes its folder tools from `enabledToolIds` if no other workspace remains attached.
-    /// Also nils `workspaceId` if the detached id matches it (legacy single-attach cleanup).
-    /// Safe to call multiple times; if the id is not attached, this is a no-op.
-    public static func detachWorkspace(id: UUID, from conversation: ConversationModel, modelContext: ModelContext) {
-        conversation.attachedWorkspaceIds.removeAll { $0 == id }
-
-        // Also clean up legacy single-attach field if it matches
-        if conversation.workspaceId == id {
-            conversation.workspaceId = nil
-        }
-
-        // Recompute enabled tools based on remaining attachments.
-        // If any workspace still remains attached, keep folder tools enabled.
-        // Otherwise, disable folder tools.
-        let hasRemainingWorkspace = !conversation.attachedWorkspaceIds.isEmpty
-
-        if hasRemainingWorkspace {
-            // Workspace still attached; keep all currently enabled tools (builtIn + folder)
-            conversation.enabledToolIds = ConversationToolSupport.persistedEnabledToolIDs(
-                ConversationToolSupport.effectiveEnabledToolIDs(conversation.enabledToolIds, hasWorkspace: true),
-                hasWorkspace: true
-            )
-        } else {
-            // No workspace left; disable folder tools, keep only builtIn
-            let selectedTools = ConversationToolSupport.effectiveEnabledToolIDs(conversation.enabledToolIds, hasWorkspace: true)
-                .subtracting(FileSystemWorkspace.toolIds)
-            conversation.enabledToolIds = ConversationToolSupport.persistedEnabledToolIDs(selectedTools, hasWorkspace: false)
-        }
-
-        try? modelContext.save()
-    }
-
-    /// Detaches the first (or legacy single) attached workspace from the conversation.
-    /// This is a backward-compatibility overload for existing UI code that detaches without specifying an id.
-    /// (Task 4 will update UI to work with multi-attach, at which point this can be removed.)
     public static func detachWorkspace(from conversation: ConversationModel, modelContext: ModelContext) {
-        // Prefer the legacy single-attach field if set (for backward compat with existing data)
-        if let legacyId = conversation.workspaceId {
-            detachWorkspace(id: legacyId, from: conversation, modelContext: modelContext)
-        } else if let firstId = conversation.attachedWorkspaceIds.first {
-            // Otherwise detach the first workspace in the array
-            detachWorkspace(id: firstId, from: conversation, modelContext: modelContext)
-        }
-    }
-
-    /// Idempotent backfill: moves a non-nil `workspaceId` into `attachedWorkspaceIds` and nils
-    /// the legacy field. Safe to call every time a conversation loads; repeated calls are no-ops.
-    ///
-    /// If `workspaceId` is nil, this is a no-op. If the legacy id is already present in
-    /// `attachedWorkspaceIds`, it is not duplicated.
-    public static func backfillLegacyAttachment(_ conversation: ConversationModel) {
-        guard let legacyId = conversation.workspaceId else { return }
-        if !conversation.attachedWorkspaceIds.contains(legacyId) {
-            conversation.attachedWorkspaceIds.append(legacyId)
-        }
+        let selectedTools = ConversationToolSupport.effectiveEnabledToolIDs(conversation.enabledToolIds, hasWorkspace: true)
+            .subtracting(FileSystemWorkspace.toolIds)
         conversation.workspaceId = nil
+        conversation.enabledToolIds = ConversationToolSupport.persistedEnabledToolIDs(selectedTools, hasWorkspace: false)
+        try? modelContext.save()
     }
 }

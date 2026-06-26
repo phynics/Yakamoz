@@ -111,12 +111,10 @@ private struct ConversationRow: View {
                     .foregroundStyle(.secondary)
                     .accessibilityLabel("Has Persona")
             }
-            if !conversation.allAttachedWorkspaceIds.isEmpty {
-                let count = conversation.allAttachedWorkspaceIds.count
-                let label = count == 1 ? "Has Workspace" : "Has \(count) Workspaces"
+            if conversation.workspaceId != nil {
                 Image(systemName: "folder")
                     .foregroundStyle(.secondary)
-                    .accessibilityLabel(label)
+                    .accessibilityLabel("Has Workspace")
             }
         }
         .padding(.vertical, 2)
