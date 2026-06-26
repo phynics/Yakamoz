@@ -37,24 +37,31 @@ struct ChatView: View {
         return nil
     }
 
-    private var attachedWorkspace: WorkspaceModel? {
-        guard let workspaceId = conversation.allAttachedWorkspaceIds.first else { return nil }
-        return workspaces.first { $0.id == workspaceId }
+    private var attachedWorkspacesList: [WorkspaceModel] {
+        WorkspaceResolutionHelper.attachedWorkspaces(for: conversation, in: workspaces)
     }
 
     private var workspaceRoot: URL? {
-        attachedWorkspace.map { URL(fileURLWithPath: $0.folderPath) }
+        attachedWorkspacesList.first.map { URL(fileURLWithPath: $0.folderPath) }
     }
 
     private var availableInspectorTools: [ConversationToolOption] {
-        ConversationToolSupport.toolOptions(hasWorkspace: attachedWorkspace != nil)
+        ConversationToolSupport.toolOptions(hasWorkspace: !attachedWorkspacesList.isEmpty)
     }
 
     private var effectiveEnabledToolIds: Set<String> {
         ConversationToolSupport.effectiveEnabledToolIDs(
             conversation.enabledToolIds,
-            hasWorkspace: attachedWorkspace != nil
+            hasWorkspace: !attachedWorkspacesList.isEmpty
         )
+    }
+
+    /// A composite key over every attached workspace's id (in `allAttachedWorkspaceIds` order),
+    /// joined into a single string. Used as a `.task(id:)`/sync key so views invalidate when
+    /// ANY attached workspace changes — not just the first — since attaching/detaching a
+    /// non-first workspace still affects available tools and (eventually) presentation.
+    private var workspaceAttachmentKey: String {
+        conversation.allAttachedWorkspaceIds.map(\.uuidString).joined(separator: ",")
     }
 
     var body: some View {
@@ -92,7 +99,7 @@ struct ChatView: View {
         .task(id: conversation.id) {
             await buildViewModelIfNeeded()
         }
-        .task(id: conversation.allAttachedWorkspaceIds.first) {
+        .task(id: workspaceAttachmentKey) {
             await refreshWorkspacePresentation()
         }
         .task(id: toolSyncKey) {
@@ -131,8 +138,7 @@ struct ChatView: View {
     /// offer on its next send.
     private var toolSyncKey: String {
         let enabledToolIds = conversation.enabledToolIds.sorted().joined(separator: ",")
-        let attachedWorkspaceId = conversation.allAttachedWorkspaceIds.first?.uuidString ?? "-"
-        return "\(attachedWorkspaceId)|\(enabledToolIds)"
+        return "\(workspaceAttachmentKey)|\(enabledToolIds)"
     }
 
     private func chatBody(viewModel: ChatViewModel) -> some View {
@@ -239,11 +245,12 @@ struct ChatView: View {
         offerWorkspacePromptIfNeeded(in: chat)
     }
 
-    /// Rebuilds the Workspace-tab presentation from the conversation's attached folder
+    /// Rebuilds the Workspace-tab presentation from the conversation's first attached folder
     /// workspace (or clears it when none is attached). Runs on conversation open and
-    /// whenever `conversation.allAttachedWorkspaceIds.first` changes.
+    /// whenever `workspaceAttachmentKey` changes (i.e. any attached workspace is added or
+    /// removed, not just the first).
     private func refreshWorkspacePresentation() async {
-        guard let runtime, let workspace = attachedWorkspace else {
+        guard let runtime, let workspace = attachedWorkspacesList.first else {
             workspacePresentation = nil
             return
         }
@@ -336,7 +343,7 @@ struct ChatView: View {
         }
         conversation.enabledToolIds = ConversationToolSupport.persistedEnabledToolIDs(
             selected,
-            hasWorkspace: attachedWorkspace != nil
+            hasWorkspace: !attachedWorkspacesList.isEmpty
         )
         try? modelContext.save()
     }

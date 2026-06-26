@@ -172,3 +172,14 @@ public enum WorkspaceAttachmentSupport {
         conversation.workspaceId = nil
     }
 }
+
+/// Pure resolution helpers for turning a conversation's attached-id list into concrete
+/// `WorkspaceModel`s, given the full set of workspaces fetched by the view (e.g. via `@Query`).
+public enum WorkspaceResolutionHelper {
+    /// Returns the `WorkspaceModel`s referenced by `conversation.allAttachedWorkspaceIds`, in
+    /// that order, filtering out any ids that have no matching workspace in `workspaces`.
+    public static func attachedWorkspaces(for conversation: ConversationModel, in workspaces: [WorkspaceModel]) -> [WorkspaceModel] {
+        let byId = Dictionary(uniqueKeysWithValues: workspaces.map { ($0.id, $0) })
+        return conversation.allAttachedWorkspaceIds.compactMap { byId[$0] }
+    }
+}
