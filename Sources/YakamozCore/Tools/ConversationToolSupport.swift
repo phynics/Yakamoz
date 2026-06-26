@@ -125,25 +125,45 @@ public enum WorkspaceAttachmentSupport {
             conversation.workspaceId = nil
         }
 
-        // Recompute enabled tools based on remaining attachments.
-        // If any workspace still remains attached, keep folder tools enabled.
-        // Otherwise, disable folder tools.
-        let hasRemainingWorkspace = !conversation.attachedWorkspaceIds.isEmpty
+        // Resolve the workspaces still attached after removal, so reconcileEnabledTools can
+        // recompute enabledToolIds from the actual remaining attachments rather than just a count.
+        let remainingIds = Set(conversation.attachedWorkspaceIds)
+        let remainingWorkspaces: [WorkspaceModel]
+        if remainingIds.isEmpty {
+            remainingWorkspaces = []
+        } else {
+            let allWorkspaces = (try? modelContext.fetch(FetchDescriptor<WorkspaceModel>())) ?? []
+            remainingWorkspaces = WorkspaceResolutionHelper.attachedWorkspaces(for: conversation, in: allWorkspaces)
+        }
 
-        if hasRemainingWorkspace {
-            // Workspace still attached; keep all currently enabled tools (builtIn + folder)
+        reconcileEnabledTools(for: conversation, attachedWorkspaces: remainingWorkspaces)
+
+        try? modelContext.save()
+    }
+
+    /// Recomputes `conversation.enabledToolIds` so it never references tools whose backing
+    /// workspace is no longer attached — the central invariant for tool-id consistency.
+    ///
+    /// Forward-compat note: `WorkspaceModel` does not yet have a `kind` field (folder vs.
+    /// terminal workspaces are not yet distinguished). This function is kind-agnostic for now —
+    /// every attached workspace is treated as a folder workspace, so folder tools
+    /// (`FileSystemWorkspace.toolIds`) are allowed iff `attachedWorkspaces` is non-empty. Once
+    /// `WorkspaceModel.kind` exists, this can be extended to per-kind reconciliation (folder tools
+    /// iff any folder workspace remains; terminal tools iff any terminal workspace remains)
+    /// without changing this signature, since it already takes the resolved `[WorkspaceModel]`s.
+    public static func reconcileEnabledTools(for conversation: ConversationModel, attachedWorkspaces: [WorkspaceModel]) {
+        let hasFolder = !attachedWorkspaces.isEmpty
+
+        if hasFolder {
             conversation.enabledToolIds = ConversationToolSupport.persistedEnabledToolIDs(
                 ConversationToolSupport.effectiveEnabledToolIDs(conversation.enabledToolIds, hasWorkspace: true),
                 hasWorkspace: true
             )
         } else {
-            // No workspace left; disable folder tools, keep only builtIn
             let selectedTools = ConversationToolSupport.effectiveEnabledToolIDs(conversation.enabledToolIds, hasWorkspace: true)
                 .subtracting(FileSystemWorkspace.toolIds)
             conversation.enabledToolIds = ConversationToolSupport.persistedEnabledToolIDs(selectedTools, hasWorkspace: false)
         }
-
-        try? modelContext.save()
     }
 
     /// Detaches the first (or legacy single) attached workspace from the conversation.
