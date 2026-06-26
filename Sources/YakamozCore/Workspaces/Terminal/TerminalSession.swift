@@ -204,6 +204,51 @@ public actor TerminalSession {
         process.terminate()
     }
 
+    /// Feeds `text` to the running command's stdin, raw (no marker/cursor bookkeeping). The
+    /// caller is responsible for including any trailing newline `text` needs.
+    ///
+    /// This does not consult an approver — steering an already-approved, already-running
+    /// command is considered part of that command's existing approval (approval/tooling
+    /// concerns live above `TerminalSession`). No-ops if the shell has already exited.
+    public func sendInput(_ text: String) async {
+        guard !hasExited else { return }
+        let bytes = Array(text.utf8)
+        process.send(data: bytes[...])
+    }
+
+    /// Sends Ctrl-C (SIGINT, byte `0x03`) to the running command.
+    ///
+    /// `run` issues each command as `<command>; printf '\n<mark>:%s\n' "$?"` — a `;`-separated
+    /// zsh list. Observed behavior (verified by `interruptStopsRunningCommand` test): SIGINT-ing
+    /// the foreground job aborts the *entire* `;`-list in this shell setup — the trailing
+    /// `printf` marker never runs, so the marker line would never arrive on its own and
+    /// `pendingMark` would leak (a subsequent `run` would throw `.commandAlreadyRunning`).
+    ///
+    /// To keep the session usable, after sending Ctrl-C this method writes a synthetic
+    /// completion line for the *same* pending mark directly into the buffer (as if the shell
+    /// itself had emitted it), using a conventional non-zero interrupted exit code (130, the
+    /// standard `128 + SIGINT` convention). This resolves `pendingMark` through the normal
+    /// `extractFinished` marker-detection path, so `read`/`wait` behave exactly as if the shell
+    /// had printed the marker, and the session is immediately reusable for a subsequent `run`.
+    public func interrupt() async {
+        guard !hasExited else { return }
+        guard let mark = pendingMark else { return }
+
+        let bytes: [UInt8] = [0x03]
+        process.send(data: bytes[...])
+
+        // Give the shell a brief moment to actually abort/echo "^C" before we inject the
+        // synthetic marker, so any output it does produce is captured ahead of the marker line.
+        try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+
+        // If the real marker happened to arrive in that window (e.g. on a shell where the
+        // list does continue), don't inject a duplicate.
+        guard pendingMark == mark, extractFinished(mark: mark) == nil else { return }
+
+        let syntheticLine = Array("\n\(mark):130\n".utf8)
+        buffer.append(contentsOf: syntheticLine)
+    }
+
     /// Invoked (via the delegate adapter) whenever new bytes arrive from the PTY.
     func appendOutput(_ bytes: ArraySlice<UInt8>) {
         buffer.append(contentsOf: bytes)
