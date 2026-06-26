@@ -87,9 +87,8 @@ struct ConversationListView: View {
             if selection?.id == conversation.id {
                 selection = nil
             }
-            modelContext.delete(conversation)
+            WorkspaceAttachmentSupport.deleteConversation(conversation, modelContext: modelContext)
         }
-        try? modelContext.save()
     }
 }
 

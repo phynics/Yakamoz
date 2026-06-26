@@ -137,6 +137,38 @@ struct WorkspaceConsistencyTests {
         let remainingIds = Set(remaining.map(\.id))
         #expect(remainingIds.contains(legacyReferenced.id))
     }
+
+    @Test func deleteConversationPrunesSoleOrphanedWorkspaceKeepsOthersReferenced() throws {
+        let container = try makeTestModelContainer()
+        let context = ModelContext(container)
+
+        let workspaceW = WorkspaceModel(displayName: "W", folderPath: "/tmp/w", bookmarkData: nil)
+        let workspaceV = WorkspaceModel(displayName: "V", folderPath: "/tmp/v", bookmarkData: nil)
+        context.insert(workspaceW)
+        context.insert(workspaceV)
+
+        let conversationC = ConversationModel(title: "c")
+        conversationC.attachedWorkspaceIds = [workspaceW.id]
+        context.insert(conversationC)
+
+        let conversationD = ConversationModel(title: "d")
+        conversationD.attachedWorkspaceIds = [workspaceV.id]
+        context.insert(conversationD)
+
+        try context.save()
+
+        WorkspaceAttachmentSupport.deleteConversation(conversationC, modelContext: context)
+
+        let remainingConversations = try context.fetch(FetchDescriptor<ConversationModel>())
+        let remainingConversationIds = Set(remainingConversations.map(\.id))
+        #expect(!remainingConversationIds.contains(conversationC.id))
+        #expect(remainingConversationIds.contains(conversationD.id))
+
+        let remainingWorkspaces = try context.fetch(FetchDescriptor<WorkspaceModel>())
+        let remainingWorkspaceIds = Set(remainingWorkspaces.map(\.id))
+        #expect(!remainingWorkspaceIds.contains(workspaceW.id))
+        #expect(remainingWorkspaceIds.contains(workspaceV.id))
+    }
 }
 
 // MARK: - Test Helpers

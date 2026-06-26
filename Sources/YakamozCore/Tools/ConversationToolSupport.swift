@@ -205,6 +205,13 @@ public enum WorkspaceAttachmentSupport {
 
         try? modelContext.save()
     }
+
+    /// Deletes `conversation` and cleans up any workspaces it was the sole referrer of.
+    public static func deleteConversation(_ conversation: ConversationModel, modelContext: ModelContext) {
+        modelContext.delete(conversation)
+        try? modelContext.save()
+        pruneOrphanWorkspaces(modelContext: modelContext)
+    }
 }
 
 /// Pure resolution helpers for turning a conversation's attached-id list into concrete
