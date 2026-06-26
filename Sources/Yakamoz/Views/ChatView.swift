@@ -328,8 +328,16 @@ struct ChatView: View {
         Task { await buildViewModelIfNeeded() }
     }
 
+    /// Detaches the workspace currently shown in the inspector.
+    ///
+    /// The inspector presents only the first attached workspace
+    /// (`attachedWorkspacesList.first`) pending multi-root support (Task 18),
+    /// so this detaches that same first workspace explicitly by id, rather than
+    /// relying on the legacy "first/legacy" heuristic in
+    /// `WorkspaceAttachmentSupport.detachWorkspace(from:modelContext:)`.
     private func detachWorkspace() {
-        WorkspaceAttachmentSupport.detachWorkspace(from: conversation, modelContext: modelContext)
+        guard let first = attachedWorkspacesList.first else { return }
+        WorkspaceAttachmentSupport.detachWorkspace(id: first.id, from: conversation, modelContext: modelContext)
         Task { await buildViewModelIfNeeded() }
     }
 

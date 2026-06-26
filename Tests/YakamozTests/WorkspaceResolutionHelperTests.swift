@@ -3,7 +3,7 @@ import SwiftData
 import Testing
 @testable import YakamozCore
 
-struct ChatViewWorkspaceResolutionTests {
+struct WorkspaceResolutionHelperTests {
     @Test func emptyWhenNothingAttached() {
         let c = ConversationModel(title: "t")
         let workspaces = [WorkspaceModel(displayName: "a", folderPath: "/a"), WorkspaceModel(displayName: "b", folderPath: "/b")]
@@ -40,5 +40,16 @@ struct ChatViewWorkspaceResolutionTests {
 
         let resolved = WorkspaceResolutionHelper.attachedWorkspaces(for: c, in: [present])
         #expect(resolved.map(\.id) == [present.id])
+    }
+
+    @Test func legacyWorkspaceIdAlreadyInAttachedListIsNotDuplicated() {
+        let c = ConversationModel(title: "t")
+        let shared = WorkspaceModel(displayName: "shared", folderPath: "/shared")
+        c.workspaceId = shared.id
+        c.attachedWorkspaceIds = [shared.id]
+
+        let resolved = WorkspaceResolutionHelper.attachedWorkspaces(for: c, in: [shared])
+        #expect(resolved.map(\.id) == [shared.id])
+        #expect(resolved.count == 1)
     }
 }
