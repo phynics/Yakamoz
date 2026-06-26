@@ -47,6 +47,32 @@ struct WorkspaceConsistencyTests {
         #expect(!effectiveAfter.intersection(FileSystemWorkspace.toolIds).isEmpty)
     }
 
+    @Test func detachingMultiAttachIdKeepsFolderToolsWhenLegacyIdStillAttached() throws {
+        let c = ConversationModel(title: "t")
+        let container = try makeTestModelContainer()
+        let context = ModelContext(container)
+
+        // Workspace A: attached via the multi-attach array.
+        let workspaceA = WorkspaceModel(displayName: "A", folderPath: "/tmp/a", bookmarkData: nil)
+        // Workspace B: attached only via the legacy single-attach field, and does NOT match A.
+        let workspaceB = WorkspaceModel(displayName: "B", folderPath: "/tmp/b", bookmarkData: nil)
+        context.insert(workspaceA)
+        context.insert(workspaceB)
+
+        c.attachedWorkspaceIds = [workspaceA.id]
+        c.workspaceId = workspaceB.id
+        c.enabledToolIds = ConversationToolSupport.builtInToolIDs + Array(FileSystemWorkspace.toolIds)
+
+        WorkspaceAttachmentSupport.detachWorkspace(id: workspaceA.id, from: c, modelContext: context)
+
+        // attachedWorkspaceIds is now empty, but workspaceB is still logically attached via the
+        // legacy `workspaceId` field, so folder tools must remain enabled.
+        #expect(c.attachedWorkspaceIds.isEmpty)
+        #expect(c.workspaceId == workspaceB.id)
+        let effectiveAfter = ConversationToolSupport.effectiveEnabledToolIDs(c.enabledToolIds, hasWorkspace: true)
+        #expect(!effectiveAfter.intersection(FileSystemWorkspace.toolIds).isEmpty)
+    }
+
     @Test func reconcileEnabledToolsDirectlyEnforcesInvariant() throws {
         let c = ConversationModel(title: "t")
         let container = try makeTestModelContainer()

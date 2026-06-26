@@ -127,14 +127,12 @@ public enum WorkspaceAttachmentSupport {
 
         // Resolve the workspaces still attached after removal, so reconcileEnabledTools can
         // recompute enabledToolIds from the actual remaining attachments rather than just a count.
-        let remainingIds = Set(conversation.attachedWorkspaceIds)
-        let remainingWorkspaces: [WorkspaceModel]
-        if remainingIds.isEmpty {
-            remainingWorkspaces = []
-        } else {
-            let allWorkspaces = (try? modelContext.fetch(FetchDescriptor<WorkspaceModel>())) ?? []
-            remainingWorkspaces = WorkspaceResolutionHelper.attachedWorkspaces(for: conversation, in: allWorkspaces)
-        }
+        // Drive resolution off `allAttachedWorkspaceIds` (folds in the legacy `workspaceId`) so
+        // this short-circuit agrees with WorkspaceResolutionHelper's source of truth: a
+        // non-matching legacy id left on `workspaceId` still counts as an attachment even when
+        // `attachedWorkspaceIds` is empty.
+        let allWorkspaces = (try? modelContext.fetch(FetchDescriptor<WorkspaceModel>())) ?? []
+        let remainingWorkspaces = WorkspaceResolutionHelper.attachedWorkspaces(for: conversation, in: allWorkspaces)
 
         reconcileEnabledTools(for: conversation, attachedWorkspaces: remainingWorkspaces)
 
