@@ -2,3 +2,5 @@ Yakamoz.xcodeproj/
 DerivedData/
 .build/
 *.xcuserstate
+
+.worktrees/
