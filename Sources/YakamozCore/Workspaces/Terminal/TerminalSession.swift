@@ -12,6 +12,25 @@ public enum RunResult: Sendable, Equatable {
     case running(String)
 }
 
+/// Status of a session's in-flight (or most recently completed) command, as observed by
+/// `read()`/`wait(timeoutMs:)`.
+public enum TerminalStatus: Sendable, Equatable {
+    case running
+    case finished(Int32)
+}
+
+/// Result of `TerminalSession.read()`/`wait(timeoutMs:)`: output accumulated since the last
+/// `read`/`wait`/`run` call, plus the current status of the (possibly still in-flight) command.
+public struct ReadResult: Sendable, Equatable {
+    public let output: String
+    public let status: TerminalStatus
+
+    public init(output: String, status: TerminalStatus) {
+        self.output = output
+        self.status = status
+    }
+}
+
 /// Runs an interactive shell on a pseudo-terminal (via `SwiftTerm.LocalProcess`) and lets
 /// callers execute commands and observe their output and exit code.
 ///
@@ -67,6 +86,15 @@ public actor TerminalSession {
     private var pendingMark: String?
     /// Set once the underlying shell process has exited.
     private var hasExited = false
+    /// Byte offset into `buffer` marking what `read()`/`wait(timeoutMs:)` have already
+    /// surfaced to callers. Distinct from `pendingStart`: `pendingStart` tracks the start of
+    /// the *current command's* region (consumed/reset by `run`'s own marker search via
+    /// `extractFinished`), while `readCursor` tracks how much of that region `read`/`wait`
+    /// have already returned, so each call only reports output that's new since the last one.
+    private var readCursor: Int = 0
+    /// Exit code of the most recently completed command, surfaced by `read()`/`wait` when no
+    /// command is currently pending.
+    private var lastExitCode: Int32?
 
     public init(rootURL: URL) async throws {
         let adapter = DelegateAdapter()
@@ -106,12 +134,68 @@ public actor TerminalSession {
         let mark = "MARK-\(UUID().uuidString)"
         pendingMark = mark
         pendingStart = buffer.count
+        readCursor = buffer.count
 
         let line = "\(command); printf '\\n\(mark):%s\\n' \"$?\"\n"
         let bytes = Array(line.utf8)
         process.send(data: bytes[...])
 
         return await collectUntilMark(mark: mark, graceMs: graceMs)
+    }
+
+    /// Returns output accumulated since the last `read`/`wait`/`run` call, along with the
+    /// current status of the command (if any) issued by the most recent `run`.
+    ///
+    /// If a command is pending, this makes one attempt to find its completion marker (in case
+    /// it arrived between polls) before falling back to reporting partial output as
+    /// `.running`. If no command is pending, returns any unread trailing output (there
+    /// shouldn't normally be any) with `.finished` carrying the last known exit code.
+    public func read() async -> ReadResult {
+        if let mark = pendingMark {
+            if let finished = extractFinished(mark: mark) {
+                pendingMark = nil
+                lastExitCode = finished.exitCode
+                let newOutput = sinceReadCursor(upTo: finished.markerLocation)
+                readCursor = buffer.count
+                return ReadResult(output: newOutput, status: .finished(finished.exitCode))
+            }
+
+            let newOutput = sinceReadCursor(upTo: buffer.count)
+            readCursor = buffer.count
+            return ReadResult(output: newOutput, status: .running)
+        }
+
+        let newOutput = sinceReadCursor(upTo: buffer.count)
+        readCursor = buffer.count
+        return ReadResult(output: newOutput, status: .finished(lastExitCode ?? 0))
+    }
+
+    /// Polls (like `run`'s grace period) until the pending command's completion marker
+    /// appears, the shell exits, or `timeoutMs` elapses, then returns the accumulated output
+    /// since the last `read`/`wait`/`run` call along with the resulting status.
+    ///
+    /// If no command is pending when called, returns immediately (equivalent to `read()`).
+    /// Never throws: a timeout is reported as `.running`, not an error.
+    public func wait(timeoutMs: Int) async -> ReadResult {
+        guard pendingMark != nil else {
+            return await read()
+        }
+
+        let deadline = Date().addingTimeInterval(Double(timeoutMs) / 1000.0)
+        var accumulated = ""
+
+        while true {
+            let result = await read()
+            accumulated += result.output
+
+            if case let .finished(code) = result.status {
+                return ReadResult(output: accumulated, status: .finished(code))
+            }
+            if hasExited || Date() >= deadline {
+                return ReadResult(output: accumulated, status: .running)
+            }
+            try? await Task.sleep(nanoseconds: 15_000_000) // 15ms poll interval
+        }
     }
 
     /// Terminates the session's shell process. Safe to call more than once.
@@ -134,14 +218,17 @@ public actor TerminalSession {
     /// total budget of `graceMs` milliseconds. Returns `.finished` with the cleaned output
     /// and parsed exit code if the marker is found in time, or `.running` with the
     /// (cleaned) partial output so far if the budget is exhausted — in which case the
-    /// command is left pending for a future read/wait (Task 10-11).
+    /// command is left pending for a future `read`/`wait`.
     private func collectUntilMark(mark: String, graceMs: Int) async -> RunResult {
         let deadline = Date().addingTimeInterval(Double(graceMs) / 1000.0)
 
         while true {
-            if let result = extractFinished(mark: mark) {
+            if let found = extractFinished(mark: mark) {
                 pendingMark = nil
-                return result
+                lastExitCode = found.exitCode
+                pendingStart = buffer.count
+                readCursor = buffer.count
+                return .finished(found.output, found.exitCode)
             }
 
             if hasExited || Date() >= deadline {
@@ -153,9 +240,20 @@ public actor TerminalSession {
         }
     }
 
-    /// Attempts to locate `mark`'s completion line within the pending region of `buffer`.
-    /// Returns `nil` if the marker hasn't appeared yet.
-    private func extractFinished(mark: String) -> RunResult? {
+    /// A located, parsed completion marker: the cleaned output of the command that preceded
+    /// it, its exit code, and the byte offset in `buffer` where the marker line begins (the
+    /// boundary up to which `read`/`wait` should report this command's output).
+    private struct FoundMarker {
+        let output: String
+        let exitCode: Int32
+        let markerLocation: Int
+    }
+
+    /// Attempts to locate `mark`'s completion line within the pending region of `buffer`
+    /// (i.e. `buffer[pendingStart...]`). Returns `nil` if the marker hasn't appeared yet.
+    /// Does NOT mutate `pendingStart`/`readCursor` — callers (`collectUntilMark`, `read`)
+    /// decide how to advance those based on their own contract.
+    private func extractFinished(mark: String) -> FoundMarker? {
         let region = buffer[pendingStart...]
         let text = String(decoding: region, as: UTF8.self)
         let nsText = text as NSString
@@ -179,15 +277,25 @@ public actor TerminalSession {
             return nil
         }
 
-        // Output is everything before the marker line begins.
+        // Output is everything before the marker line begins (relative to the start of the
+        // pending region, then converted back into an absolute `buffer` offset below).
         let outputText = nsText.substring(to: match.range.location)
-
         let cleaned = cleanOutput(outputText, stripFirstEchoedLine: true)
 
-        // Advance past this command's region so the next `run` starts fresh.
-        pendingStart = buffer.count
+        // `match.range.location` is a UTF-16 offset into `text`, which itself starts at
+        // `pendingStart`. Recompute the absolute byte offset by re-encoding the prefix.
+        let markerLocation = pendingStart + outputText.utf8.count
 
-        return .finished(cleaned, exitCode)
+        return FoundMarker(output: cleaned, exitCode: exitCode, markerLocation: markerLocation)
+    }
+
+    /// Returns the cleaned text of `buffer[readCursor..<upperBound]`, stripping the echoed
+    /// command line only on the very first read of a command's output (i.e. when
+    /// `readCursor == pendingStart`, the offset `run` set when it issued the command).
+    private func sinceReadCursor(upTo upperBound: Int) -> String {
+        guard readCursor < upperBound else { return "" }
+        let stripEcho = readCursor == pendingStart
+        return decodeAndClean(buffer[readCursor ..< upperBound], stripFirstEchoedLine: stripEcho)
     }
 
     /// Decodes a raw byte slice as UTF-8 and applies the same cleanup as `cleanOutput`.

@@ -40,4 +40,14 @@ struct TerminalSessionTests {
         #expect(code == 1)
         await session.terminate()
     }
+
+    @Test func longCommandReturnsRunningThenFinishes() async throws {
+        let s = try await TerminalSession(rootURL: URL(fileURLWithPath: "/tmp"))
+        let first = try await s.run("sleep 1; echo done", graceMs: 200)
+        #expect({ if case .running = first { return true } else { return false } }())
+        let final = await s.wait(timeoutMs: 5000)
+        if case let .finished(code) = final.status { #expect(final.output.contains("done")); #expect(code == 0) }
+        else { Issue.record("did not finish") }
+        await s.terminate()
+    }
 }
