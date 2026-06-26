@@ -73,4 +73,106 @@ struct ConversationAttachmentTests {
         #expect(c.workspaceId == nil)
         #expect(c.attachedWorkspaceIds == [otherId])
     }
+
+    @Test func attachSecondWorkspaceKeepsFirstAttached() throws {
+        let c = ConversationModel(title: "t")
+        let container = try makeTestModelContainer()
+        let context = ModelContext(container)
+
+        let firstWorkspace = try WorkspaceAttachmentSupport.attachWorkspace(
+            to: c,
+            modelContext: context,
+            url: #require(FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first)
+        )
+        let firstId = firstWorkspace.id
+
+        let tempDir = FileManager.default.temporaryDirectory
+        let secondWorkspace = WorkspaceAttachmentSupport.attachWorkspace(
+            to: c,
+            modelContext: context,
+            url: tempDir
+        )
+        let secondId = secondWorkspace.id
+
+        // Both ids should be in attachedWorkspaceIds
+        #expect(c.attachedWorkspaceIds.contains(firstId))
+        #expect(c.attachedWorkspaceIds.contains(secondId))
+        #expect(c.attachedWorkspaceIds.count == 2)
+
+        // Folder tools should be enabled (check via effective set)
+        let effectiveTools = ConversationToolSupport.effectiveEnabledToolIDs(c.enabledToolIds, hasWorkspace: true)
+        #expect(effectiveTools.intersection(FileSystemWorkspace.toolIds).count > 0)
+    }
+
+    @Test func detachOneWorkspaceKeepsOtherAttached() throws {
+        let c = ConversationModel(title: "t")
+        let container = try makeTestModelContainer()
+        let context = ModelContext(container)
+
+        let firstWorkspace = try WorkspaceAttachmentSupport.attachWorkspace(
+            to: c,
+            modelContext: context,
+            url: #require(FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first)
+        )
+        let firstId = firstWorkspace.id
+
+        let tempDir = FileManager.default.temporaryDirectory
+        let secondWorkspace = WorkspaceAttachmentSupport.attachWorkspace(
+            to: c,
+            modelContext: context,
+            url: tempDir
+        )
+        let secondId = secondWorkspace.id
+
+        // Detach first workspace
+        WorkspaceAttachmentSupport.detachWorkspace(id: firstId, from: c, modelContext: context)
+
+        // Second should still be attached
+        #expect(c.attachedWorkspaceIds.contains(secondId))
+        #expect(!c.attachedWorkspaceIds.contains(firstId))
+
+        // Folder tools should still be enabled (because second workspace is still attached)
+        let effectiveAfterDetach = ConversationToolSupport.effectiveEnabledToolIDs(c.enabledToolIds, hasWorkspace: true)
+        #expect(effectiveAfterDetach.intersection(FileSystemWorkspace.toolIds).count > 0)
+    }
+
+    @Test func detachLastWorkspaceDisablesFolderTools() throws {
+        let c = ConversationModel(title: "t")
+        let container = try makeTestModelContainer()
+        let context = ModelContext(container)
+
+        let workspace = try WorkspaceAttachmentSupport.attachWorkspace(
+            to: c,
+            modelContext: context,
+            url: #require(FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first)
+        )
+        let workspaceId = workspace.id
+
+        // Verify folder tools are enabled
+        let effectiveBefore = ConversationToolSupport.effectiveEnabledToolIDs(c.enabledToolIds, hasWorkspace: true)
+        #expect(effectiveBefore.intersection(FileSystemWorkspace.toolIds).count > 0)
+
+        // Detach the only workspace
+        WorkspaceAttachmentSupport.detachWorkspace(id: workspaceId, from: c, modelContext: context)
+
+        // attachedWorkspaceIds should be empty
+        #expect(c.attachedWorkspaceIds.isEmpty)
+
+        // Folder tools should be disabled (when no workspace attached)
+        let effectiveAfter = ConversationToolSupport.effectiveEnabledToolIDs(c.enabledToolIds, hasWorkspace: false)
+        #expect(effectiveAfter.intersection(FileSystemWorkspace.toolIds).count == 0)
+
+        // Built-in tools should still be available if they were enabled
+        #expect(c.enabledToolIds.filter { ConversationToolSupport.builtInToolIDs.contains($0) }.count >= 0)
+    }
+}
+
+// MARK: - Test Helpers
+
+private func makeTestModelContainer() throws -> ModelContainer {
+    let config = ModelConfiguration(
+        schema: Schema(YakamozSchema.models),
+        isStoredInMemoryOnly: true
+    )
+    return try ModelContainer(for: Schema(YakamozSchema.models), configurations: config)
 }
