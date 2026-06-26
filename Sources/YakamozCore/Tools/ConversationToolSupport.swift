@@ -189,6 +189,22 @@ public enum WorkspaceAttachmentSupport {
         }
         conversation.workspaceId = nil
     }
+
+    /// Deletes any `WorkspaceModel` rows that are not referenced by any conversation's
+    /// `allAttachedWorkspaceIds` (which folds in the legacy `workspaceId` field). Safe to call
+    /// repeatedly — workspaces still referenced by at least one conversation are left untouched,
+    /// and calling this with no orphans present is a no-op.
+    public static func pruneOrphanWorkspaces(modelContext: ModelContext) {
+        let conversations = (try? modelContext.fetch(FetchDescriptor<ConversationModel>())) ?? []
+        let referencedIds = Set(conversations.flatMap(\.allAttachedWorkspaceIds))
+
+        let allWorkspaces = (try? modelContext.fetch(FetchDescriptor<WorkspaceModel>())) ?? []
+        for workspace in allWorkspaces where !referencedIds.contains(workspace.id) {
+            modelContext.delete(workspace)
+        }
+
+        try? modelContext.save()
+    }
 }
 
 /// Pure resolution helpers for turning a conversation's attached-id list into concrete

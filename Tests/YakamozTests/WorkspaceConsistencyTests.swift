@@ -96,6 +96,47 @@ struct WorkspaceConsistencyTests {
         let effective = ConversationToolSupport.effectiveEnabledToolIDs(c.enabledToolIds, hasWorkspace: true)
         #expect(!effective.intersection(FileSystemWorkspace.toolIds).isEmpty)
     }
+
+    @Test func pruneOrphanWorkspacesDeletesUnreferencedKeepsReferenced() throws {
+        let container = try makeTestModelContainer()
+        let context = ModelContext(container)
+
+        let referenced = WorkspaceModel(displayName: "Referenced", folderPath: "/tmp/referenced", bookmarkData: nil)
+        let orphaned = WorkspaceModel(displayName: "Orphaned", folderPath: "/tmp/orphaned", bookmarkData: nil)
+        context.insert(referenced)
+        context.insert(orphaned)
+
+        let c = ConversationModel(title: "t")
+        c.attachedWorkspaceIds = [referenced.id]
+        context.insert(c)
+        try context.save()
+
+        WorkspaceAttachmentSupport.pruneOrphanWorkspaces(modelContext: context)
+
+        let remaining = try context.fetch(FetchDescriptor<WorkspaceModel>())
+        let remainingIds = Set(remaining.map(\.id))
+        #expect(remainingIds.contains(referenced.id))
+        #expect(!remainingIds.contains(orphaned.id))
+    }
+
+    @Test func pruneOrphanWorkspacesKeepsLegacyOnlyReferencedWorkspace() throws {
+        let container = try makeTestModelContainer()
+        let context = ModelContext(container)
+
+        let legacyReferenced = WorkspaceModel(displayName: "Legacy", folderPath: "/tmp/legacy", bookmarkData: nil)
+        context.insert(legacyReferenced)
+
+        let c = ConversationModel(title: "t")
+        c.workspaceId = legacyReferenced.id
+        context.insert(c)
+        try context.save()
+
+        WorkspaceAttachmentSupport.pruneOrphanWorkspaces(modelContext: context)
+
+        let remaining = try context.fetch(FetchDescriptor<WorkspaceModel>())
+        let remainingIds = Set(remaining.map(\.id))
+        #expect(remainingIds.contains(legacyReferenced.id))
+    }
 }
 
 // MARK: - Test Helpers

@@ -63,6 +63,7 @@ struct YakamozApp: App {
             let schema = Schema(YakamozSchema.models)
             let configuration = ModelConfiguration(schema: schema, url: storeURL)
             let container = try ModelContainer(for: schema, configurations: configuration)
+            WorkspaceAttachmentSupport.pruneOrphanWorkspaces(modelContext: container.mainContext)
             let builtRuntime = try YakamozRuntime(modelContainer: container, settings: settings, secrets: secrets)
             modelContainer = container
             runtime = builtRuntime
