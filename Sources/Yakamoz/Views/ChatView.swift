@@ -38,7 +38,7 @@ struct ChatView: View {
     }
 
     private var attachedWorkspace: WorkspaceModel? {
-        guard let workspaceId = conversation.workspaceId else { return nil }
+        guard let workspaceId = conversation.allAttachedWorkspaceIds.first else { return nil }
         return workspaces.first { $0.id == workspaceId }
     }
 
@@ -92,7 +92,7 @@ struct ChatView: View {
         .task(id: conversation.id) {
             await buildViewModelIfNeeded()
         }
-        .task(id: conversation.workspaceId) {
+        .task(id: conversation.allAttachedWorkspaceIds.first) {
             await refreshWorkspacePresentation()
         }
         .task(id: toolSyncKey) {
@@ -131,7 +131,8 @@ struct ChatView: View {
     /// offer on its next send.
     private var toolSyncKey: String {
         let enabledToolIds = conversation.enabledToolIds.sorted().joined(separator: ",")
-        return "\(conversation.workspaceId?.uuidString ?? "-")|\(enabledToolIds)"
+        let attachedWorkspaceId = conversation.allAttachedWorkspaceIds.first?.uuidString ?? "-"
+        return "\(attachedWorkspaceId)|\(enabledToolIds)"
     }
 
     private func chatBody(viewModel: ChatViewModel) -> some View {
@@ -220,7 +221,7 @@ struct ChatView: View {
     private func buildViewModelIfNeeded() async {
         guard let runtime else { return }
         workspacePromptId = nil
-        // Backfill legacy single-workspace attachment into the array (Task 2 one-time migration).
+        // Idempotent backfill: move legacy single-workspace attachment into the array on rebuild.
         WorkspaceAttachmentSupport.backfillLegacyAttachment(conversation)
         let chat = await runtime.makeChatViewModel(
             timelineId: conversation.id,
@@ -262,7 +263,7 @@ struct ChatView: View {
     }
 
     private func offerWorkspacePromptIfNeeded(in viewModel: ChatViewModel) {
-        guard conversation.workspaceId == nil else { return }
+        guard conversation.allAttachedWorkspaceIds.isEmpty else { return }
         guard dismissedWorkspacePromptConversationId != conversation.id else { return }
         guard workspacePromptId == nil else { return }
         guard viewModel.transcript.allSatisfy({ item in

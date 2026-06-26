@@ -105,8 +105,8 @@ public enum WorkspaceAttachmentSupport {
         try? modelContext.save()
     }
 
-    /// One-time backfill: moves a non-nil `workspaceId` into `attachedWorkspaceIds` and nils
-    /// the legacy field. Idempotent — safe to call every time a conversation loads.
+    /// Idempotent backfill: moves a non-nil `workspaceId` into `attachedWorkspaceIds` and nils
+    /// the legacy field. Safe to call every time a conversation loads; repeated calls are no-ops.
     ///
     /// If `workspaceId` is nil, this is a no-op. If the legacy id is already present in
     /// `attachedWorkspaceIds`, it is not duplicated.
