@@ -169,6 +169,7 @@ struct ChatView: View {
                         onSetToolEnabled: setToolEnabled,
                         isOpen: $isInspectorOpen,
                         selectedTabRaw: $selectedInspectorTabRaw,
+                        canSelectTurn: { viewModel.canSelectInspectionTurn($0) },
                         onSelectTurn: { viewModel.selectInspectionTurn($0) }
                     )
                 }

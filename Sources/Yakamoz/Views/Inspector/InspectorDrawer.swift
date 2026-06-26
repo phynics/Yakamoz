@@ -82,6 +82,7 @@ struct InspectorDrawer: View {
 
     /// Navigates to an adjacent turn within the same conversation. Wired by `ChatView`
     /// so the Journal tab's prev/next buttons reuse the same selection path as bubble taps.
+    let canSelectTurn: (Int) -> Bool
     let onSelectTurn: (Int) -> Void
 
     private var selectedTab: InspectorTab {
@@ -196,7 +197,11 @@ struct InspectorDrawer: View {
         case .sent:
             SentInspectorView(inspection: inspection)
         case .journal:
-            JournalInspectorView(inspection: inspection, onSelectTurn: onSelectTurn)
+            JournalInspectorView(
+                inspection: inspection,
+                canSelectTurn: canSelectTurn,
+                onSelectTurn: onSelectTurn
+            )
         case .response:
             ResponseInspectorView(inspection: inspection)
         case .tools, .workspace:

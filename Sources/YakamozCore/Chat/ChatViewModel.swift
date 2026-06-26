@@ -120,13 +120,24 @@ public final class ChatViewModel {
     /// Selects a persisted inspection row directly. Used by the journal navigation buttons,
     /// which operate on inspection rows rather than transcript bubble indices.
     public func selectInspectionTurn(_ turnIndex: Int?) {
-        selectedInspectionTurnIndex = turnIndex
-        guard let turnIndex else { return }
+        guard let turnIndex else {
+            selectedTurnIndex = nil
+            selectedInspectionTurnIndex = nil
+            return
+        }
         if let matchingBubble = transcript.first(where: { item in
             guard case let .assistant(_, turn) = item else { return false }
             return turn.inspectionTurnIndex == turnIndex
         }), case let .assistant(_, turn) = matchingBubble {
             selectedTurnIndex = turn.turnIndex
+            selectedInspectionTurnIndex = turnIndex
+        }
+    }
+
+    public func canSelectInspectionTurn(_ turnIndex: Int) -> Bool {
+        transcript.contains { item in
+            guard case let .assistant(_, turn) = item else { return false }
+            return turn.inspectionTurnIndex == turnIndex
         }
     }
 

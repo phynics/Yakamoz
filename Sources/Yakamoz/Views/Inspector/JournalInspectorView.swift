@@ -6,6 +6,7 @@ import YakamozCore
 /// compaction marker — with prev/next navigation to adjacent turns.
 struct JournalInspectorView: View {
     let inspection: InspectionPresentation
+    let canSelectTurn: (Int) -> Bool
     let onSelectTurn: (Int) -> Void
 
     private var journal: JournalDTO {
@@ -45,7 +46,7 @@ struct JournalInspectorView: View {
             } label: {
                 Image(systemName: "chevron.left")
             }
-            .disabled(inspection.turnIndex <= 0)
+            .disabled(!canSelectTurn(inspection.turnIndex - 1))
             .accessibilityLabel("Previous turn")
 
             Text("Turn \(inspection.turnIndex)")
@@ -57,6 +58,7 @@ struct JournalInspectorView: View {
             } label: {
                 Image(systemName: "chevron.right")
             }
+            .disabled(!canSelectTurn(inspection.turnIndex + 1))
             .accessibilityLabel("Next turn")
         }
         .buttonStyle(.borderless)

@@ -470,6 +470,78 @@ struct ChatViewModelTests {
         #expect(viewModel.selectedTurnIndex == 3)
         #expect(viewModel.selectedInspectionTurnIndex == 7)
     }
+
+    @Test("Nil direct inspection selection clears transcript selection")
+    func nilInspectionSelectionClearsTranscriptSelection() {
+        let runner = ScriptedRunner()
+        let viewModel = ChatViewModel(
+            timelineId: UUID(),
+            runner: runner,
+            initialTranscript: [
+                .assistant(
+                    id: UUID(),
+                    turn: {
+                        var turn = ChatTurnState(turnIndex: 3)
+                        turn.inspectionTurnIndex = 7
+                        return turn
+                    }()
+                ),
+            ]
+        )
+
+        viewModel.selectTurn(3)
+        viewModel.selectInspectionTurn(nil)
+
+        #expect(viewModel.selectedTurnIndex == nil)
+        #expect(viewModel.selectedInspectionTurnIndex == nil)
+    }
+
+    @Test("Direct inspection selection ignores nonexistent transcript turns")
+    func missingInspectionSelectionPreservesCurrentSelection() {
+        let runner = ScriptedRunner()
+        let viewModel = ChatViewModel(
+            timelineId: UUID(),
+            runner: runner,
+            initialTranscript: [
+                .assistant(
+                    id: UUID(),
+                    turn: {
+                        var turn = ChatTurnState(turnIndex: 3)
+                        turn.inspectionTurnIndex = 7
+                        return turn
+                    }()
+                ),
+            ]
+        )
+
+        viewModel.selectTurn(3)
+        viewModel.selectInspectionTurn(8)
+
+        #expect(viewModel.selectedTurnIndex == 3)
+        #expect(viewModel.selectedInspectionTurnIndex == 7)
+    }
+
+    @Test("Direct inspection selection exposes selectable turn availability")
+    func directInspectionSelectionAvailability() {
+        let runner = ScriptedRunner()
+        let viewModel = ChatViewModel(
+            timelineId: UUID(),
+            runner: runner,
+            initialTranscript: [
+                .assistant(
+                    id: UUID(),
+                    turn: {
+                        var turn = ChatTurnState(turnIndex: 3)
+                        turn.inspectionTurnIndex = 7
+                        return turn
+                    }()
+                ),
+            ]
+        )
+
+        #expect(viewModel.canSelectInspectionTurn(7))
+        #expect(!viewModel.canSelectInspectionTurn(8))
+    }
 }
 
 /// A `ChatRunning` fake whose `run` throws immediately, for exercising the
