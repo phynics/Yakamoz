@@ -55,6 +55,9 @@ public final class ConversationModel {
     public var typedReplyEnabled: Bool
     /// When `true`, an `AutonomousFollowUpPlugin` injects one bounded follow-up per send.
     public var autonomousFollowUpEnabled: Bool
+    /// Additional workspace ids attached to this conversation (beyond the legacy single
+    /// `workspaceId`).
+    public var attachedWorkspaceIds: [UUID]
 
     public init(
         id: UUID = UUID(),
@@ -65,7 +68,8 @@ public final class ConversationModel {
         workspaceId: UUID? = nil,
         personaSlug: String? = nil,
         typedReplyEnabled: Bool = false,
-        autonomousFollowUpEnabled: Bool = false
+        autonomousFollowUpEnabled: Bool = false,
+        attachedWorkspaceIds: [UUID] = []
     ) {
         self.id = id
         self.title = title
@@ -76,6 +80,7 @@ public final class ConversationModel {
         self.personaSlug = personaSlug
         self.typedReplyEnabled = typedReplyEnabled
         self.autonomousFollowUpEnabled = autonomousFollowUpEnabled
+        self.attachedWorkspaceIds = attachedWorkspaceIds
     }
 }
 
@@ -417,5 +422,23 @@ public final class RequestOriginModel {
         self.platform = platform
         self.registeredAt = registeredAt
         self.lastSeenAt = lastSeenAt
+    }
+}
+
+// MARK: - ConversationModel Computed Properties
+
+public extension ConversationModel {
+    /// All workspace ids attached to this conversation: `attachedWorkspaceIds`, with the legacy
+    /// `workspaceId` prepended if non-nil and not already present. Ordering beyond that (legacy
+    /// first) is not otherwise guaranteed. Does not dedup within `attachedWorkspaceIds` itself —
+    /// callers populating that array directly are responsible for not inserting duplicates.
+    var allAttachedWorkspaceIds: [UUID] {
+        guard let legacyId = workspaceId else {
+            return attachedWorkspaceIds
+        }
+        if attachedWorkspaceIds.contains(legacyId) {
+            return attachedWorkspaceIds
+        }
+        return [legacyId] + attachedWorkspaceIds
     }
 }
