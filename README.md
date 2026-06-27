@@ -83,8 +83,9 @@ It is mitigated by a **per-command user permission prompt**: every `terminal_run
 default-deny approval (`TerminalCommandApproving` / `MainActorApprover`) surfaced as an in-chat
 banner — Approve, Deny, or "Allow for this terminal" (per-terminal opt-out of further prompts).
 If no approver is wired, every command is denied, so the backend is never an un-gated
-arbitrary-exec primitive. Sessions are kept alive across timeline switches and are torn down on
-detach and on app quit; **live shell state does not survive relaunch** (only the attachment does).
+arbitrary-exec primitive. Sessions are kept alive across timeline switches and are torn down when
+the terminal is detached, when its conversation is deleted, and on app quit; **live shell state
+does not survive relaunch** (only the attachment does).
 Do not copy this unconfined-shell pattern into anything that requires real isolation.
 
 ## Where data is stored

@@ -169,6 +169,42 @@ struct WorkspaceConsistencyTests {
         #expect(!remainingWorkspaceIds.contains(workspaceW.id))
         #expect(remainingWorkspaceIds.contains(workspaceV.id))
     }
+
+    @Test func deleteConversationReturnsOrphanedTerminalIdsForSessionTeardown() throws {
+        let container = try makeTestModelContainer()
+        let context = ModelContext(container)
+
+        let folder = WorkspaceModel(displayName: "F", folderPath: "/tmp/f")
+        let terminal = WorkspaceModel(displayName: "T", folderPath: "/tmp/f", kind: .terminal)
+        context.insert(folder)
+        context.insert(terminal)
+
+        let c = ConversationModel(title: "c")
+        c.attachedWorkspaceIds = [folder.id, terminal.id]
+        context.insert(c)
+        try context.save()
+
+        // Deleting the conversation orphans both rows; only the terminal id is returned (its
+        // live session must be torn down by the caller — the folder has no session).
+        let orphanedTerminalIds = WorkspaceAttachmentSupport.deleteConversation(c, modelContext: context)
+        #expect(orphanedTerminalIds == [terminal.id])
+    }
+
+    @Test func pruneReturnsOnlyTerminalIdsNotFolderIds() throws {
+        let container = try makeTestModelContainer()
+        let context = ModelContext(container)
+
+        // Both unreferenced (no conversation attaches them) → both pruned, but only the
+        // terminal id is reported for session teardown.
+        let orphanFolder = WorkspaceModel(displayName: "OF", folderPath: "/tmp/of")
+        let orphanTerminal = WorkspaceModel(displayName: "OT", folderPath: "/tmp/ot", kind: .terminal)
+        context.insert(orphanFolder)
+        context.insert(orphanTerminal)
+        try context.save()
+
+        let prunedTerminalIds = WorkspaceAttachmentSupport.pruneOrphanWorkspaces(modelContext: context)
+        #expect(prunedTerminalIds == [orphanTerminal.id])
+    }
 }
 
 // MARK: - Test Helpers

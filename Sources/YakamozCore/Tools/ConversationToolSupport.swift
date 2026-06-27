@@ -158,26 +158,26 @@ public enum WorkspaceAttachmentSupport {
     /// Recomputes `conversation.enabledToolIds` so it never references tools whose backing
     /// workspace is no longer attached — the central invariant for tool-id consistency.
     ///
-    /// Forward-compat note: `WorkspaceModel` does not yet have a `kind` field (folder vs.
-    /// terminal workspaces are not yet distinguished). This function is kind-agnostic for now —
-    /// every attached workspace is treated as a folder workspace, so folder tools
-    /// (`FileSystemWorkspace.toolIds`) are allowed iff `attachedWorkspaces` is non-empty. Once
-    /// `WorkspaceModel.kind` exists, this can be extended to per-kind reconciliation (folder tools
-    /// iff any folder workspace remains; terminal tools iff any terminal workspace remains)
-    /// without changing this signature, since it already takes the resolved `[WorkspaceModel]`s.
+    /// Recomputes `conversation.enabledToolIds` from the *kinds* of the currently-attached
+    /// workspaces: folder tools (`FileSystemWorkspace.toolIds`) stay enabled iff a folder
+    /// workspace remains attached, and terminal tools iff a terminal workspace remains. Routing
+    /// through `effectiveEnabledToolIDs`/`persistedEnabledToolIDs` (whose `available` set excludes
+    /// the now-ungated kinds) drops any tool ids whose backing workspace kind is gone, so
+    /// `enabledToolIds` never references a tool with no attached workspace of its kind.
     public static func reconcileEnabledTools(for conversation: ConversationModel, attachedWorkspaces: [WorkspaceModel]) {
-        let hasFolder = !attachedWorkspaces.isEmpty
+        let hasFolder = attachedWorkspaces.contains { $0.kind == .folder }
+        let hasTerminal = attachedWorkspaces.contains { $0.kind == .terminal }
 
-        if hasFolder {
-            conversation.enabledToolIds = ConversationToolSupport.persistedEnabledToolIDs(
-                ConversationToolSupport.effectiveEnabledToolIDs(conversation.enabledToolIds, hasWorkspace: true),
-                hasWorkspace: true
-            )
-        } else {
-            let selectedTools = ConversationToolSupport.effectiveEnabledToolIDs(conversation.enabledToolIds, hasWorkspace: true)
-                .subtracting(FileSystemWorkspace.toolIds)
-            conversation.enabledToolIds = ConversationToolSupport.persistedEnabledToolIDs(selectedTools, hasWorkspace: false)
-        }
+        let reconciled = ConversationToolSupport.effectiveEnabledToolIDs(
+            conversation.enabledToolIds,
+            hasWorkspace: hasFolder,
+            hasTerminal: hasTerminal
+        )
+        conversation.enabledToolIds = ConversationToolSupport.persistedEnabledToolIDs(
+            reconciled,
+            hasWorkspace: hasFolder,
+            hasTerminal: hasTerminal
+        )
     }
 
     /// Detaches the first (or legacy single) attached workspace from the conversation.
@@ -210,23 +210,33 @@ public enum WorkspaceAttachmentSupport {
     /// `allAttachedWorkspaceIds` (which folds in the legacy `workspaceId` field). Safe to call
     /// repeatedly — workspaces still referenced by at least one conversation are left untouched,
     /// and calling this with no orphans present is a no-op.
-    public static func pruneOrphanWorkspaces(modelContext: ModelContext) {
+    ///
+    /// Returns the ids of any pruned **terminal** workspaces so the caller can tear down their
+    /// live `TerminalSession`s in the runtime's registry (this layer is pure-SwiftData and has
+    /// no access to the registry).
+    @discardableResult
+    public static func pruneOrphanWorkspaces(modelContext: ModelContext) -> [UUID] {
         let conversations = (try? modelContext.fetch(FetchDescriptor<ConversationModel>())) ?? []
         let referencedIds = Set(conversations.flatMap(\.allAttachedWorkspaceIds))
 
         let allWorkspaces = (try? modelContext.fetch(FetchDescriptor<WorkspaceModel>())) ?? []
+        var prunedTerminalIds: [UUID] = []
         for workspace in allWorkspaces where !referencedIds.contains(workspace.id) {
+            if workspace.kind == .terminal { prunedTerminalIds.append(workspace.id) }
             modelContext.delete(workspace)
         }
 
         try? modelContext.save()
+        return prunedTerminalIds
     }
 
-    /// Deletes `conversation` and cleans up any workspaces it was the sole referrer of.
-    public static func deleteConversation(_ conversation: ConversationModel, modelContext: ModelContext) {
+    /// Deletes `conversation` and cleans up any workspaces it was the sole referrer of. Returns
+    /// the ids of pruned terminal workspaces so the caller can terminate their live sessions.
+    @discardableResult
+    public static func deleteConversation(_ conversation: ConversationModel, modelContext: ModelContext) -> [UUID] {
         modelContext.delete(conversation)
         try? modelContext.save()
-        pruneOrphanWorkspaces(modelContext: modelContext)
+        return pruneOrphanWorkspaces(modelContext: modelContext)
     }
 
     /// Creates and attaches a terminal workspace to `conversation`, rooted at `folder`'s path

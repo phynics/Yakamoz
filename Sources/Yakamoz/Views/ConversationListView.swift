@@ -87,7 +87,15 @@ struct ConversationListView: View {
             if selection?.id == conversation.id {
                 selection = nil
             }
-            WorkspaceAttachmentSupport.deleteConversation(conversation, modelContext: modelContext)
+            let orphanedTerminalIds = WorkspaceAttachmentSupport.deleteConversation(conversation, modelContext: modelContext)
+            // Tear down any live shells whose terminal workspace was just pruned.
+            if !orphanedTerminalIds.isEmpty, let runtime {
+                Task {
+                    for id in orphanedTerminalIds {
+                        await runtime.terminalRegistry.terminate(id: id)
+                    }
+                }
+            }
         }
     }
 }
