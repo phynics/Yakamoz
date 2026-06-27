@@ -21,6 +21,13 @@ private struct SecretStoringKey: EnvironmentKey {
     static let defaultValue: (any SecretStoring)? = nil
 }
 
+/// Typed environment key for the terminal command approver (YAK-T5). The same instance is
+/// injected into `YakamozRuntime` (so `terminal_run` tools route approvals through it) and
+/// exposed here so `ChatView` can render the approval banner from its pending list.
+private struct TerminalApproverKey: EnvironmentKey {
+    static let defaultValue: MainActorApprover? = nil
+}
+
 extension EnvironmentValues {
     var yakamozRuntime: YakamozRuntime? {
         get { self[YakamozRuntimeKey.self] }
@@ -36,6 +43,11 @@ extension EnvironmentValues {
         get { self[SecretStoringKey.self] }
         set { self[SecretStoringKey.self] = newValue }
     }
+
+    var terminalApprover: MainActorApprover? {
+        get { self[TerminalApproverKey.self] }
+        set { self[TerminalApproverKey.self] = newValue }
+    }
 }
 
 @main
@@ -44,6 +56,7 @@ struct YakamozApp: App {
     private let runtime: YakamozRuntime?
     private let settings: ProviderSettings
     private let secrets: any SecretStoring
+    private let terminalApprover: MainActorApprover
     private let setupError: String?
 
     @State private var coordinator = UICoordinator()
@@ -53,6 +66,10 @@ struct YakamozApp: App {
         let secrets = UserDefaultsSecretStore()
         self.settings = settings
         self.secrets = secrets
+        // Owned here so the same instance backs both the runtime's terminal tools (approval
+        // gate) and ChatView's approval banner (pending list).
+        let approver = MainActorApprover()
+        terminalApprover = approver
 
         var resolvedStoreDescription = "(store URL not yet resolved)"
         do {
@@ -64,7 +81,7 @@ struct YakamozApp: App {
             let configuration = ModelConfiguration(schema: schema, url: storeURL)
             let container = try ModelContainer(for: schema, configurations: configuration)
             WorkspaceAttachmentSupport.pruneOrphanWorkspaces(modelContext: container.mainContext)
-            let builtRuntime = try YakamozRuntime(modelContainer: container, settings: settings, secrets: secrets)
+            let builtRuntime = try YakamozRuntime(modelContainer: container, settings: settings, secrets: secrets, terminalApprover: approver)
             modelContainer = container
             runtime = builtRuntime
             setupError = nil
@@ -174,6 +191,7 @@ struct YakamozApp: App {
                     .environment(\.yakamozRuntime, runtime)
                     .environment(\.providerSettings, settings)
                     .environment(\.secretStore, secrets)
+                    .environment(\.terminalApprover, terminalApprover)
                     .environment(\.uiCoordinator, coordinator)
                     .frame(minWidth: 900, minHeight: 620)
             } else {

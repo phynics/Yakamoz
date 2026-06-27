@@ -11,6 +11,7 @@ struct ChatView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.yakamozRuntime) private var runtime
     @Environment(\.uiCoordinator) private var coordinator
+    @Environment(\.terminalApprover) private var terminalApprover
 
     @State private var viewModel: ChatViewModel?
     @State private var inspectionViewModel: InspectionViewModel?
@@ -172,6 +173,10 @@ struct ChatView: View {
         GeometryReader { proxy in
             HStack(spacing: 0) {
                 VStack(spacing: 0) {
+                    if let terminalApprover, !terminalApprover.pending.isEmpty {
+                        TerminalApprovalBanner(approver: terminalApprover)
+                    }
+
                     conversationStack(viewModel: viewModel)
                         .onChange(of: viewModel.selectedInspectionTurnIndex) { _, newIndex in
                             Task { await inspectionViewModel?.select(conversationId: conversation.id, turnIndex: newIndex) }
