@@ -194,6 +194,12 @@ struct YakamozApp: App {
                     .environment(\.terminalApprover, terminalApprover)
                     .environment(\.uiCoordinator, coordinator)
                     .frame(minWidth: 900, minHeight: 620)
+                    .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+                        // Best-effort teardown of any live terminal shells on quit (YAK-T5).
+                        // The OS also reaps these child processes when the app exits; this is the
+                        // clean path. No relaunch survival — sessions are not persisted.
+                        Task { await runtime.terminalRegistry.terminateAll() }
+                    }
             } else {
                 ContentUnavailableView(
                     "Yakamoz Failed to Start",

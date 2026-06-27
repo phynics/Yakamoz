@@ -70,6 +70,23 @@ security-scoped bookmark is still captured when a folder is attached so the path
 relaunches. If you harden this into a sandboxed build, you must resolve and `startAccessing`
 those bookmarks before tool use.
 
+## Terminal workspaces and the unjailed-shell tradeoff
+
+A folder workspace can also spin up a **terminal workspace** ("Create Terminal" on the folder
+chip): a persistent, PTY-backed shell the agent drives through five tools (`terminal_run` plus
+`terminal_read`/`terminal_send_input`/`terminal_interrupt`/`terminal_wait`). The shell is a real
+login shell rooted at the folder, and is **not confined** to that folder — it can `cd` anywhere
+the user can. This is inherent to offering a usable shell and is **accepted deliberately**,
+consistent with Yakamoz being a non-sandboxed, single-user local dev/showcase app.
+
+It is mitigated by a **per-command user permission prompt**: every `terminal_run` is gated by a
+default-deny approval (`TerminalCommandApproving` / `MainActorApprover`) surfaced as an in-chat
+banner — Approve, Deny, or "Allow for this terminal" (per-terminal opt-out of further prompts).
+If no approver is wired, every command is denied, so the backend is never an un-gated
+arbitrary-exec primitive. Sessions are kept alive across timeline switches and are torn down on
+detach and on app quit; **live shell state does not survive relaunch** (only the attachment does).
+Do not copy this unconfined-shell pattern into anything that requires real isolation.
+
 ## Where data is stored
 
 The SwiftData store location is **explicit**, not left to SwiftData's implicit default
