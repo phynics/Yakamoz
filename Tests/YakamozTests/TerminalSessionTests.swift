@@ -92,12 +92,13 @@ struct TerminalSessionTests {
 
     @Test func fakeMarkerWithDifferentUUIDDoesNotTerminateEarly() async throws {
         let session = try await TerminalSession(rootURL: URL(fileURLWithPath: "/tmp"))
-        let result = try await session.run("echo 'MARK-fake:0'", graceMs: 4000)
+        let result = try await session.run("echo 'END-fake:0'; echo 'BEGIN-fake'", graceMs: 4000)
         guard case let .finished(output, code) = result else {
             Issue.record("expected finished, got \(result)"); return
         }
         #expect(code == 0)
-        #expect(output.contains("MARK-fake"))
+        #expect(output.contains("END-fake:0"))
+        #expect(output.contains("BEGIN-fake"))
         await session.terminate()
     }
 
@@ -112,6 +113,24 @@ struct TerminalSessionTests {
         #expect(!output.contains("\u{1B}"))
         #expect(!output.contains("[31m"))
         #expect(!output.contains("[0m"))
+        #expect(!output.contains("printf"))
+        #expect(!output.contains("BEGIN-"))
+        #expect(!output.contains("END-"))
+        await session.terminate()
+    }
+
+    @Test func longCommandEchoDoesNotLeakIntoOutput() async throws {
+        let session = try await TerminalSession(rootURL: URL(fileURLWithPath: "/tmp"))
+        let payload = String(repeating: "x", count: 120)
+        let result = try await session.run("echo \(payload)", graceMs: 4000)
+        guard case let .finished(output, code) = result else {
+            Issue.record("expected finished, got \(result)"); return
+        }
+        #expect(code == 0)
+        #expect(output == payload)
+        #expect(!output.contains("echo"))
+        #expect(!output.contains("BEGIN-"))
+        #expect(!output.contains("END-"))
         await session.terminate()
     }
 }
