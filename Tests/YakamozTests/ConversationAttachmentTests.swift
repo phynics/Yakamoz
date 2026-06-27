@@ -165,6 +165,29 @@ struct ConversationAttachmentTests {
         // Built-in tools should still be available if they were enabled
         #expect(c.enabledToolIds.filter { ConversationToolSupport.builtInToolIDs.contains($0) }.count >= 0)
     }
+
+    @Test func attachTerminalCreatesTerminalWorkspaceAndEnablesTerminalTools() throws {
+        let container = try makeTestModelContainer()
+        let context = ModelContext(container)
+
+        let folder = WorkspaceModel(displayName: "proj", folderPath: "/tmp/proj")
+        context.insert(folder)
+        let c = ConversationModel(title: "t")
+        c.attachedWorkspaceIds = [folder.id]
+        context.insert(c)
+        try context.save()
+
+        let terminal = WorkspaceAttachmentSupport.attachTerminal(to: c, fromFolder: folder, modelContext: context)
+
+        // A terminal-kind workspace rooted at the folder's path was created and attached.
+        #expect(terminal.kind == .terminal)
+        #expect(terminal.folderPath == "/tmp/proj")
+        #expect(c.allAttachedWorkspaceIds.contains(terminal.id))
+
+        // The five terminal tools are now enabled.
+        let effective = ConversationToolSupport.effectiveEnabledToolIDs(c.enabledToolIds, hasWorkspace: true, hasTerminal: true)
+        #expect(effective.isSuperset(of: TerminalWorkspace.toolIds))
+    }
 }
 
 // MARK: - Test Helpers

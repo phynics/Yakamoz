@@ -228,6 +228,38 @@ public enum WorkspaceAttachmentSupport {
         try? modelContext.save()
         pruneOrphanWorkspaces(modelContext: modelContext)
     }
+
+    /// Creates and attaches a terminal workspace to `conversation`, rooted at `folder`'s path
+    /// (YAK-T5). Inserts a `WorkspaceModel(kind: .terminal)` whose `folderPath` is the shell's
+    /// initial working directory, appends its id to `attachedWorkspaceIds`, and enables the five
+    /// terminal tool ids while preserving the conversation's existing (folder/built-in) tools.
+    @discardableResult
+    public static func attachTerminal(
+        to conversation: ConversationModel,
+        fromFolder folder: WorkspaceModel,
+        modelContext: ModelContext
+    ) -> WorkspaceModel {
+        let terminal = WorkspaceModel(
+            displayName: "Terminal — \(folder.displayName)",
+            folderPath: folder.folderPath,
+            bookmarkData: nil,
+            kind: .terminal
+        )
+        modelContext.insert(terminal)
+        conversation.attachedWorkspaceIds.append(terminal.id)
+
+        // Whether a folder workspace remains attached governs whether folder tools stay offered.
+        let allWorkspaces = (try? modelContext.fetch(FetchDescriptor<WorkspaceModel>())) ?? []
+        let attached = WorkspaceResolutionHelper.attachedWorkspaces(for: conversation, in: allWorkspaces)
+        let hasFolder = attached.contains { $0.kind == .folder }
+
+        let selected = ConversationToolSupport.effectiveEnabledToolIDs(conversation.enabledToolIds, hasWorkspace: hasFolder, hasTerminal: false)
+            .union(TerminalWorkspace.toolIds)
+        conversation.enabledToolIds = ConversationToolSupport.persistedEnabledToolIDs(selected, hasWorkspace: hasFolder, hasTerminal: true)
+
+        try? modelContext.save()
+        return terminal
+    }
 }
 
 /// Pure resolution helpers for turning a conversation's attached-id list into concrete

@@ -12,6 +12,7 @@ struct WorkspacePicker: View {
     @Bindable var conversation: ConversationModel
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.yakamozRuntime) private var runtime
     @Query private var workspaces: [WorkspaceModel]
 
     private var attachedWorkspaces: [WorkspaceModel] {
@@ -31,17 +32,7 @@ struct WorkspacePicker: View {
                 .accessibilityLabel("Attach folder workspace")
             } else {
                 ForEach(attachedWorkspaces) { workspace in
-                    Label(workspace.displayName, systemImage: "folder.fill")
-                        .font(.caption)
-                        .lineLimit(1)
-                    Button {
-                        detachWorkspace(id: workspace.id)
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Detach \(workspace.displayName)")
-                    .accessibilityLabel("Detach \(workspace.displayName)")
+                    chip(for: workspace)
                 }
 
                 Button {
@@ -53,6 +44,46 @@ struct WorkspacePicker: View {
                 .help("Attach another folder workspace")
                 .accessibilityLabel("Attach another folder workspace")
             }
+        }
+    }
+
+    /// A folder chip is a menu offering "Create Terminal" and "Detach"; a terminal chip shows a
+    /// terminal icon with a detach button (detaching a terminal also tears down its live session).
+    @ViewBuilder
+    private func chip(for workspace: WorkspaceModel) -> some View {
+        switch workspace.kind {
+        case .folder:
+            Menu {
+                Button {
+                    createTerminal(from: workspace)
+                } label: {
+                    Label("Create Terminal", systemImage: "terminal")
+                }
+                Button(role: .destructive) {
+                    detach(workspace)
+                } label: {
+                    Label("Detach", systemImage: "xmark.circle")
+                }
+            } label: {
+                Label(workspace.displayName, systemImage: "folder.fill")
+                    .font(.caption)
+                    .lineLimit(1)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help(workspace.displayName)
+        case .terminal:
+            Label(workspace.displayName, systemImage: "terminal")
+                .font(.caption)
+                .lineLimit(1)
+            Button {
+                detach(workspace)
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+            }
+            .buttonStyle(.borderless)
+            .help("Detach \(workspace.displayName)")
+            .accessibilityLabel("Detach \(workspace.displayName)")
         }
     }
 
@@ -72,7 +103,17 @@ struct WorkspacePicker: View {
         WorkspaceAttachmentSupport.attachWorkspace(to: conversation, modelContext: modelContext, url: url)
     }
 
-    private func detachWorkspace(id: UUID) {
+    private func createTerminal(from folder: WorkspaceModel) {
+        WorkspaceAttachmentSupport.attachTerminal(to: conversation, fromFolder: folder, modelContext: modelContext)
+    }
+
+    private func detach(_ workspace: WorkspaceModel) {
+        let id = workspace.id
+        let isTerminal = workspace.kind == .terminal
         WorkspaceAttachmentSupport.detachWorkspace(id: id, from: conversation, modelContext: modelContext)
+        // A terminal's live shell must be torn down when its workspace is detached.
+        if isTerminal, let runtime {
+            Task { await runtime.terminalRegistry.terminate(id: id) }
+        }
     }
 }
