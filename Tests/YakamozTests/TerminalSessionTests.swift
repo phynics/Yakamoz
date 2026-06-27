@@ -89,4 +89,29 @@ struct TerminalSessionTests {
         #expect(afterCode == 0)
         await s.terminate()
     }
+
+    @Test func fakeMarkerWithDifferentUUIDDoesNotTerminateEarly() async throws {
+        let session = try await TerminalSession(rootURL: URL(fileURLWithPath: "/tmp"))
+        let result = try await session.run("echo 'MARK-fake:0'", graceMs: 4000)
+        guard case let .finished(output, code) = result else {
+            Issue.record("expected finished, got \(result)"); return
+        }
+        #expect(code == 0)
+        #expect(output.contains("MARK-fake"))
+        await session.terminate()
+    }
+
+    @Test func ansiEscapeCodesAreStrippedFromOutput() async throws {
+        let session = try await TerminalSession(rootURL: URL(fileURLWithPath: "/tmp"))
+        let result = try await session.run("printf '\\033[31mRED\\033[0m\\n'", graceMs: 4000)
+        guard case let .finished(output, code) = result else {
+            Issue.record("expected finished, got \(result)"); return
+        }
+        #expect(code == 0)
+        #expect(output.contains("RED"))
+        #expect(!output.contains("\u{1B}"))
+        #expect(!output.contains("[31m"))
+        #expect(!output.contains("[0m"))
+        await session.terminate()
+    }
 }
