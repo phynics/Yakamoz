@@ -11,6 +11,7 @@ struct ChatView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.yakamozRuntime) private var runtime
     @Environment(\.uiCoordinator) private var coordinator
+    @Environment(\.terminalApprover) private var terminalApprover
 
     @State private var viewModel: ChatViewModel?
     @State private var inspectionViewModel: InspectionViewModel?
@@ -37,24 +38,58 @@ struct ChatView: View {
         return nil
     }
 
-    private var attachedWorkspace: WorkspaceModel? {
-        guard let workspaceId = conversation.workspaceId else { return nil }
-        return workspaces.first { $0.id == workspaceId }
+    private var attachedWorkspacesList: [WorkspaceModel] {
+        WorkspaceResolutionHelper.attachedWorkspaces(for: conversation, in: workspaces)
+    }
+
+    /// Attached folder workspaces only (drives the filesystem tools' jail root and the
+    /// Workspace inspector presentation).
+    private var attachedFolderWorkspaces: [WorkspaceModel] {
+        attachedWorkspacesList.filter { $0.kind == .folder }
+    }
+
+    /// Attached terminal workspaces only (each becomes a `TerminalToolContext` so the runtime
+    /// builds that terminal's five tools).
+    private var attachedTerminalWorkspaces: [WorkspaceModel] {
+        attachedWorkspacesList.filter { $0.kind == .terminal }
+    }
+
+    private var hasFolderWorkspace: Bool {
+        !attachedFolderWorkspaces.isEmpty
+    }
+
+    private var hasTerminalWorkspace: Bool {
+        !attachedTerminalWorkspaces.isEmpty
     }
 
     private var workspaceRoot: URL? {
-        attachedWorkspace.map { URL(fileURLWithPath: $0.folderPath) }
+        attachedFolderWorkspaces.first.map { URL(fileURLWithPath: $0.folderPath) }
+    }
+
+    private var terminalContexts: [TerminalToolContext] {
+        attachedTerminalWorkspaces.map {
+            TerminalToolContext(workspaceId: $0.id, rootURL: URL(fileURLWithPath: $0.folderPath))
+        }
     }
 
     private var availableInspectorTools: [ConversationToolOption] {
-        ConversationToolSupport.toolOptions(hasWorkspace: attachedWorkspace != nil)
+        ConversationToolSupport.toolOptions(hasWorkspace: hasFolderWorkspace, hasTerminal: hasTerminalWorkspace)
     }
 
     private var effectiveEnabledToolIds: Set<String> {
         ConversationToolSupport.effectiveEnabledToolIDs(
             conversation.enabledToolIds,
-            hasWorkspace: attachedWorkspace != nil
+            hasWorkspace: hasFolderWorkspace,
+            hasTerminal: hasTerminalWorkspace
         )
+    }
+
+    /// A composite key over every attached workspace's id (in `allAttachedWorkspaceIds` order),
+    /// joined into a single string. Used as a `.task(id:)`/sync key so views invalidate when
+    /// ANY attached workspace changes — not just the first — since attaching/detaching a
+    /// non-first workspace still affects available tools and (eventually) presentation.
+    private var workspaceAttachmentKey: String {
+        conversation.allAttachedWorkspaceIds.map(\.uuidString).joined(separator: ",")
     }
 
     var body: some View {
@@ -92,7 +127,7 @@ struct ChatView: View {
         .task(id: conversation.id) {
             await buildViewModelIfNeeded()
         }
-        .task(id: conversation.workspaceId) {
+        .task(id: workspaceAttachmentKey) {
             await refreshWorkspacePresentation()
         }
         .task(id: toolSyncKey) {
@@ -131,13 +166,17 @@ struct ChatView: View {
     /// offer on its next send.
     private var toolSyncKey: String {
         let enabledToolIds = conversation.enabledToolIds.sorted().joined(separator: ",")
-        return "\(conversation.workspaceId?.uuidString ?? "-")|\(enabledToolIds)"
+        return "\(workspaceAttachmentKey)|\(enabledToolIds)"
     }
 
     private func chatBody(viewModel: ChatViewModel) -> some View {
         GeometryReader { proxy in
             HStack(spacing: 0) {
                 VStack(spacing: 0) {
+                    if let terminalApprover, !terminalApprover.pending.isEmpty {
+                        TerminalApprovalBanner(approver: terminalApprover)
+                    }
+
                     conversationStack(viewModel: viewModel)
                         .onChange(of: viewModel.selectedInspectionTurnIndex) { _, newIndex in
                             Task { await inspectionViewModel?.select(conversationId: conversation.id, turnIndex: newIndex) }
@@ -221,11 +260,14 @@ struct ChatView: View {
     private func buildViewModelIfNeeded() async {
         guard let runtime else { return }
         workspacePromptId = nil
+        // Idempotent backfill: move legacy single-workspace attachment into the array on rebuild.
+        WorkspaceAttachmentSupport.backfillLegacyAttachment(conversation)
         let chat = await runtime.makeChatViewModel(
             timelineId: conversation.id,
             systemInstructions: resolvedSystemInstructions,
             enabledToolIds: conversation.enabledToolIds,
             workspaceRoot: workspaceRoot,
+            terminals: terminalContexts,
             typedReplyEnabled: conversation.typedReplyEnabled,
             autonomousFollowUpEnabled: conversation.autonomousFollowUpEnabled
         )
@@ -237,11 +279,12 @@ struct ChatView: View {
         offerWorkspacePromptIfNeeded(in: chat)
     }
 
-    /// Rebuilds the Workspace-tab presentation from the conversation's attached folder
+    /// Rebuilds the Workspace-tab presentation from the conversation's first attached folder
     /// workspace (or clears it when none is attached). Runs on conversation open and
-    /// whenever `conversation.workspaceId` changes.
+    /// whenever `workspaceAttachmentKey` changes (i.e. any attached workspace is added or
+    /// removed, not just the first).
     private func refreshWorkspacePresentation() async {
-        guard let runtime, let workspace = attachedWorkspace else {
+        guard let runtime, let workspace = attachedFolderWorkspaces.first else {
             workspacePresentation = nil
             return
         }
@@ -255,13 +298,14 @@ struct ChatView: View {
         guard let runtime, let viewModel else { return }
         let tools = runtime.resolveTools(
             enabledToolIds: conversation.enabledToolIds,
-            workspaceRoot: workspaceRoot
+            workspaceRoot: workspaceRoot,
+            terminals: terminalContexts
         )
         viewModel.updateTools(tools)
     }
 
     private func offerWorkspacePromptIfNeeded(in viewModel: ChatViewModel) {
-        guard conversation.workspaceId == nil else { return }
+        guard conversation.allAttachedWorkspaceIds.isEmpty else { return }
         guard dismissedWorkspacePromptConversationId != conversation.id else { return }
         guard workspacePromptId == nil else { return }
         guard viewModel.transcript.allSatisfy({ item in
@@ -319,8 +363,15 @@ struct ChatView: View {
         Task { await buildViewModelIfNeeded() }
     }
 
+    /// Detaches the folder workspace currently shown in the inspector.
+    ///
+    /// The Workspace inspector presents only the first attached *folder* workspace
+    /// (`attachedFolderWorkspaces.first`), so this detaches that same workspace explicitly
+    /// by id, rather than relying on the legacy "first/legacy" heuristic in
+    /// `WorkspaceAttachmentSupport.detachWorkspace(from:modelContext:)`.
     private func detachWorkspace() {
-        WorkspaceAttachmentSupport.detachWorkspace(from: conversation, modelContext: modelContext)
+        guard let first = attachedFolderWorkspaces.first else { return }
+        WorkspaceAttachmentSupport.detachWorkspace(id: first.id, from: conversation, modelContext: modelContext)
         Task { await buildViewModelIfNeeded() }
     }
 
@@ -334,7 +385,8 @@ struct ChatView: View {
         }
         conversation.enabledToolIds = ConversationToolSupport.persistedEnabledToolIDs(
             selected,
-            hasWorkspace: attachedWorkspace != nil
+            hasWorkspace: hasFolderWorkspace,
+            hasTerminal: hasTerminalWorkspace
         )
         try? modelContext.save()
     }

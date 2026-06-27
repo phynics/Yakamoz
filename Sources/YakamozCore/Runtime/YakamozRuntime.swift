@@ -72,18 +72,30 @@ public actor YakamozRuntime: ChatRunning {
     /// passing it into every `makeKit` call keeps that state alive across sends.
     private let promptHistoryRegistry = TimelinePromptHistoryRegistry()
 
+    /// Keeps terminal-workspace `TerminalSession`s alive across timeline switches (YAK-T3/T4).
+    /// Shared by `resolveTools` (live agent tools) and any `TerminalWorkspace` parity path so a
+    /// command run and a status read see the same shell. Torn down via `terminateAll()` on quit.
+    public let terminalRegistry = TerminalSessionRegistry()
+
+    /// Gate consulted before each `terminal_run`. Defaults to `DenyAllApprover()` (default-deny)
+    /// so the terminal backend is never an un-gated arbitrary-exec primitive when unwired; the
+    /// app injects a concrete UI-bridging approver (YAK-T5).
+    private let terminalApprover: any TerminalCommandApproving
+
     @MainActor
     public init(
         modelContainer: ModelContainer,
         settings: ProviderSettings,
         secrets: any SecretStoring,
-        llmServiceFactory: @escaping LLMServiceFactory = defaultLLMServiceFactory
+        llmServiceFactory: @escaping LLMServiceFactory = defaultLLMServiceFactory,
+        terminalApprover: any TerminalCommandApproving = DenyAllApprover()
     ) throws {
         stores = YakamozStores(modelContainer: modelContainer)
         inspector = SwiftDataTurnInspector(modelContainer: modelContainer)
         settingsSnapshotProvider = { @MainActor in settings.snapshot }
         self.secrets = secrets
         self.llmServiceFactory = llmServiceFactory
+        self.terminalApprover = terminalApprover
 
         let settingsSnapshot = settings.snapshot
         kit = try Self.makeKit(
@@ -107,7 +119,11 @@ public actor YakamozRuntime: ChatRunning {
     /// `workspaceRoot` is `nil` when the conversation has no attached folder workspace —
     /// in that case only demo tools are offered, even if filesystem tool ids happen to be
     /// present in `enabledToolIds` (there is nothing to jail them to).
-    public nonisolated func resolveTools(enabledToolIds: [String], workspaceRoot: URL?) -> [AnyTool] {
+    public nonisolated func resolveTools(
+        enabledToolIds: [String],
+        workspaceRoot: URL?,
+        terminals: [TerminalToolContext] = []
+    ) -> [AnyTool] {
         var available: [AnyTool] = [
             CalculatorTool().toAnyTool(),
             CurrentDateTimeTool().toAnyTool(),
@@ -122,6 +138,20 @@ public actor YakamozRuntime: ChatRunning {
                 SearchFilesTool(currentDirectory: root, jailRoot: root).toAnyTool(),
                 SearchFileContentTool(currentDirectory: root, jailRoot: root).toAnyTool(),
                 ChangeDirectoryTool(currentPath: root, root: root, onChange: { _ in }).toAnyTool(),
+            ])
+        }
+
+        // One set of the five terminal tools per attached terminal, all backed by the shared
+        // registry/approver so the live agent path and any parity path see the same session.
+        for terminal in terminals {
+            let id = terminal.workspaceId
+            let url = terminal.rootURL
+            available.append(contentsOf: [
+                TerminalRunTool(workspaceId: id, registry: terminalRegistry, rootURL: url, approver: terminalApprover).toAnyTool(),
+                TerminalReadTool(workspaceId: id, registry: terminalRegistry, rootURL: url).toAnyTool(),
+                TerminalSendInputTool(workspaceId: id, registry: terminalRegistry, rootURL: url).toAnyTool(),
+                TerminalInterruptTool(workspaceId: id, registry: terminalRegistry, rootURL: url).toAnyTool(),
+                TerminalWaitTool(workspaceId: id, registry: terminalRegistry, rootURL: url).toAnyTool(),
             ])
         }
 
@@ -169,11 +199,12 @@ public actor YakamozRuntime: ChatRunning {
         systemInstructions: String? = nil,
         enabledToolIds: [String] = [],
         workspaceRoot: URL? = nil,
+        terminals: [TerminalToolContext] = [],
         typedReplyEnabled: Bool = false,
         autonomousFollowUpEnabled: Bool = false
     ) async -> ChatViewModel {
         let turnInspector = inspector
-        let tools = resolveTools(enabledToolIds: enabledToolIds, workspaceRoot: workspaceRoot)
+        let tools = resolveTools(enabledToolIds: enabledToolIds, workspaceRoot: workspaceRoot, terminals: terminals)
         let loadedTranscript = (try? await loadTranscript(for: timelineId)) ?? .empty
 
         // The autonomous-follow-up plugin is opt-in per conversation. When enabled, the

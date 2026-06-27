@@ -55,9 +55,16 @@ public final class ConversationModel {
     public var typedReplyEnabled: Bool
     /// When `true`, an `AutonomousFollowUpPlugin` injects one bounded follow-up per send.
     public var autonomousFollowUpEnabled: Bool
-    /// Additional workspace ids attached to this conversation (beyond the legacy single
-    /// `workspaceId`).
-    public var attachedWorkspaceIds: [UUID]
+    /// Multi-attach workspace ids (YAK-T1). `workspaceId` is the deprecated single-attach
+    /// predecessor, retained only so existing stores migrate without a versioned schema.
+    public var attachedWorkspaceIds: [UUID] = []
+
+    /// Legacy single id folded with the new array; the rest of the app reads this.
+    public var allAttachedWorkspaceIds: [UUID] {
+        var ids = attachedWorkspaceIds
+        if let legacy = workspaceId, !ids.contains(legacy) { ids.insert(legacy, at: 0) }
+        return ids
+    }
 
     public init(
         id: UUID = UUID(),
@@ -66,10 +73,10 @@ public final class ConversationModel {
         personaId: UUID? = nil,
         enabledToolIds: [String] = [],
         workspaceId: UUID? = nil,
+        attachedWorkspaceIds: [UUID] = [],
         personaSlug: String? = nil,
         typedReplyEnabled: Bool = false,
-        autonomousFollowUpEnabled: Bool = false,
-        attachedWorkspaceIds: [UUID] = []
+        autonomousFollowUpEnabled: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -77,10 +84,10 @@ public final class ConversationModel {
         self.personaId = personaId
         self.enabledToolIds = enabledToolIds
         self.workspaceId = workspaceId
+        self.attachedWorkspaceIds = attachedWorkspaceIds
         self.personaSlug = personaSlug
         self.typedReplyEnabled = typedReplyEnabled
         self.autonomousFollowUpEnabled = autonomousFollowUpEnabled
-        self.attachedWorkspaceIds = attachedWorkspaceIds
     }
 }
 
@@ -183,23 +190,37 @@ public final class PersonaModel {
 }
 
 /// A persisted folder-backed workspace reference.
+/// Discriminates a `WorkspaceModel` between a plain folder workspace and a terminal
+/// (PTY shell) workspace. Stored as a raw `String` so the additive `kind` field decodes
+/// to `.folder` for existing rows under SwiftData's automatic lightweight migration.
+public enum WorkspaceKind: String, Codable, Sendable {
+    case folder
+    case terminal
+}
+
 @Model
 public final class WorkspaceModel {
     @Attribute(.unique) public var id: UUID
     public var displayName: String
     public var folderPath: String
     public var bookmarkData: Data?
+    /// Workspace kind (YAK-T4). Defaults to `.folder` so existing rows decode unchanged
+    /// under automatic lightweight migration. A terminal workspace stores its originating
+    /// folder path in `folderPath` (used as the shell's initial working directory).
+    public var kind: WorkspaceKind = WorkspaceKind.folder
 
     public init(
         id: UUID = UUID(),
         displayName: String,
         folderPath: String,
-        bookmarkData: Data? = nil
+        bookmarkData: Data? = nil,
+        kind: WorkspaceKind = .folder
     ) {
         self.id = id
         self.displayName = displayName
         self.folderPath = folderPath
         self.bookmarkData = bookmarkData
+        self.kind = kind
     }
 }
 
@@ -422,23 +443,5 @@ public final class RequestOriginModel {
         self.platform = platform
         self.registeredAt = registeredAt
         self.lastSeenAt = lastSeenAt
-    }
-}
-
-// MARK: - ConversationModel Computed Properties
-
-public extension ConversationModel {
-    /// All workspace ids attached to this conversation: `attachedWorkspaceIds`, with the legacy
-    /// `workspaceId` prepended if non-nil and not already present. Ordering beyond that (legacy
-    /// first) is not otherwise guaranteed. Does not dedup within `attachedWorkspaceIds` itself —
-    /// callers populating that array directly are responsible for not inserting duplicates.
-    var allAttachedWorkspaceIds: [UUID] {
-        guard let legacyId = workspaceId else {
-            return attachedWorkspaceIds
-        }
-        if attachedWorkspaceIds.contains(legacyId) {
-            return attachedWorkspaceIds
-        }
-        return [legacyId] + attachedWorkspaceIds
     }
 }
