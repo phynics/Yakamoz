@@ -6,12 +6,16 @@ public struct ConversationToolOption: Sendable, Equatable, Identifiable {
     public let title: String
     public let systemImage: String
     public let requiresWorkspace: Bool
+    /// Whether this option requires an attached *terminal* workspace (YAK-T4), distinct from
+    /// `requiresWorkspace` which gates on a folder workspace.
+    public let requiresTerminal: Bool
 
-    public init(id: String, title: String, systemImage: String, requiresWorkspace: Bool) {
+    public init(id: String, title: String, systemImage: String, requiresWorkspace: Bool, requiresTerminal: Bool = false) {
         self.id = id
         self.title = title
         self.systemImage = systemImage
         self.requiresWorkspace = requiresWorkspace
+        self.requiresTerminal = requiresTerminal
     }
 }
 
@@ -25,7 +29,17 @@ public enum ConversationToolSupport {
         builtInToolOptions.map(\.id)
     }
 
-    public static func toolOptions(hasWorkspace: Bool) -> [ConversationToolOption] {
+    /// The five terminal tool options (YAK-T4), offered only when a terminal workspace is
+    /// attached. Their ids mirror `TerminalWorkspace.toolIds`.
+    public static let terminalToolOptions: [ConversationToolOption] = [
+        ConversationToolOption(id: "terminal_run", title: "Run Command", systemImage: "terminal", requiresWorkspace: false, requiresTerminal: true),
+        ConversationToolOption(id: "terminal_read", title: "Read Output", systemImage: "text.alignleft", requiresWorkspace: false, requiresTerminal: true),
+        ConversationToolOption(id: "terminal_send_input", title: "Send Input", systemImage: "keyboard", requiresWorkspace: false, requiresTerminal: true),
+        ConversationToolOption(id: "terminal_interrupt", title: "Interrupt", systemImage: "stop.circle", requiresWorkspace: false, requiresTerminal: true),
+        ConversationToolOption(id: "terminal_wait", title: "Wait", systemImage: "hourglass", requiresWorkspace: false, requiresTerminal: true),
+    ]
+
+    public static func toolOptions(hasWorkspace: Bool, hasTerminal: Bool = false) -> [ConversationToolOption] {
         let workspaceOptions = FileSystemWorkspace.toolIds.map {
             ConversationToolOption(
                 id: $0,
@@ -34,17 +48,19 @@ public enum ConversationToolSupport {
                 requiresWorkspace: true
             )
         }
-        return builtInToolOptions + (hasWorkspace ? workspaceOptions : [])
+        return builtInToolOptions
+            + (hasWorkspace ? workspaceOptions : [])
+            + (hasTerminal ? terminalToolOptions : [])
     }
 
-    public static func effectiveEnabledToolIDs(_ storedIDs: [String], hasWorkspace: Bool) -> Set<String> {
-        let available = Set(toolOptions(hasWorkspace: hasWorkspace).map(\.id))
+    public static func effectiveEnabledToolIDs(_ storedIDs: [String], hasWorkspace: Bool, hasTerminal: Bool = false) -> Set<String> {
+        let available = Set(toolOptions(hasWorkspace: hasWorkspace, hasTerminal: hasTerminal).map(\.id))
         guard !storedIDs.isEmpty else { return available }
         return Set(storedIDs).intersection(available)
     }
 
-    public static func persistedEnabledToolIDs(_ selectedIDs: Set<String>, hasWorkspace: Bool) -> [String] {
-        let available = Set(toolOptions(hasWorkspace: hasWorkspace).map(\.id))
+    public static func persistedEnabledToolIDs(_ selectedIDs: Set<String>, hasWorkspace: Bool, hasTerminal: Bool = false) -> [String] {
+        let available = Set(toolOptions(hasWorkspace: hasWorkspace, hasTerminal: hasTerminal).map(\.id))
         let normalized = selectedIDs.intersection(available)
         if normalized == available {
             return []

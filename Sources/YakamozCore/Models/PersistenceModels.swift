@@ -190,23 +190,37 @@ public final class PersonaModel {
 }
 
 /// A persisted folder-backed workspace reference.
+/// Discriminates a `WorkspaceModel` between a plain folder workspace and a terminal
+/// (PTY shell) workspace. Stored as a raw `String` so the additive `kind` field decodes
+/// to `.folder` for existing rows under SwiftData's automatic lightweight migration.
+public enum WorkspaceKind: String, Codable, Sendable {
+    case folder
+    case terminal
+}
+
 @Model
 public final class WorkspaceModel {
     @Attribute(.unique) public var id: UUID
     public var displayName: String
     public var folderPath: String
     public var bookmarkData: Data?
+    /// Workspace kind (YAK-T4). Defaults to `.folder` so existing rows decode unchanged
+    /// under automatic lightweight migration. A terminal workspace stores its originating
+    /// folder path in `folderPath` (used as the shell's initial working directory).
+    public var kind: WorkspaceKind = WorkspaceKind.folder
 
     public init(
         id: UUID = UUID(),
         displayName: String,
         folderPath: String,
-        bookmarkData: Data? = nil
+        bookmarkData: Data? = nil,
+        kind: WorkspaceKind = .folder
     ) {
         self.id = id
         self.displayName = displayName
         self.folderPath = folderPath
         self.bookmarkData = bookmarkData
+        self.kind = kind
     }
 }
 

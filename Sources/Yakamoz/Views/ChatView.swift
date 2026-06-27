@@ -41,18 +41,45 @@ struct ChatView: View {
         WorkspaceResolutionHelper.attachedWorkspaces(for: conversation, in: workspaces)
     }
 
+    /// Attached folder workspaces only (drives the filesystem tools' jail root and the
+    /// Workspace inspector presentation).
+    private var attachedFolderWorkspaces: [WorkspaceModel] {
+        attachedWorkspacesList.filter { $0.kind == .folder }
+    }
+
+    /// Attached terminal workspaces only (each becomes a `TerminalToolContext` so the runtime
+    /// builds that terminal's five tools).
+    private var attachedTerminalWorkspaces: [WorkspaceModel] {
+        attachedWorkspacesList.filter { $0.kind == .terminal }
+    }
+
+    private var hasFolderWorkspace: Bool {
+        !attachedFolderWorkspaces.isEmpty
+    }
+
+    private var hasTerminalWorkspace: Bool {
+        !attachedTerminalWorkspaces.isEmpty
+    }
+
     private var workspaceRoot: URL? {
-        attachedWorkspacesList.first.map { URL(fileURLWithPath: $0.folderPath) }
+        attachedFolderWorkspaces.first.map { URL(fileURLWithPath: $0.folderPath) }
+    }
+
+    private var terminalContexts: [TerminalToolContext] {
+        attachedTerminalWorkspaces.map {
+            TerminalToolContext(workspaceId: $0.id, rootURL: URL(fileURLWithPath: $0.folderPath))
+        }
     }
 
     private var availableInspectorTools: [ConversationToolOption] {
-        ConversationToolSupport.toolOptions(hasWorkspace: !attachedWorkspacesList.isEmpty)
+        ConversationToolSupport.toolOptions(hasWorkspace: hasFolderWorkspace, hasTerminal: hasTerminalWorkspace)
     }
 
     private var effectiveEnabledToolIds: Set<String> {
         ConversationToolSupport.effectiveEnabledToolIDs(
             conversation.enabledToolIds,
-            hasWorkspace: !attachedWorkspacesList.isEmpty
+            hasWorkspace: hasFolderWorkspace,
+            hasTerminal: hasTerminalWorkspace
         )
     }
 
@@ -234,6 +261,7 @@ struct ChatView: View {
             systemInstructions: resolvedSystemInstructions,
             enabledToolIds: conversation.enabledToolIds,
             workspaceRoot: workspaceRoot,
+            terminals: terminalContexts,
             typedReplyEnabled: conversation.typedReplyEnabled,
             autonomousFollowUpEnabled: conversation.autonomousFollowUpEnabled
         )
@@ -250,7 +278,7 @@ struct ChatView: View {
     /// whenever `workspaceAttachmentKey` changes (i.e. any attached workspace is added or
     /// removed, not just the first).
     private func refreshWorkspacePresentation() async {
-        guard let runtime, let workspace = attachedWorkspacesList.first else {
+        guard let runtime, let workspace = attachedFolderWorkspaces.first else {
             workspacePresentation = nil
             return
         }
@@ -264,7 +292,8 @@ struct ChatView: View {
         guard let runtime, let viewModel else { return }
         let tools = runtime.resolveTools(
             enabledToolIds: conversation.enabledToolIds,
-            workspaceRoot: workspaceRoot
+            workspaceRoot: workspaceRoot,
+            terminals: terminalContexts
         )
         viewModel.updateTools(tools)
     }
@@ -328,15 +357,14 @@ struct ChatView: View {
         Task { await buildViewModelIfNeeded() }
     }
 
-    /// Detaches the workspace currently shown in the inspector.
+    /// Detaches the folder workspace currently shown in the inspector.
     ///
-    /// The inspector presents only the first attached workspace
-    /// (`attachedWorkspacesList.first`) pending multi-root support (Task 18),
-    /// so this detaches that same first workspace explicitly by id, rather than
-    /// relying on the legacy "first/legacy" heuristic in
+    /// The Workspace inspector presents only the first attached *folder* workspace
+    /// (`attachedFolderWorkspaces.first`), so this detaches that same workspace explicitly
+    /// by id, rather than relying on the legacy "first/legacy" heuristic in
     /// `WorkspaceAttachmentSupport.detachWorkspace(from:modelContext:)`.
     private func detachWorkspace() {
-        guard let first = attachedWorkspacesList.first else { return }
+        guard let first = attachedFolderWorkspaces.first else { return }
         WorkspaceAttachmentSupport.detachWorkspace(id: first.id, from: conversation, modelContext: modelContext)
         Task { await buildViewModelIfNeeded() }
     }
@@ -351,7 +379,8 @@ struct ChatView: View {
         }
         conversation.enabledToolIds = ConversationToolSupport.persistedEnabledToolIDs(
             selected,
-            hasWorkspace: !attachedWorkspacesList.isEmpty
+            hasWorkspace: hasFolderWorkspace,
+            hasTerminal: hasTerminalWorkspace
         )
         try? modelContext.save()
     }
