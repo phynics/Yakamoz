@@ -36,35 +36,34 @@ review items left for the next person.
 | [YAK-27](YAK-27-markdown-visualizer.md) | Integrate a Markdown visualizer for assistant responses | Yakamoz | Medium | Open |
 | [YAK-28](YAK-28-quick-model-switching.md) | Quick model switching with favorites and recency | Yakamoz + PositronicKit | Medium | Open |
 | [YAK-29](YAK-29-timeline-state-dots.md) | Timeline state dots in the chat list | Yakamoz + PositronicKit | Medium | Open |
+| [YAK-30](YAK-30-terminal-workspace-entrypoints.md) | Terminal workspace entrypoints | Yakamoz | Medium | Open |
 
 ## Terminal-workspace post-merge review (YAK-TF series)
 
 Findings from the integration review of merge `78a7b7f`
 (`feature/terminal-workspace`, YAK-T1..T5 — spec/plan in
 `docs/superpowers/{specs,plans}/2026-06-26-terminal-workspace*`). Separate `TF`
-("terminal fix") id series so they read as a cohesive batch. All Open.
+("terminal fix") id series so they read as a cohesive batch. TF1 done; TF2–TF6 open.
 
 | ID | Title | Repo(s) | Priority | Status |
 |----|-------|---------|----------|--------|
-| [YAK-TF1](YAK-TF1-send-input-approval-bypass.md) | [SECURITY] `terminal_send_input` bypasses the per-command approval gate (un-gated arbitrary exec) | Yakamoz | **Critical** | Open |
-| [YAK-TF2](YAK-TF2-registry-double-spawn-race.md) | [BUG] Registry `session(for:)` check-then-act across `await` → duplicate shells + leaked PTY | Yakamoz | Medium | Open |
-| [YAK-TF3](YAK-TF3-partial-output-duplication.md) | [BUG] Partial output re-emitted by `read`/`wait` after a `.running` `run` | Yakamoz | Medium | Open |
-| [YAK-TF4](YAK-TF4-unbounded-buffer-growth.md) | `TerminalSession.buffer` grows without bound (design called for a ring-buffer) | Yakamoz | Medium | Open |
+| [YAK-TF1](YAK-TF1-send-input-approval-bypass.md) | [SECURITY] `terminal_send_input` bypasses the per-command approval gate (un-gated arbitrary exec) | Yakamoz | **Critical** | Done |
+| [YAK-TF2](YAK-TF2-registry-double-spawn-race.md) | [BUG] Registry `session(for:)` check-then-act across `await` → duplicate shells + leaked PTY | Yakamoz | Medium | Done |
+| [YAK-TF3](YAK-TF3-partial-output-duplication.md) | [BUG] Partial output re-emitted by `read`/`wait` after a `.running` `run` | Yakamoz | Medium | Done |
+| [YAK-TF4](YAK-TF4-unbounded-buffer-growth.md) | `TerminalSession.buffer` grows without bound (design called for a ring-buffer) | Yakamoz | Medium | Done |
 | [YAK-TF5](YAK-TF5-approval-banner-conversation-scoping.md) | Approval banner is app-global; can show/approve another conversation's command | Yakamoz | Low | Open |
 | [YAK-TF6](YAK-TF6-minor-cleanup.md) | Cleanup: orphan `WorkspaceModel` on detach; fire-and-forget quit teardown; dead `.notRunning` | Yakamoz | Low | Open |
 
 Suggested order: **TF1 first** (security blocker; also makes `.notRunning` in TF6c
-reachable), then TF2/TF3 (lifecycle + output correctness), then TF4/TF5/TF6.
+reachable — now done), then TF2/TF3 (lifecycle + output correctness), then TF4/TF5/TF6.
 
 Status legend: Open / Delayed / In progress / Done. Each ticket also carries its
 own **Status** line.
 
-**Open:** YAK-TF1 (**Critical** — terminal_send_input approval bypass), YAK-TF2 /
-YAK-TF3 (Medium — terminal session race / output dup), YAK-TF4 (Medium — terminal
-buffer growth), YAK-TF5 / YAK-TF6 (Low — terminal approval-banner scope / cleanup),
-YAK-29 (Medium — timeline state dots), YAK-28 (Medium — quick model switching),
-YAK-27 (Medium — Markdown response rendering), YAK-22 (Low — settings polish, needs
-design direction).
+**Open:** YAK-TF5 / YAK-TF6 (Low — terminal approval-banner scope / cleanup),
+YAK-30 (Medium — terminal workspace entrypoints), YAK-29 (Medium — timeline state dots),
+YAK-28 (Medium — quick model switching), YAK-27 (Medium — Markdown response rendering),
+YAK-22 (Low — settings polish, needs design direction).
 **Delayed:** YAK-5 (phase 2). Note
 (YAK-23, FIXED): streamed tool calls were dropped for every
 model via OpenRouter because the SSE decoder ignored snake_case (`tool_calls`/`finish_reason`);

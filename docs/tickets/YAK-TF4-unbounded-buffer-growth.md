@@ -1,8 +1,16 @@
 # YAK-TF4 — Unbounded `TerminalSession.buffer` growth (design says ring-buffer)
 
+**Status:** Done
 **Severity:** 🟡 Medium/Low (memory growth on long-lived sessions)
 **Area:** Terminal workspace — output storage
 **Source:** Integration review of merge `78a7b7f`
+
+> **Resolution.** `TerminalSession` now compacts its retained PTY buffer whenever no command is
+> pending and all surfaced output has been consumed, so finished commands do not accumulate in
+> memory across a long-lived session. Added a narrow test hook (`bufferByteCountForTesting()`)
+> plus `completedCommandsDoNotGrowRetainedBufferWithoutBound`, which failed red with
+> `retainedBytes == 9710` after 40 small commands and now passes green. Verified with
+> `make test TEST_FILTER=TerminalSessionTests`.
 
 ## Problem
 

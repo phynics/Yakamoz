@@ -1,8 +1,16 @@
 # YAK-TF3 — Partial output duplicated across `terminal_run` → `terminal_read`/`terminal_wait`
 
+**Status:** Done
 **Severity:** 🟠 Medium (incorrect output contract)
 **Area:** Terminal workspace — output bookkeeping
 **Source:** Integration review of merge `78a7b7f`
+
+> **Resolution.** `TerminalSession.collectUntilMark` now advances `readCursor` before
+> returning `.running`, matching the existing `.finished` branch so bytes already surfaced by
+> `run(..., graceMs:)` are not re-emitted by the next `read()` or `wait()`. Added
+> `runningOutputIsNotDuplicatedByLaterReadOrWait`, which failed red with the old behavior
+> (`read()` immediately returned `"A"` again) and now passes green. Verified with
+> `make test TEST_FILTER=TerminalSessionTests`.
 
 ## Problem
 

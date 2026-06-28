@@ -1,8 +1,20 @@
 # YAK-TF1 — `terminal_send_input` bypasses the approval gate (CRITICAL)
 
+**Status:** Done
 **Severity:** 🔴 Critical (security / blocks acceptance)
 **Area:** Terminal workspace — approval model
 **Source:** Integration review of merge `78a7b7f` (terminal-workspace, YAK-T1..T5)
+
+> **Resolution.** `TerminalSession.sendInput` is now `throws` and rejects when no
+> command is in-flight (`pendingMark == nil`) with `.notRunning` (also `.shellExited`
+> when the shell is gone), so `process.send` is unreachable for agent text without an
+> approved, in-flight `terminal_run`. `TerminalSendInputTool.execute` catches and
+> returns an agent-visible `.failure` (typed `PKError.userFriendlyMessage`, matching
+> the `DemoTools` convention — no new `ErrorKit` dependency). Tests added:
+> `sendInputToIdleSessionThrowsNotRunning` (session) and
+> `sendInputToIdleSessionReturnsFailure` (tool); existing happy-path
+> `sendInputDoesNotConsultApproverAndReturnsSuccess` still passes. `.notRunning` is no
+> longer dead code. Full suite green (197 tests).
 
 ## Problem
 

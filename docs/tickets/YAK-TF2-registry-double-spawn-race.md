@@ -1,8 +1,16 @@
 # YAK-TF2 — Registry `session(for:)` double-spawns shells under concurrent first use
 
+**Status:** Done
 **Severity:** 🟠 Medium (resource leak + state divergence)
 **Area:** Terminal workspace — session lifecycle
 **Source:** Integration review of merge `78a7b7f`
+
+> **Resolution.** `TerminalSessionRegistry` now tracks one in-flight spawn `Task` per id and
+> shares it across concurrent callers, so concurrent first-use resolves to a single
+> `TerminalSession`. `terminate(id:)` and `terminateAll()` also cancel and clear pending spawn
+> tasks during teardown. Added `concurrentFirstUseReturnsSameInstance`, which failed red with
+> seven identity mismatches before the fix and now passes green. Verified with
+> `make test TEST_FILTER=TerminalSessionRegistryTests`.
 
 ## Problem
 
