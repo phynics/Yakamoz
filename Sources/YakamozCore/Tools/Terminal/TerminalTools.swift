@@ -234,7 +234,13 @@ public struct TerminalSendInputTool: Tool, Sendable {
         }
 
         let session = try await registry.session(for: workspaceId, rootURL: rootURL)
-        await session.sendInput(text)
+        do {
+            try await session.sendInput(text)
+        } catch let error as TerminalWorkspaceError {
+            return .failure(error.userFriendlyMessage)
+        } catch {
+            return .failure(error.localizedDescription)
+        }
         return .success("input sent")
     }
 }

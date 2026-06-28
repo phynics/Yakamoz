@@ -204,6 +204,7 @@ public actor TerminalSession {
                 lastExitCode = finished.exitCode
                 let newOutput = sinceReadCursor(upTo: finished.markerLocation)
                 readCursor = buffer.count
+                compactBufferIfFullyConsumed()
                 return ReadResult(output: newOutput, status: .finished(finished.exitCode))
             }
 
@@ -214,6 +215,7 @@ public actor TerminalSession {
 
         let newOutput = sinceReadCursor(upTo: buffer.count)
         readCursor = buffer.count
+        compactBufferIfFullyConsumed()
         return ReadResult(output: newOutput, status: .finished(lastExitCode ?? 0))
     }
 
@@ -245,10 +247,23 @@ public actor TerminalSession {
         }
     }
 
-    /// Terminates the session's shell process. Safe to call more than once.
-    public func terminate() {
+    /// Terminates the session's shell process and waits briefly for the delegate-reported exit.
+    ///
+    /// Safe to call more than once. Waiting for `hasExited` keeps test and registry cleanup from
+    /// racing ahead while the PTY child is still alive.
+    public func terminate() async {
         guard !hasExited else { return }
         process.terminate()
+
+        let deadline = Date().addingTimeInterval(2.0)
+        while !hasExited, Date() < deadline {
+            try? await Task.sleep(nanoseconds: 15_000_000) // 15ms poll interval
+        }
+    }
+
+    /// Exposes retained PTY buffer size to tests that verify session compaction behavior.
+    func bufferByteCountForTesting() -> Int {
+        buffer.count
     }
 
     /// Feeds `text` to the running command's stdin, raw (no marker/cursor bookkeeping). The
@@ -256,9 +271,17 @@ public actor TerminalSession {
     ///
     /// This does not consult an approver — steering an already-approved, already-running
     /// command is considered part of that command's existing approval (approval/tooling
-    /// concerns live above `TerminalSession`). No-ops if the shell has already exited.
-    public func sendInput(_ text: String) async {
-        guard !hasExited else { return }
+    /// concerns live above `TerminalSession`).
+    ///
+    /// Requires an in-flight command: writing to stdin when nothing is running would let a
+    /// caller feed an arbitrary line straight to the idle login shell, bypassing the
+    /// per-command approval gate (`terminal_run`). Rejects that case with `.notRunning`.
+    ///
+    /// - Throws: `TerminalWorkspaceError.shellExited` if the shell has already exited, or
+    ///   `TerminalWorkspaceError.notRunning` if no command is currently in-flight.
+    public func sendInput(_ text: String) async throws {
+        guard !hasExited else { throw TerminalWorkspaceError.shellExited }
+        guard pendingMark != nil else { throw TerminalWorkspaceError.notRunning }
         process.send(data: Array(text.utf8)[...])
     }
 
@@ -316,15 +339,27 @@ public actor TerminalSession {
                 lastExitCode = found.exitCode
                 pendingStart = buffer.count
                 readCursor = buffer.count
+                compactBufferIfFullyConsumed()
                 return .finished(found.output, found.exitCode)
             }
 
             if hasExited || Date() >= deadline {
-                return .running(partialOutputSinceBegin(mark: mark))
+                let partial = partialOutputSinceBegin(mark: mark)
+                readCursor = buffer.count
+                return .running(partial)
             }
 
             try? await Task.sleep(nanoseconds: 15_000_000) // 15ms poll interval
         }
+    }
+
+    /// Drops fully-consumed output once no command is pending so a long-lived session only
+    /// retains the active command's transcript rather than every prior command forever.
+    private func compactBufferIfFullyConsumed() {
+        guard pendingMark == nil, readCursor == buffer.count else { return }
+        buffer.removeAll(keepingCapacity: true)
+        pendingStart = 0
+        readCursor = 0
     }
 
     /// A located, parsed completion marker: the cleaned output of the command, its exit code,

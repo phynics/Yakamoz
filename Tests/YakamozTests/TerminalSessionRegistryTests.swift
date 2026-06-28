@@ -30,6 +30,33 @@ struct TerminalSessionRegistryTests {
         await registry.terminate(id: id)
     }
 
+    @Test func concurrentFirstUseReturnsSameInstance() async throws {
+        let registry = TerminalSessionRegistry()
+        let id = UUID()
+        let rootURL = URL(fileURLWithPath: "/tmp")
+
+        let sessions = try await withThrowingTaskGroup(of: TerminalSession.self) { group in
+            for _ in 0..<8 {
+                group.addTask {
+                    try await registry.session(for: id, rootURL: rootURL)
+                }
+            }
+
+            var sessions: [TerminalSession] = []
+            for try await session in group {
+                sessions.append(session)
+            }
+            return sessions
+        }
+
+        let first = try #require(sessions.first)
+        for session in sessions.dropFirst() {
+            #expect(session === first)
+        }
+
+        await registry.terminate(id: id)
+    }
+
     @Test func allowForSessionAndIsAllowed() async {
         let registry = TerminalSessionRegistry()
         let id = UUID()

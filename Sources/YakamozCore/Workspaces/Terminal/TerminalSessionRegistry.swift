@@ -18,6 +18,7 @@ import Foundation
 /// share across concurrent callers.
 public actor TerminalSessionRegistry {
     private var sessions: [UUID: TerminalSession] = [:]
+    private var spawning: [UUID: Task<TerminalSession, Error>] = [:]
     private var sessionAllow: Set<UUID> = []
 
     public init() {}
@@ -28,13 +29,32 @@ public actor TerminalSessionRegistry {
         if let existing = sessions[id] {
             return existing
         }
-        let session = try await TerminalSession(rootURL: rootURL)
+        if let task = spawning[id] {
+            return try await task.value
+        }
+
+        let task = Task {
+            try await TerminalSession(rootURL: rootURL)
+        }
+        spawning[id] = task
+        let session: TerminalSession
+        do {
+            session = try await task.value
+        } catch {
+            spawning[id] = nil
+            throw error
+        }
+
+        spawning[id] = nil
         sessions[id] = session
         return session
     }
 
     /// Terminates and removes the session for `id`, if one exists, and clears its allow flag.
     public func terminate(id: UUID) async {
+        if let task = spawning.removeValue(forKey: id) {
+            task.cancel()
+        }
         if let session = sessions[id] {
             await session.terminate()
             sessions.removeValue(forKey: id)
@@ -44,6 +64,10 @@ public actor TerminalSessionRegistry {
 
     /// Terminates every tracked session and clears all allow flags.
     public func terminateAll() async {
+        for task in spawning.values {
+            task.cancel()
+        }
+        spawning.removeAll()
         for session in sessions.values {
             await session.terminate()
         }

@@ -37,3 +37,19 @@ line and (problem / affected `file:line` / before-after code / tests / acceptanc
 Numeric `YAK-N` for the backlog; a lettered batch (e.g. `YAK-TF*`) for a cohesive review set.
 **Update the index** [`docs/tickets/README.md`](docs/tickets/README.md) in the same change
 (table row + Open/Delayed summary; tag titles `[BUG]`/`[SECURITY]`).
+
+### Executing a ticket
+
+TDD throughout (red → green → refactor). On completion: flip the ticket `Status` to `Done`
+with a short resolution note, update the index in the same change, and run `make verify`
+(must be green; trust it over bare `swift test`). Pick one execution mode:
+
+- **Inline** — implement on the current branch; **commit per ticket at the end**. Before
+  committing, `git status` and **warn about any unrelated uncommitted files**; stage only the
+  ticket's own files, never blanket `git add -A`.
+- **Multi-agent worktrees** — dispatch each independent ticket to a subagent in its own git
+  worktree (commits land in the worktree); the originating thread stays out of implementation
+  and only **reviews and merges** completed worktrees back. Use for batches of independent
+  tickets; see `superpowers:using-git-worktrees` and `superpowers:dispatching-parallel-agents`.
+
+Commit/push only when asked.
