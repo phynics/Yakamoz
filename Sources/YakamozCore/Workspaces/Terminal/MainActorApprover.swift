@@ -30,6 +30,11 @@ public final class MainActorApprover: TerminalCommandApproving {
         await enqueue(command: command, workspaceId: workspaceId)
     }
 
+    /// Returns the oldest pending approval for one of the given workspaces.
+    public func pendingApproval(for workspaceIDs: Set<UUID>) -> PendingApproval? {
+        pending.first { workspaceIDs.contains($0.workspaceId) }
+    }
+
     /// Appends the pending request and parks a continuation, entirely on the main actor so the
     /// mutation of `pending`/`continuations` is synchronous and free of cross-actor hazards.
     private func enqueue(command: String, workspaceId: UUID) async -> TerminalApprovalDecision {

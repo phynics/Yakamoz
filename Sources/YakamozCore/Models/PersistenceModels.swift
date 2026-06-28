@@ -20,6 +20,33 @@ public enum YakamozSchema {
     ]
 }
 
+/// Sidebar-facing conversation activity state (YAK-29).
+///
+/// Stored on `ConversationModel` rather than `TimelineModel` so the SwiftUI list can query and
+/// render it directly without introducing a separate projection layer for every row.
+public enum ConversationTimelineState: String, Codable, Sendable, CaseIterable {
+    case idle
+    case running
+    case tooling
+    case completed
+    case blocked
+    case failed
+    case cancelled
+
+    /// Lower numbers sort earlier in the sidebar when conversations are prioritized.
+    public var sortPriority: Int {
+        switch self {
+        case .tooling: 0
+        case .running: 1
+        case .blocked: 2
+        case .failed: 3
+        case .cancelled: 4
+        case .completed: 5
+        case .idle: 6
+        }
+    }
+}
+
 /// A persisted conversation (timeline) shell.
 ///
 /// **Ownership boundary (YAK-6).** Yakamoz keeps two distinct model families that a
@@ -58,12 +85,21 @@ public final class ConversationModel {
     /// Multi-attach workspace ids (YAK-T1). `workspaceId` is the deprecated single-attach
     /// predecessor, retained only so existing stores migrate without a versioned schema.
     public var attachedWorkspaceIds: [UUID] = []
+    /// Persisted list-facing state (YAK-29). Stored as a raw string for lightweight migration.
+    public var timelineStateRaw: String = ConversationTimelineState.idle.rawValue
+    /// Timestamp of the last state transition used for sidebar prioritization among peers.
+    public var timelineStateUpdatedAt: Date = Date()
 
     /// Legacy single id folded with the new array; the rest of the app reads this.
     public var allAttachedWorkspaceIds: [UUID] {
         var ids = attachedWorkspaceIds
         if let legacy = workspaceId, !ids.contains(legacy) { ids.insert(legacy, at: 0) }
         return ids
+    }
+
+    public var timelineState: ConversationTimelineState {
+        get { ConversationTimelineState(rawValue: timelineStateRaw) ?? .idle }
+        set { timelineStateRaw = newValue.rawValue }
     }
 
     public init(
@@ -76,7 +112,9 @@ public final class ConversationModel {
         attachedWorkspaceIds: [UUID] = [],
         personaSlug: String? = nil,
         typedReplyEnabled: Bool = false,
-        autonomousFollowUpEnabled: Bool = false
+        autonomousFollowUpEnabled: Bool = false,
+        timelineState: ConversationTimelineState = .idle,
+        timelineStateUpdatedAt: Date = Date()
     ) {
         self.id = id
         self.title = title
@@ -88,6 +126,8 @@ public final class ConversationModel {
         self.personaSlug = personaSlug
         self.typedReplyEnabled = typedReplyEnabled
         self.autonomousFollowUpEnabled = autonomousFollowUpEnabled
+        timelineStateRaw = timelineState.rawValue
+        self.timelineStateUpdatedAt = timelineStateUpdatedAt
     }
 }
 

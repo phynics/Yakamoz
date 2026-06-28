@@ -74,9 +74,11 @@ public final class ChatViewModel {
     /// Used to reset the autonomous-follow-up plugin's per-send guard (see
     /// `AutonomousFollowUpPlugin.beginUserSend()`); `nil` when no plugin is wired.
     private let onBeginUserSend: (@MainActor @Sendable () async -> Void)?
+    private let onTimelineStateChange: (@MainActor @Sendable (ConversationTimelineState) async -> Void)?
     private let clock: ContinuousClock
     private var nextTurnIndex = 0
     private var nextInspectionTurnIndex = 0
+    private var lastPublishedTimelineState: ConversationTimelineState?
 
     public init(
         timelineId: UUID,
@@ -90,6 +92,7 @@ public final class ChatViewModel {
         structuredOutput: StructuredOutputRequest? = nil,
         typedReplyEnabled: Bool = false,
         onBeginUserSend: (@MainActor @Sendable () async -> Void)? = nil,
+        onTimelineStateChange: (@MainActor @Sendable (ConversationTimelineState) async -> Void)? = nil,
         initialTranscript: [TranscriptItem] = [],
         clock: ContinuousClock = ContinuousClock()
     ) {
@@ -104,10 +107,12 @@ public final class ChatViewModel {
         self.structuredOutput = structuredOutput
         self.typedReplyEnabled = typedReplyEnabled
         self.onBeginUserSend = onBeginUserSend
+        self.onTimelineStateChange = onTimelineStateChange
         transcript = initialTranscript
         nextTurnIndex = Self.nextTurnIndex(for: initialTranscript)
         nextInspectionTurnIndex = Self.nextInspectionTurnIndex(for: initialTranscript)
         self.clock = clock
+        lastPublishedTimelineState = Self.latestTimelineState(in: initialTranscript)
     }
 
     /// Selects an assistant bubble by its logical transcript turn index and updates the
@@ -196,6 +201,7 @@ public final class ChatViewModel {
         transcript.append(.assistant(id: assistantItemId, turn: state))
         selectedTurnIndex = turnIndex
         selectedInspectionTurnIndex = nextInspectionTurnIndex
+        await publishTimelineStateIfNeeded(state.timelineState)
         var lastRecordedErrorMessage: String?
 
         defer { isSending = false }
@@ -223,11 +229,13 @@ public final class ChatViewModel {
 
                 ChatEventReducer.reduce(event, into: &state, now: clock.now)
                 updateAssistantItem(id: assistantItemId, turn: state)
+                await publishTimelineStateIfNeeded(state.timelineState)
 
                 if let message = state.errorMessage, message != lastRecordedErrorMessage {
                     lastRecordedErrorMessage = message
                     errorMessage = message
                     state = finalizeFailedTurn(state, assistantItemId: assistantItemId)
+                    await publishTimelineStateIfNeeded(state.timelineState)
                     appendErrorItem(message)
                     break eventLoop
                 }
@@ -236,6 +244,7 @@ public final class ChatViewModel {
             if Task.isCancelled, !state.isCancelled {
                 state.isCancelled = true
                 updateAssistantItem(id: assistantItemId, turn: state)
+                await publishTimelineStateIfNeeded(state.timelineState)
             }
 
             // The real `ChatEngine` finishes its stream by simply ending the
@@ -263,15 +272,18 @@ public final class ChatViewModel {
                     state = persisted
                 }
                 updateAssistantItem(id: assistantItemId, turn: state)
+                await publishTimelineStateIfNeeded(state.timelineState)
             }
         } catch is CancellationError {
             state.isCancelled = true
             updateAssistantItem(id: assistantItemId, turn: state)
+            await publishTimelineStateIfNeeded(state.timelineState)
         } catch {
             let message = error.localizedDescription
             errorMessage = message
             state.errorMessage = message
             state = finalizeFailedTurn(state, assistantItemId: assistantItemId)
+            await publishTimelineStateIfNeeded(state.timelineState)
             appendErrorItem(message)
         }
     }
@@ -303,6 +315,12 @@ public final class ChatViewModel {
 
     private func appendErrorItem(_ message: String) {
         transcript.append(.error(id: UUID(), message: message))
+    }
+
+    private func publishTimelineStateIfNeeded(_ state: ConversationTimelineState) async {
+        guard lastPublishedTimelineState != state else { return }
+        lastPublishedTimelineState = state
+        await onTimelineStateChange?(state)
     }
 
     private func emptyModelResponseNotice(advertisedTools: Bool) -> String {
@@ -363,6 +381,14 @@ public final class ChatViewModel {
         dto.structuredParsedJSON = decoded.parsedJSON
         dto.structuredError = decoded.error
         return dto
+    }
+
+    private static func latestTimelineState(in transcript: [TranscriptItem]) -> ConversationTimelineState? {
+        for item in transcript.reversed() {
+            guard case let .assistant(_, turn) = item else { continue }
+            return turn.timelineState
+        }
+        return nil
     }
 
     private static func nextTurnIndex(for transcript: [TranscriptItem]) -> Int {

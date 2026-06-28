@@ -86,6 +86,29 @@ struct ChatViewModelTests {
         try await waitUntil { !viewModel.isSending }
     }
 
+    @Test("Timeline state callback publishes running immediately, then completed")
+    func timelineStatePublishesRunningThenCompleted() async throws {
+        let runner = ScriptedRunner()
+        let states = LockedStateLog()
+        let viewModel = ChatViewModel(
+            timelineId: UUID(),
+            runner: runner,
+            onTimelineStateChange: { state in
+                await states.append(state)
+            }
+        )
+
+        viewModel.send("hello there")
+        try await waitUntilAsync { await states.snapshot().first == .running }
+
+        runner.continuation?.yield(.streamCompleted())
+        runner.continuation?.finish()
+        try await waitUntil { !viewModel.isSending }
+
+        let recorded = await states.snapshot()
+        #expect(recorded == [.running, .completed])
+    }
+
     @Test("Blank text is a no-op")
     func blankTextIsNoOp() {
         let runner = ScriptedRunner()
@@ -293,7 +316,14 @@ struct ChatViewModelTests {
     @Test("Cancelling marks the in-flight turn as cancelled and stops sending")
     func cancelMarksTurnCancelled() async throws {
         let runner = ScriptedRunner()
-        let viewModel = ChatViewModel(timelineId: UUID(), runner: runner)
+        let states = LockedStateLog()
+        let viewModel = ChatViewModel(
+            timelineId: UUID(),
+            runner: runner,
+            onTimelineStateChange: { state in
+                await states.append(state)
+            }
+        )
 
         viewModel.send("long running request")
         try await Task.sleep(for: .milliseconds(10))
@@ -307,12 +337,20 @@ struct ChatViewModelTests {
             return
         }
         #expect(turn.isCancelled)
+        #expect(await states.snapshot().suffix(1).first == .cancelled)
     }
 
     @Test("A surfaced .error(message:) event sets errorMessage on the view model")
     func errorEventSurfacesMessage() async throws {
         let runner = ScriptedRunner()
-        let viewModel = ChatViewModel(timelineId: UUID(), runner: runner)
+        let states = LockedStateLog()
+        let viewModel = ChatViewModel(
+            timelineId: UUID(),
+            runner: runner,
+            onTimelineStateChange: { state in
+                await states.append(state)
+            }
+        )
 
         viewModel.send("trigger an error")
         try await Task.sleep(for: .milliseconds(10))
@@ -337,6 +375,26 @@ struct ChatViewModelTests {
         runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
         try await waitUntil { !viewModel.isSending }
+        #expect(await states.snapshot().suffix(1).first == .failed)
+    }
+
+    @Test("Approval-style errors publish blocked timeline state")
+    func approvalErrorPublishesBlockedState() async throws {
+        let runner = ScriptedRunner()
+        let states = LockedStateLog()
+        let viewModel = ChatViewModel(
+            timelineId: UUID(),
+            runner: runner,
+            onTimelineStateChange: { state in
+                await states.append(state)
+            }
+        )
+
+        viewModel.send("run blocked command")
+        try await Task.sleep(for: .milliseconds(10))
+
+        runner.continuation?.yield(.error("Command denied by user."))
+        try await waitUntilAsync { await states.snapshot().suffix(1).first == .blocked }
     }
 
     @Test("A thrown error from the runner surfaces as errorMessage and marks the turn errored")
@@ -544,6 +602,18 @@ struct ChatViewModelTests {
     }
 }
 
+private actor LockedStateLog {
+    private(set) var values: [ConversationTimelineState] = []
+
+    func append(_ state: ConversationTimelineState) {
+        values.append(state)
+    }
+
+    func snapshot() -> [ConversationTimelineState] {
+        values
+    }
+}
+
 /// A `ChatRunning` fake whose `run` throws immediately, for exercising the
 /// `consume` catch path without a scripted stream.
 private struct ThrowingRunner: ChatRunning {
@@ -577,6 +647,21 @@ private func waitUntil(
 ) async throws {
     let deadline = ContinuousClock.now.advanced(by: timeout)
     while !condition() {
+        if ContinuousClock.now > deadline {
+            Issue.record("Timed out waiting for condition")
+            return
+        }
+        try await Task.sleep(for: .milliseconds(5))
+    }
+}
+
+@MainActor
+private func waitUntilAsync(
+    timeout: Duration = .seconds(2),
+    _ condition: @MainActor () async -> Bool
+) async throws {
+    let deadline = ContinuousClock.now.advanced(by: timeout)
+    while !(await condition()) {
         if ContinuousClock.now > deadline {
             Issue.record("Timed out waiting for condition")
             return

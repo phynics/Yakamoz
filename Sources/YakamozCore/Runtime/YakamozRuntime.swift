@@ -188,6 +188,14 @@ public actor YakamozRuntime: ChatRunning {
         AppHealthStatus(await healthCheck())
     }
 
+    /// Fetches the active provider's advertised model ids using the latest saved settings/API key.
+    public func fetchAvailableModels() async throws -> [String] {
+        let llmService = try await makeConfiguredLLMService()
+        let currentModel = await currentSettingsSnapshot().model
+        let available = try await llmService.fetchAvailableModels() ?? []
+        return ModelCatalogService().normalize(models: available, currentModel: currentModel)
+    }
+
     /// Builds a `ChatViewModel` for the given conversation/timeline id, boxing this
     /// runtime's `PositronicKit` facade into `any ChatRunning` entirely inside
     /// `YakamozCore` so the app target never needs to name the `PositronicKit` type
@@ -201,7 +209,8 @@ public actor YakamozRuntime: ChatRunning {
         workspaceRoot: URL? = nil,
         terminals: [TerminalToolContext] = [],
         typedReplyEnabled: Bool = false,
-        autonomousFollowUpEnabled: Bool = false
+        autonomousFollowUpEnabled: Bool = false,
+        onTimelineStateChange: (@MainActor @Sendable (ConversationTimelineState) async -> Void)? = nil
     ) async -> ChatViewModel {
         let turnInspector = inspector
         let tools = resolveTools(enabledToolIds: enabledToolIds, workspaceRoot: workspaceRoot, terminals: terminals)
@@ -232,6 +241,7 @@ public actor YakamozRuntime: ChatRunning {
             structuredOutput: typedReplyEnabled ? TypedReply.request() : nil,
             typedReplyEnabled: typedReplyEnabled,
             onBeginUserSend: onBeginUserSend,
+            onTimelineStateChange: onTimelineStateChange,
             initialTranscript: loadedTranscript.transcript
         )
     }

@@ -1,8 +1,17 @@
 # YAK-TF5 — Approval banner is app-global, not scoped to the visible conversation
 
+**Status:** Done
 **Severity:** 🟢 Low (UX / wrong-context approval; multi-conversation only)
 **Area:** Terminal workspace — approval UI
 **Source:** Integration review of merge `78a7b7f`
+
+> **Resolution.** Added `MainActorApprover.pendingApproval(for:)` so approval selection can be
+> scoped by terminal workspace id, then threaded the active conversation's terminal workspace ids
+> from `ChatView` into `TerminalApprovalBanner`. Added
+> `pendingApprovalForWorkspaceIDsIgnoresOtherConversations`, which verifies one conversation only
+> surfaces and resolves its own terminal approval even when another conversation has an older
+> pending request. Focused verification passed with
+> `make test TEST_FILTER=TerminalApprovalTests`.
 
 ## Problem
 

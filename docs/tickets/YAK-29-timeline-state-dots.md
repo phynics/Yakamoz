@@ -1,6 +1,6 @@
 # YAK-29 — Timeline state dots in the chat list
 
-- **Status:** Open
+- **Status:** Done
 - **Priority:** Medium
 - **Repos:** Yakamoz (+ PositronicKit if the shared timeline model needs a state field)
 - **Surfaced by:** product follow-up (2026-06-25)
@@ -70,3 +70,10 @@ SwiftUI list rows observe a whole `ChatViewModel` for every conversation.
 - `Tests/YakamozTests/ChatEventReducerTests.swift`
 - `Tests/YakamozTests/ChatViewModelTests.swift`
 - Related: [YAK-21](YAK-21-new-conversation-list-jump.md)
+
+> **Resolved.** Conversations now persist a lightweight `timelineState` plus
+> `timelineStateUpdatedAt`, update that state from chat lifecycle events, and render a compact
+> colored dot in `ConversationListView`. Active and attention-needed conversations are prioritized
+> ahead of quieter terminal states without reintroducing the YAK-21 new-conversation jump.
+> Focused verification passed with `make test TEST_FILTER=ChatEventReducerTests` and
+> `make test TEST_FILTER=ChatViewModelTests`.

@@ -133,7 +133,8 @@ public enum WorkspaceAttachmentSupport {
     /// Also removes its folder tools from `enabledToolIds` if no other workspace remains attached.
     /// Also nils `workspaceId` if the detached id matches it (legacy single-attach cleanup).
     /// Safe to call multiple times; if the id is not attached, this is a no-op.
-    public static func detachWorkspace(id: UUID, from conversation: ConversationModel, modelContext: ModelContext) {
+    @discardableResult
+    public static func detachWorkspace(id: UUID, from conversation: ConversationModel, modelContext: ModelContext) -> [UUID] {
         conversation.attachedWorkspaceIds.removeAll { $0 == id }
 
         // Also clean up legacy single-attach field if it matches
@@ -152,7 +153,7 @@ public enum WorkspaceAttachmentSupport {
 
         reconcileEnabledTools(for: conversation, attachedWorkspaces: remainingWorkspaces)
 
-        try? modelContext.save()
+        return pruneOrphanWorkspaces(modelContext: modelContext)
     }
 
     /// Recomputes `conversation.enabledToolIds` so it never references tools whose backing
@@ -183,14 +184,16 @@ public enum WorkspaceAttachmentSupport {
     /// Detaches the first (or legacy single) attached workspace from the conversation.
     /// This is a backward-compatibility overload for existing UI code that detaches without specifying an id.
     /// (Task 4 will update UI to work with multi-attach, at which point this can be removed.)
-    public static func detachWorkspace(from conversation: ConversationModel, modelContext: ModelContext) {
+    @discardableResult
+    public static func detachWorkspace(from conversation: ConversationModel, modelContext: ModelContext) -> [UUID] {
         // Prefer the legacy single-attach field if set (for backward compat with existing data)
         if let legacyId = conversation.workspaceId {
-            detachWorkspace(id: legacyId, from: conversation, modelContext: modelContext)
+            return detachWorkspace(id: legacyId, from: conversation, modelContext: modelContext)
         } else if let firstId = conversation.attachedWorkspaceIds.first {
             // Otherwise detach the first workspace in the array
-            detachWorkspace(id: firstId, from: conversation, modelContext: modelContext)
+            return detachWorkspace(id: firstId, from: conversation, modelContext: modelContext)
         }
+        return []
     }
 
     /// Idempotent backfill: moves a non-nil `workspaceId` into `attachedWorkspaceIds` and nils

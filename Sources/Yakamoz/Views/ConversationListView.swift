@@ -20,7 +20,7 @@ struct ConversationListView: View {
 
     var body: some View {
         List(selection: $selection) {
-            ForEach(conversations) { conversation in
+            ForEach(prioritizedConversations) { conversation in
                 ConversationRow(conversation: conversation)
                     .tag(conversation)
             }
@@ -56,6 +56,21 @@ struct ConversationListView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(creationError ?? "")
+        }
+    }
+
+    private var prioritizedConversations: [ConversationModel] {
+        conversations.sorted { lhs, rhs in
+            if lhs.timelineState.sortPriority != rhs.timelineState.sortPriority {
+                return lhs.timelineState.sortPriority < rhs.timelineState.sortPriority
+            }
+            if lhs.timelineStateUpdatedAt != rhs.timelineStateUpdatedAt {
+                return lhs.timelineStateUpdatedAt > rhs.timelineStateUpdatedAt
+            }
+            if lhs.createdAt != rhs.createdAt {
+                return lhs.createdAt > rhs.createdAt
+            }
+            return lhs.id.uuidString < rhs.id.uuidString
         }
     }
 
@@ -105,6 +120,10 @@ private struct ConversationRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
+            Circle()
+                .fill(dotColor)
+                .frame(width: 8, height: 8)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(conversation.title)
                     .font(.body)
@@ -126,5 +145,26 @@ private struct ConversationRow: View {
             }
         }
         .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(conversation.title), \(conversation.timelineState.rawValue)")
+    }
+
+    private var dotColor: Color {
+        switch conversation.timelineState {
+        case .idle:
+            .secondary.opacity(0.45)
+        case .running:
+            .blue
+        case .tooling:
+            .orange
+        case .completed:
+            .green
+        case .blocked:
+            .yellow
+        case .failed:
+            .red
+        case .cancelled:
+            .gray
+        }
     }
 }

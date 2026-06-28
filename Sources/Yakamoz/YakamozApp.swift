@@ -195,9 +195,10 @@ struct YakamozApp: App {
                     .environment(\.uiCoordinator, coordinator)
                     .frame(minWidth: 900, minHeight: 620)
                     .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
-                        // Best-effort teardown of any live terminal shells on quit (YAK-T5).
-                        // The OS also reaps these child processes when the app exits; this is the
-                        // clean path. No relaunch survival — sessions are not persisted.
+                        // Best-effort teardown of any live terminal shells on quit. This detached
+                        // task is not awaited during app termination; we rely on macOS closing the
+                        // PTY master and reaping any remaining child shells on process exit if the
+                        // explicit cleanup does not finish in time. Sessions are not persisted.
                         Task { await runtime.terminalRegistry.terminateAll() }
                     }
             } else {

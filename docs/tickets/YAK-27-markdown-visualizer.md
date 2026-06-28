@@ -1,9 +1,17 @@
 # YAK-27 — Integrate a Markdown visualizer for assistant responses
 
-- **Status:** Open
+- **Status:** Done
 - **Priority:** Medium
 - **Repos:** Yakamoz
 - **Surfaced by:** product follow-up (2026-06-25)
+
+> **Resolved.** Assistant transcript bubbles now render through a native
+> `AssistantMarkdownRenderer` in `YakamozCore`, using
+> `AttributedString(markdown:)` with partial-parse support and a plain-text fallback if
+> parsing fails. `MessageBubble` only changes the assistant-text projection, so tool rows,
+> streaming states, and turn selection behavior stay intact. Focused tests cover both
+> native markdown projection and the fallback path. Focused verification passed with
+> `make test TEST_FILTER=AssistantMarkdownRendererTests`.
 
 ## Problem
 

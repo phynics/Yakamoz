@@ -11,9 +11,12 @@ struct SettingsView: View {
     let secrets: any SecretStoring
 
     @State private var apiKeyDraft: String = ""
+    @State private var availableModels: [String] = []
     @State private var applyError: String?
     @State private var healthStatus: AppHealthStatus?
     @State private var isCheckingHealth = false
+    @State private var isLoadingModels = false
+    @State private var modelLoadError: String?
 
     var body: some View {
         Form {
@@ -31,9 +34,39 @@ struct SettingsView: View {
                 SecureField("API Key", text: $apiKeyDraft)
                     .textFieldStyle(.roundedBorder)
 
+                if isLoadingModels {
+                    ProgressView("Loading models…")
+                        .controlSize(.small)
+                } else if !rankedAvailableModels.isEmpty {
+                    Picker("Suggested Model", selection: suggestedModelBinding) {
+                        ForEach(rankedAvailableModels, id: \.self) { modelID in
+                            Text(modelID).tag(modelID)
+                        }
+                    }
+                }
+
                 TextField("Model", text: $settings.model)
                     .textFieldStyle(.roundedBorder)
                     .onChange(of: settings.model) { _, _ in settings.persist() }
+
+                HStack {
+                    Button("Refresh Models") {
+                        Task { await loadAvailableModels() }
+                    }
+                    .disabled(isLoadingModels)
+
+                    if !settings.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Button(settings.isFavoriteModel(settings.model) ? "Unfavorite Current Model" : "Favorite Current Model") {
+                            settings.toggleFavoriteModel(settings.model)
+                        }
+                    }
+                }
+
+                if let modelLoadError {
+                    Text(modelLoadError)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Section("Generation") {
@@ -96,7 +129,21 @@ struct SettingsView: View {
         .frame(minWidth: 420, minHeight: 420)
         .task {
             loadAPIKeyForSelectedPreset()
+            await loadAvailableModels()
         }
+    }
+
+    private var rankedAvailableModels: [String] {
+        settings.rankedModels(from: availableModels)
+    }
+
+    private var suggestedModelBinding: Binding<String> {
+        Binding(
+            get: { settings.model },
+            set: { newValue in
+                settings.applyModelSelection(newValue)
+            }
+        )
     }
 
     private var presetBinding: Binding<ProviderPreset> {
@@ -106,6 +153,7 @@ struct SettingsView: View {
                 settings.applyPreset(newValue)
                 settings.persist()
                 loadAPIKeyForSelectedPreset()
+                Task { await loadAvailableModels() }
             }
         )
     }
@@ -117,6 +165,7 @@ struct SettingsView: View {
                 if let url = URL(string: newValue) {
                     settings.baseURL = url
                     settings.persist()
+                    Task { await loadAvailableModels() }
                 }
             }
         )
@@ -144,6 +193,7 @@ struct SettingsView: View {
                 try secrets.write(normalizedKey, account: account)
             }
             apiKeyDraft = normalizedKey
+            Task { await loadAvailableModels() }
         } catch {
             applyError = error.localizedDescription
         }
@@ -159,6 +209,19 @@ struct SettingsView: View {
         isCheckingHealth = true
         healthStatus = await runtime.appHealthCheck()
         isCheckingHealth = false
+    }
+
+    private func loadAvailableModels() async {
+        isLoadingModels = true
+        defer { isLoadingModels = false }
+
+        do {
+            availableModels = try await runtime.fetchAvailableModels()
+            modelLoadError = nil
+        } catch {
+            availableModels = []
+            modelLoadError = "Model list unavailable. Manual entry remains available."
+        }
     }
 }
 

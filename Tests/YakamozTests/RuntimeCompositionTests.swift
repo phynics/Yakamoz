@@ -141,6 +141,30 @@ struct RuntimeCompositionTests {
         #expect(configuration.apiKey == "sk-or-v1-openrouter-secret")
     }
 
+    @Test("fetchAvailableModels uses the latest saved configuration")
+    @MainActor
+    func fetchAvailableModelsUsesLatestConfiguration() async throws {
+        let settings = makeSettings()
+        settings.applyPreset(.openRouter)
+        settings.model = "openai/gpt-4.1"
+
+        let secrets = FakeSecretStore()
+        try secrets.write("sk-or-v1-openrouter-secret", account: ProviderSettings.apiKeyAccount(for: .openRouter))
+        let mock = MockLLMService()
+
+        nonisolated(unsafe) var captured: LLMConfiguration?
+        let runtime = try makeRuntime(settings: settings, secrets: secrets, mock: mock) { configuration in
+            captured = configuration
+        }
+
+        let models = try await runtime.fetchAvailableModels()
+
+        #expect(models == ["mock-model", "openai/gpt-4.1"])
+        let configuration = try #require(captured)
+        #expect(configuration.activeProvider == .openRouter)
+        #expect(configuration.apiKey == "sk-or-v1-openrouter-secret")
+    }
+
     @Test("The runtime exposes the SwiftDataTurnInspector and YakamozStores it constructed")
     @MainActor
     func runtimeUsesSwiftDataStoresAndInspector() async throws {

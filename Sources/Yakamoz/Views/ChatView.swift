@@ -173,8 +173,11 @@ struct ChatView: View {
         GeometryReader { proxy in
             HStack(spacing: 0) {
                 VStack(spacing: 0) {
-                    if let terminalApprover, !terminalApprover.pending.isEmpty {
-                        TerminalApprovalBanner(approver: terminalApprover)
+                    if let terminalApprover {
+                        TerminalApprovalBanner(
+                            approver: terminalApprover,
+                            workspaceIDs: Set(attachedTerminalWorkspaces.map(\.id))
+                        )
                     }
 
                     conversationStack(viewModel: viewModel)
@@ -269,7 +272,13 @@ struct ChatView: View {
             workspaceRoot: workspaceRoot,
             terminals: terminalContexts,
             typedReplyEnabled: conversation.typedReplyEnabled,
-            autonomousFollowUpEnabled: conversation.autonomousFollowUpEnabled
+            autonomousFollowUpEnabled: conversation.autonomousFollowUpEnabled,
+            onTimelineStateChange: { [conversation, modelContext] state in
+                guard conversation.timelineState != state else { return }
+                conversation.timelineState = state
+                conversation.timelineStateUpdatedAt = .now
+                try? modelContext.save()
+            }
         )
         let inspection = await runtime.makeInspectionViewModel()
         viewModel = chat

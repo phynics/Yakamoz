@@ -190,6 +190,57 @@ struct WorkspaceConsistencyTests {
         #expect(orphanedTerminalIds == [terminal.id])
     }
 
+    @Test func detachingLastTerminalWorkspacePrunesRowAndReturnsTerminalId() throws {
+        let container = try makeTestModelContainer()
+        let context = ModelContext(container)
+
+        let terminal = WorkspaceModel(displayName: "T", folderPath: "/tmp/t", kind: .terminal)
+        context.insert(terminal)
+
+        let conversation = ConversationModel(title: "c")
+        conversation.attachedWorkspaceIds = [terminal.id]
+        context.insert(conversation)
+        try context.save()
+
+        let prunedTerminalIds = WorkspaceAttachmentSupport.detachWorkspace(
+            id: terminal.id,
+            from: conversation,
+            modelContext: context
+        )
+
+        #expect(prunedTerminalIds == [terminal.id])
+        let remainingWorkspaces = try context.fetch(FetchDescriptor<WorkspaceModel>())
+        #expect(remainingWorkspaces.isEmpty)
+    }
+
+    @Test func detachingWorkspaceReferencedByAnotherConversationKeepsRowAndReturnsNoTerminalIds() throws {
+        let container = try makeTestModelContainer()
+        let context = ModelContext(container)
+
+        let sharedTerminal = WorkspaceModel(displayName: "Shared", folderPath: "/tmp/shared", kind: .terminal)
+        context.insert(sharedTerminal)
+
+        let firstConversation = ConversationModel(title: "first")
+        firstConversation.attachedWorkspaceIds = [sharedTerminal.id]
+        context.insert(firstConversation)
+
+        let secondConversation = ConversationModel(title: "second")
+        secondConversation.attachedWorkspaceIds = [sharedTerminal.id]
+        context.insert(secondConversation)
+        try context.save()
+
+        let prunedTerminalIds = WorkspaceAttachmentSupport.detachWorkspace(
+            id: sharedTerminal.id,
+            from: firstConversation,
+            modelContext: context
+        )
+
+        #expect(prunedTerminalIds.isEmpty)
+        let remainingWorkspaces = try context.fetch(FetchDescriptor<WorkspaceModel>())
+        #expect(remainingWorkspaces.map(\.id) == [sharedTerminal.id])
+        #expect(secondConversation.attachedWorkspaceIds == [sharedTerminal.id])
+    }
+
     @Test func pruneReturnsOnlyTerminalIdsNotFolderIds() throws {
         let container = try makeTestModelContainer()
         let context = ModelContext(container)

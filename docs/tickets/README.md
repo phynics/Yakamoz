@@ -33,9 +33,9 @@ review items left for the next person.
 | [YAK-24](YAK-24-surface-empty-model-response.md) | Surface empty model responses instead of a silent blank bubble | Yakamoz | High | Done |
 | [YAK-25](YAK-25-context-assembly-latency.md) | Context assembly makes a slow LLM call on every send | PositronicKit | Medium | Done |
 | [YAK-26](YAK-26-tool-call-id-coercion-breaks-history.md) | [BUG] Tool-call id coerced to random UUID breaks a conversation's next turn (HTTP 400) | PositronicKit | High | Done |
-| [YAK-27](YAK-27-markdown-visualizer.md) | Integrate a Markdown visualizer for assistant responses | Yakamoz | Medium | Open |
-| [YAK-28](YAK-28-quick-model-switching.md) | Quick model switching with favorites and recency | Yakamoz + PositronicKit | Medium | Open |
-| [YAK-29](YAK-29-timeline-state-dots.md) | Timeline state dots in the chat list | Yakamoz + PositronicKit | Medium | Open |
+| [YAK-27](YAK-27-markdown-visualizer.md) | Integrate a Markdown visualizer for assistant responses | Yakamoz | Medium | Done |
+| [YAK-28](YAK-28-quick-model-switching.md) | Quick model switching with favorites and recency | Yakamoz + PositronicKit | Medium | Done |
+| [YAK-29](YAK-29-timeline-state-dots.md) | Timeline state dots in the chat list | Yakamoz + PositronicKit | Medium | Done |
 | [YAK-30](YAK-30-terminal-workspace-entrypoints.md) | Terminal workspace entrypoints | Yakamoz | Medium | Open |
 
 ## Terminal-workspace post-merge review (YAK-TF series)
@@ -43,7 +43,7 @@ review items left for the next person.
 Findings from the integration review of merge `78a7b7f`
 (`feature/terminal-workspace`, YAK-T1..T5 — spec/plan in
 `docs/superpowers/{specs,plans}/2026-06-26-terminal-workspace*`). Separate `TF`
-("terminal fix") id series so they read as a cohesive batch. TF1 done; TF2–TF6 open.
+("terminal fix") id series so they read as a cohesive batch. TF1–TF6 done.
 
 | ID | Title | Repo(s) | Priority | Status |
 |----|-------|---------|----------|--------|
@@ -51,8 +51,8 @@ Findings from the integration review of merge `78a7b7f`
 | [YAK-TF2](YAK-TF2-registry-double-spawn-race.md) | [BUG] Registry `session(for:)` check-then-act across `await` → duplicate shells + leaked PTY | Yakamoz | Medium | Done |
 | [YAK-TF3](YAK-TF3-partial-output-duplication.md) | [BUG] Partial output re-emitted by `read`/`wait` after a `.running` `run` | Yakamoz | Medium | Done |
 | [YAK-TF4](YAK-TF4-unbounded-buffer-growth.md) | `TerminalSession.buffer` grows without bound (design called for a ring-buffer) | Yakamoz | Medium | Done |
-| [YAK-TF5](YAK-TF5-approval-banner-conversation-scoping.md) | Approval banner is app-global; can show/approve another conversation's command | Yakamoz | Low | Open |
-| [YAK-TF6](YAK-TF6-minor-cleanup.md) | Cleanup: orphan `WorkspaceModel` on detach; fire-and-forget quit teardown; dead `.notRunning` | Yakamoz | Low | Open |
+| [YAK-TF5](YAK-TF5-approval-banner-conversation-scoping.md) | Approval banner is app-global; can show/approve another conversation's command | Yakamoz | Low | Done |
+| [YAK-TF6](YAK-TF6-minor-cleanup.md) | Cleanup: orphan `WorkspaceModel` on detach; fire-and-forget quit teardown; dead `.notRunning` | Yakamoz | Low | Done |
 
 Suggested order: **TF1 first** (security blocker; also makes `.notRunning` in TF6c
 reachable — now done), then TF2/TF3 (lifecycle + output correctness), then TF4/TF5/TF6.
@@ -60,10 +60,7 @@ reachable — now done), then TF2/TF3 (lifecycle + output correctness), then TF4
 Status legend: Open / Delayed / In progress / Done. Each ticket also carries its
 own **Status** line.
 
-**Open:** YAK-TF5 / YAK-TF6 (Low — terminal approval-banner scope / cleanup),
-YAK-30 (Medium — terminal workspace entrypoints), YAK-29 (Medium — timeline state dots),
-YAK-28 (Medium — quick model switching), YAK-27 (Medium — Markdown response rendering),
-YAK-22 (Low — settings polish, needs design direction).
+**Open:** YAK-30 (Medium — terminal workspace entrypoints), YAK-22 (Low — settings polish, needs design direction).
 **Delayed:** YAK-5 (phase 2). Note
 (YAK-23, FIXED): streamed tool calls were dropped for every
 model via OpenRouter because the SSE decoder ignored snake_case (`tool_calls`/`finish_reason`);

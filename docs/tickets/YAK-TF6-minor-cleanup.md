@@ -1,8 +1,18 @@
 # YAK-TF6 — Minor cleanup: orphan row on detach, fire-and-forget quit teardown, dead error case
 
+**Status:** Done
 **Severity:** 🟢 Low (housekeeping)
 **Area:** Terminal workspace — lifecycle / hygiene
 **Source:** Integration review of merge `78a7b7f`
+
+> **Resolution.** `WorkspaceAttachmentSupport.detachWorkspace` now returns pruned
+> terminal workspace ids and immediately prunes any newly orphaned `WorkspaceModel`
+> rows, so detach cleanup matches `deleteConversation` instead of waiting for a later
+> sweep. `WorkspacePicker` now tears down live terminal sessions from that returned
+> id list, and `YakamozApp`'s quit comment explicitly documents that `willTerminate`
+> teardown is fire-and-forget and relies on macOS/PTTY cleanup if it loses the race.
+> Added detach tests for orphan pruning and shared-reference retention. Focused
+> verification passed with `make test TEST_FILTER=WorkspaceConsistencyTests`.
 
 Three small, independent items grouped into one ticket. Each can be a separate
 commit.

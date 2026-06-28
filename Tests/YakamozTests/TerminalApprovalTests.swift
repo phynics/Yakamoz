@@ -69,4 +69,44 @@ struct TerminalApprovalTests {
         #expect(decision == .deny)
         #expect(approver.pending.isEmpty)
     }
+
+    @MainActor
+    @Test func pendingApprovalForWorkspaceIDsIgnoresOtherConversations() async {
+        let approver = MainActorApprover()
+        let workspaceA = UUID()
+        let workspaceB = UUID()
+
+        let childA = Task {
+            await approver.requestApproval(command: "echo from-a", workspaceId: workspaceA)
+        }
+        let childB = Task {
+            await approver.requestApproval(command: "echo from-b", workspaceId: workspaceB)
+        }
+
+        for _ in 0 ..< 1000 {
+            if approver.pending.count == 2 { break }
+            await Task.yield()
+        }
+
+        #expect(approver.pending.count == 2)
+        let pending = approver.pendingApproval(for: [workspaceA])
+        #expect(pending?.workspaceId == workspaceA)
+        #expect(pending?.command == "echo from-a")
+
+        guard let pending else {
+            childA.cancel()
+            childB.cancel()
+            return
+        }
+
+        approver.resolve(pending, with: .approve)
+        #expect(approver.pending.count == 1)
+        #expect(approver.pending.first?.workspaceId == workspaceB)
+
+        approver.resolve(approver.pending[0], with: .deny)
+        let decisionA = await childA.value
+        let decisionB = await childB.value
+        #expect(decisionA == .approve)
+        #expect(decisionB == .deny)
+    }
 }

@@ -108,12 +108,17 @@ struct WorkspacePicker: View {
     }
 
     private func detach(_ workspace: WorkspaceModel) {
-        let id = workspace.id
-        let isTerminal = workspace.kind == .terminal
-        WorkspaceAttachmentSupport.detachWorkspace(id: id, from: conversation, modelContext: modelContext)
-        // A terminal's live shell must be torn down when its workspace is detached.
-        if isTerminal, let runtime {
-            Task { await runtime.terminalRegistry.terminate(id: id) }
+        let prunedTerminalIds = WorkspaceAttachmentSupport.detachWorkspace(
+            id: workspace.id,
+            from: conversation,
+            modelContext: modelContext
+        )
+        if let runtime, !prunedTerminalIds.isEmpty {
+            Task {
+                for id in prunedTerminalIds {
+                    await runtime.terminalRegistry.terminate(id: id)
+                }
+            }
         }
     }
 }

@@ -1,6 +1,6 @@
 # YAK-28 — Quick model switching with favorites and recency
 
-- **Status:** Open
+- **Status:** Done
 - **Priority:** Medium
 - **Repos:** Yakamoz (+ PositronicKit if provider model-list APIs are missing)
 - **Surfaced by:** product follow-up (2026-06-25)
@@ -79,3 +79,11 @@ models they actually use kept near the top.
 - `Sources/YakamozCore/Runtime/YakamozRuntime.swift`
 - `Tests/YakamozTests/RuntimeCompositionTests.swift`
 - `Tests/YakamozTests/ConversationCoordinatorTests.swift`
+
+> **Resolved.** `SettingsView` now offers a settings-first suggested-model picker backed by
+> `YakamozRuntime.fetchAvailableModels()`, while preserving manual model entry as a fallback.
+> `ProviderSettings` persists favorites and recents per provider/base-URL scope, ranks favorites
+> first and recents second, and `ModelCatalogService` keeps provider-advertised order while still
+> appending a missing current model so the active selection never disappears. Focused verification
+> passed with `make test TEST_FILTER=ProviderConfigurationTests` and
+> `make test TEST_FILTER=RuntimeCompositionTests`.

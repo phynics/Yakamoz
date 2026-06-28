@@ -101,6 +101,25 @@ public struct ChatTurnState: Sendable, Equatable {
         response.reconstructedText.isEmpty && response.thinking.isEmpty && orderedTools.isEmpty
     }
 
+    public var timelineState: ConversationTimelineState {
+        if isCancelled {
+            return .cancelled
+        }
+        if let errorMessage {
+            return isBlockedError(errorMessage) ? .blocked : .failed
+        }
+        if isComplete {
+            return .completed
+        }
+        if orderedTools.contains(where: { $0.state == .attempting }) {
+            return .tooling
+        }
+        if inspectionTurnIndex != nil || !response.reconstructedText.isEmpty || !response.thinking.isEmpty || !orderedTools.isEmpty {
+            return .running
+        }
+        return .idle
+    }
+
     /// Records a streamed tool-call delta so the UI can show the model's requested
     /// parameters before and after execution. Anonymous partial deltas are ignored here;
     /// the engine later emits an ID-bearing final delta before executing tools.
@@ -187,6 +206,15 @@ public struct ChatTurnState: Sendable, Equatable {
             inputTokens: response.inputTokens,
             outputTokens: response.outputTokens
         )
+    }
+
+    private func isBlockedError(_ message: String) -> Bool {
+        let normalized = message.lowercased()
+        return normalized.contains("denied")
+            || normalized.contains("not approved")
+            || normalized.contains("approval")
+            || normalized.contains("disallowed")
+            || normalized.contains("outside the allowed")
     }
 }
 

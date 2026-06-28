@@ -7,9 +7,10 @@ import YakamozCore
 /// stays suspended until one of these resolves the request.
 struct TerminalApprovalBanner: View {
     let approver: MainActorApprover
+    let workspaceIDs: Set<UUID>
 
     var body: some View {
-        if let pending = approver.pending.first {
+        if let pending = approver.pendingApproval(for: workspaceIDs) {
             VStack(alignment: .leading, spacing: 8) {
                 Label("Terminal command needs approval", systemImage: "exclamationmark.shield")
                     .font(.caption.weight(.semibold))

@@ -198,6 +198,52 @@ struct ProviderConfigurationTests {
         #expect(try ProviderSettings.storedAPIKey(for: .openRouter, secrets: secrets) == "sk-or-v1-legacy-openrouter-secret")
     }
 
+    @Test("favorites and recents are scoped by provider and base URL")
+    func favoritesAndRecentsAreScopedByProviderAndBaseURL() throws {
+        let defaults = makeDefaults()
+        let settings = ProviderSettings(defaults: defaults)
+
+        settings.applyPreset(.openAI)
+        settings.baseURL = try #require(URL(string: "https://api.openai.com/v1"))
+        settings.toggleFavoriteModel("gpt-4.1")
+        settings.recordRecentModel("gpt-4o-mini")
+
+        settings.applyPreset(.custom)
+        settings.baseURL = try #require(URL(string: "https://example.invalid/v1"))
+        #expect(settings.favoriteModels().isEmpty)
+        #expect(settings.recentModels().isEmpty)
+
+        settings.toggleFavoriteModel("custom-model")
+        settings.recordRecentModel("custom-recent")
+
+        settings.applyPreset(.openAI)
+        settings.baseURL = try #require(URL(string: "https://api.openai.com/v1"))
+        #expect(settings.favoriteModels() == ["gpt-4.1"])
+        #expect(settings.recentModels() == ["gpt-4o-mini"])
+    }
+
+    @Test("ranked models keep favorites first, then recents, and retain the current model")
+    func rankedModelsFavorFavoritesAndRecents() {
+        let settings = ProviderSettings(defaults: makeDefaults())
+        settings.model = "manual-current"
+        settings.toggleFavoriteModel("gpt-4.1")
+        settings.recordRecentModel("gpt-4o-mini")
+
+        let ranked = settings.rankedModels(from: ["gpt-4o-mini", "gpt-4.1", "gpt-4o"])
+
+        #expect(ranked == ["gpt-4.1", "gpt-4o-mini", "manual-current", "gpt-4o"])
+    }
+
+    @Test("model catalog normalization preserves provider order and appends the current model when missing")
+    func modelCatalogNormalizationAppendsMissingCurrentModel() {
+        let normalized = ModelCatalogService().normalize(
+            models: ["mock-model", " mock-model ", "", "gpt-4o-mini"],
+            currentModel: "manual-current"
+        )
+
+        #expect(normalized == ["mock-model", "gpt-4o-mini", "manual-current"])
+    }
+
     // MARK: - No API key in UserDefaults
 
     @Test("No API key ever appears in UserDefaults, even after persist()")

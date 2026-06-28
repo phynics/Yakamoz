@@ -112,11 +112,12 @@ private struct ChatPromptRow: View {
 
 private struct AssistantTurnContent: View {
     let turn: ChatTurnState
+    private let markdownRenderer = AssistantMarkdownRenderer()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if !turn.response.reconstructedText.isEmpty {
-                Text(turn.response.reconstructedText)
+                Text(markdownRenderer.render(turn.response.reconstructedText))
                     .textSelection(.enabled)
             } else if turn.isCancelled {
                 Text("Cancelled")

@@ -186,6 +186,8 @@ public final class ProviderSettings {
         static let preset = "providerSettings.preset"
         static let baseURL = "providerSettings.baseURL"
         static let model = "providerSettings.model"
+        static let favoriteModels = "providerSettings.favoriteModels"
+        static let recentModels = "providerSettings.recentModels"
         static let temperature = "providerSettings.temperature"
         static let maxTokens = "providerSettings.maxTokens"
         static let topP = "providerSettings.topP"
@@ -244,6 +246,12 @@ public final class ProviderSettings {
     public func applyPreset(_ preset: ProviderPreset) {
         self.preset = preset
         baseURL = preset.baseURL
+    }
+
+    public func applyModelSelection(_ modelID: String) {
+        model = modelID
+        recordRecentModel(modelID)
+        persist()
     }
 
     /// Validates the currently configured base URL. Only `http`/`https` schemes are accepted.
@@ -351,6 +359,61 @@ public final class ProviderSettings {
     /// construct), so this value type bundles the two knobs `ProviderSettings` owns.
     public var retrySettings: RetrySettings {
         snapshot.retrySettings
+    }
+
+    public func favoriteModels() -> [String] {
+        modelMetadataMap(forKey: DefaultsKey.favoriteModels)[modelMetadataScopeKey()] ?? []
+    }
+
+    public func recentModels() -> [String] {
+        modelMetadataMap(forKey: DefaultsKey.recentModels)[modelMetadataScopeKey()] ?? []
+    }
+
+    public func isFavoriteModel(_ modelID: String) -> Bool {
+        favoriteModels().contains(modelID)
+    }
+
+    public func toggleFavoriteModel(_ modelID: String) {
+        var scoped = favoriteModels()
+        if let index = scoped.firstIndex(of: modelID) {
+            scoped.remove(at: index)
+        } else {
+            scoped.insert(modelID, at: 0)
+        }
+        writeModelMetadata(scoped, forKey: DefaultsKey.favoriteModels)
+    }
+
+    public func recordRecentModel(_ modelID: String) {
+        var scoped = recentModels()
+        scoped.removeAll { $0 == modelID }
+        scoped.insert(modelID, at: 0)
+        writeModelMetadata(Array(scoped.prefix(8)), forKey: DefaultsKey.recentModels)
+    }
+
+    public func rankedModels(from availableModels: [String]) -> [String] {
+        let normalized = ModelCatalogService().normalize(
+            models: availableModels,
+            currentModel: model,
+            currentModelPosition: .prependIfMissing
+        )
+        let favorites = favoriteModels().filter(normalized.contains)
+        let recents = recentModels().filter { normalized.contains($0) && !favorites.contains($0) }
+        let remainder = normalized.filter { !favorites.contains($0) && !recents.contains($0) }
+        return favorites + recents + remainder
+    }
+
+    public func modelMetadataScopeKey() -> String {
+        "\(preset.rawValue)|\(baseURL.absoluteString)"
+    }
+
+    private func modelMetadataMap(forKey key: String) -> [String: [String]] {
+        defaults.dictionary(forKey: key) as? [String: [String]] ?? [:]
+    }
+
+    private func writeModelMetadata(_ models: [String], forKey key: String) {
+        var map = modelMetadataMap(forKey: key)
+        map[modelMetadataScopeKey()] = models
+        defaults.set(map, forKey: key)
     }
 }
 

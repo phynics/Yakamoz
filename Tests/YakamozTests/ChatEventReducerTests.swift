@@ -221,6 +221,7 @@ struct ChatEventReducerTests {
 
         #expect(state.isCancelled)
         #expect(!state.isComplete)
+        #expect(state.timelineState == .cancelled)
     }
 
     @Test("error(message:) records errorMessage on the turn state")
@@ -231,6 +232,17 @@ struct ChatEventReducerTests {
         ChatEventReducer.reduce(.error("network blip"), into: &state, now: now)
 
         #expect(state.errorMessage == "network blip")
+        #expect(state.timelineState == .failed)
+    }
+
+    @Test("approval-style errors map to blocked timeline state")
+    func approvalErrorMapsToBlockedState() {
+        var state = ChatTurnState(turnIndex: 0)
+        let now = clock.now
+
+        ChatEventReducer.reduce(.error("Command denied by user."), into: &state, now: now)
+
+        #expect(state.timelineState == .blocked)
     }
 
     @Test("streamCompleted marks the turn complete (terminal)")
@@ -241,6 +253,21 @@ struct ChatEventReducerTests {
         ChatEventReducer.reduce(.streamCompleted(), into: &state, now: now)
 
         #expect(state.isComplete)
+        #expect(state.timelineState == .completed)
+    }
+
+    @Test("attempting tool execution maps the timeline to tooling")
+    func attemptingToolExecutionMapsToToolingState() {
+        var state = ChatTurnState(turnIndex: 0)
+        let now = clock.now
+
+        ChatEventReducer.reduce(
+            .toolProgress(toolCallId: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
+            into: &state,
+            now: now
+        )
+
+        #expect(state.timelineState == .tooling)
     }
 
     @Test("completion(generationCompleted) records final response metadata")
