@@ -37,6 +37,15 @@ review items left for the next person.
 | [YAK-28](YAK-28-quick-model-switching.md) | Quick model switching with favorites and recency | Yakamoz + PositronicKit | Medium | Done |
 | [YAK-29](YAK-29-timeline-state-dots.md) | Timeline state dots in the chat list | Yakamoz + PositronicKit | Medium | Done |
 | [YAK-30](YAK-30-terminal-workspace-entrypoints.md) | Terminal workspace entrypoints | Yakamoz | Medium | Open |
+| [YAK-31](YAK-31-permissioned-tools-approval-gate.md) | [SECURITY] Permissioned tools execute without an approval gate | PositronicKit + Yakamoz | High | Open |
+| [YAK-32](YAK-32-agent-workspace-seed-path-traversal.md) | [SECURITY] Agent workspace seed filenames can escape `Notes` | PositronicKit + Yakamoz | Medium | Open |
+| [YAK-33](YAK-33-explicit-workspaceid-fallback.md) | [SECURITY] Invalid explicit `workspaceID` falls back to another workspace | PositronicKit + Yakamoz | Medium | Open |
+| [YAK-34](YAK-34-external-tool-output-forgery.md) | [SECURITY] External tool outputs can be forged into timeline history | PositronicKit + Yakamoz | Medium | Open |
+| [YAK-35](YAK-35-filesystem-search-resource-limits.md) | [BUG] Filesystem search tools lack producer-side resource limits | PositronicKit + Yakamoz | Medium | Open |
+| [YAK-36](YAK-36-local-embedding-resource-limits.md) | [BUG] Local embedding APIs allocate attacker-sized batches | PositronicKit + Yakamoz | Medium | Open |
+| [YAK-37](YAK-37-provider-tool-log-redaction.md) | [SECURITY] Provider and tool debug logs can capture raw sensitive payloads | PositronicKit + Yakamoz | Low | Open |
+| [YAK-38](YAK-38-pktestsupport-mock-workspace-sanitizer.md) | [BUG] Exported `MockLocalWorkspace` omits path containment checks | PositronicKit + Yakamoz | Low | Open |
+| [YAK-39](YAK-39-context-role-and-tool-fallback-hardening.md) | [SECURITY] Follow up prompt-context role elevation and text tool fallback | PositronicKit + Yakamoz | Medium | Open |
 
 ## Terminal-workspace post-merge review (YAK-TF series)
 
@@ -60,7 +69,7 @@ reachable — now done), then TF2/TF3 (lifecycle + output correctness), then TF4
 Status legend: Open / Delayed / In progress / Done. Each ticket also carries its
 own **Status** line.
 
-**Open:** YAK-30 (Medium — terminal workspace entrypoints), YAK-22 (Low — settings polish, needs design direction).
+**Open:** YAK-31 (High — permissioned tool approval gate), YAK-30 (Medium — terminal workspace entrypoints), YAK-32 (Medium — agent workspace seed path traversal), YAK-33 (Medium — explicit workspaceID fallback), YAK-34 (Medium — external tool-output forgery), YAK-35 (Medium — filesystem search resource limits), YAK-36 (Medium — local embedding resource limits), YAK-39 (Medium — context-role and fallback hardening), YAK-22 (Low — settings polish, needs design direction), YAK-37 (Low — provider/tool log redaction), YAK-38 (Low — PKTestSupport mock workspace containment).
 **Delayed:** YAK-5 (phase 2). Note
 (YAK-23, FIXED): streamed tool calls were dropped for every
 model via OpenRouter because the SSE decoder ignored snake_case (`tool_calls`/`finish_reason`);
