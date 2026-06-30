@@ -1,6 +1,6 @@
 # YAK-41 - PositronicKit: stable, consistent swift-log labels
 
-- **Status:** Open
+- **Status:** Done
 - **Priority:** Medium
 - **Repos:** PositronicKit (+ Monad/Shuttle call-site sweep)
 - **Spec:** `../../Yakamoz/docs/superpowers/specs/2026-06-30-logging-debuggability-design.md`

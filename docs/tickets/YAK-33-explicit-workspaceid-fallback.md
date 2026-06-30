@@ -1,9 +1,22 @@
 # YAK-33 - [SECURITY] Invalid explicit `workspaceID` falls back to another workspace
 
-- **Status:** Open
+- **Status:** Done
 - **Priority:** Medium
 - **Repos:** PositronicKit + Yakamoz
 - **Surfaced by:** Codex Security scan of PositronicKit (`cf83525f5fc4_20260628T221104Z`)
+
+> **Resolution.** `ToolRouter.resolveWorkspace` now fails closed: an explicit
+> `workspaceID` that is not among the timeline's attached/primary workspaces throws
+> `ToolError.workspaceNotFound(explicitId)` instead of falling back to default
+> resolution (`Sources/PositronicKit/Services/Tools/ToolRouter.swift:297`). An absent
+> `workspaceID` still uses normal default resolution. The thrown `ToolError` already
+> propagates to the agent-visible tool-result stream, so no Yakamoz runtime change was
+> needed; a Yakamoz regression guard confirms tool routing still succeeds when no
+> `workspaceID` is supplied. Also fixed a pre-existing build break: Monad's
+> `ErrorMiddleware.classifyToolError` exhaustive switch was missing the
+> `.permissionDenied` case added by YAK-31. Added three PositronicKit tests
+> (invalid/unattached fail-closed, omitted-uses-default) plus the Yakamoz suite.
+> Verified: PositronicKit 562 tests pass, Monad builds, Yakamoz `make verify` green.
 
 ## Problem
 
