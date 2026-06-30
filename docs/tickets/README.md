@@ -50,6 +50,7 @@ review items left for the next person.
 | [YAK-41](YAK-41-pk-logger-label-standardization.md) | PositronicKit: stable, consistent swift-log labels | PositronicKit | Medium | Done |
 | [YAK-42](YAK-42-pk-pipeline-levels-and-metadata.md) | PositronicKit: pipeline log-level fidelity + structured metadata | PositronicKit | Medium | Open |
 | [YAK-43](YAK-43-log-coverage-sweep.md) | Log coverage sweep: instrument silent failure & lifecycle points | Yakamoz | Medium | Open |
+| [YAK-44](YAK-44-flaky-test-suite-investigation.md) | [FLAKY] `make verify` intermittently fails 2 tests under load | Yakamoz | Medium | Open |
 
 ## Terminal-workspace post-merge review (YAK-TF series)
 
@@ -73,7 +74,7 @@ reachable — now done), then TF2/TF3 (lifecycle + output correctness), then TF4
 Status legend: Open / Delayed / In progress / Done. Each ticket also carries its
 own **Status** line.
 
-**Open:** YAK-30 (Medium — terminal workspace entrypoints), YAK-32 (Medium — agent workspace seed path traversal), YAK-34 (Medium — external tool-output forgery), YAK-35 (Medium — filesystem search resource limits), YAK-36 (Medium — local embedding resource limits), YAK-40 (Medium — centralized log handling), YAK-42 (Medium — PK pipeline levels + metadata), YAK-43 (Medium — log coverage sweep).
+**Open:** YAK-30 (Medium — terminal workspace entrypoints), YAK-32 (Medium — agent workspace seed path traversal), YAK-34 (Medium — external tool-output forgery), YAK-35 (Medium — filesystem search resource limits), YAK-36 (Medium — local embedding resource limits), YAK-40 (Medium — centralized log handling), YAK-42 (Medium — PK pipeline levels + metadata), YAK-43 (Medium — log coverage sweep), YAK-44 (Medium — flaky `make verify` investigation).
 
 **Logging/debuggability batch** (spec `docs/superpowers/specs/2026-06-30-logging-debuggability-design.md`): YAK-41 → YAK-42 (PositronicKit foundation), then/parallel YAK-40 (Yakamoz bootstrap consumes it; can also land first independently), then YAK-43 (coverage sweep; depends on YAK-40's `Log.*` namespace).
 **Delayed:** YAK-5 (phase 2). Note
