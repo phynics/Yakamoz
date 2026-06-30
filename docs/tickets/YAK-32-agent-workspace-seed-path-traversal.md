@@ -1,6 +1,6 @@
 # YAK-32 - [SECURITY] Agent workspace seed filenames can escape `Notes`
 
-- **Status:** Open
+- **Status:** Done
 - **Priority:** Medium
 - **Repos:** PositronicKit + Yakamoz
 - **Surfaced by:** Codex Security scan of PositronicKit (`cf83525f5fc4_20260628T221104Z`)

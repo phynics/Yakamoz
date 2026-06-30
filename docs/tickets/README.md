@@ -38,7 +38,7 @@ review items left for the next person.
 | [YAK-29](YAK-29-timeline-state-dots.md) | Timeline state dots in the chat list | Yakamoz + PositronicKit | Medium | Done |
 | [YAK-30](YAK-30-terminal-workspace-entrypoints.md) | Terminal workspace entrypoints | Yakamoz | Medium | Open |
 | [YAK-31](YAK-31-permissioned-tools-approval-gate.md) | [SECURITY] Permissioned tools execute without an approval gate | PositronicKit + Yakamoz | High | Done |
-| [YAK-32](YAK-32-agent-workspace-seed-path-traversal.md) | [SECURITY] Agent workspace seed filenames can escape `Notes` | PositronicKit + Yakamoz | Medium | Open |
+| [YAK-32](YAK-32-agent-workspace-seed-path-traversal.md) | [SECURITY] Agent workspace seed filenames can escape `Notes` | PositronicKit + Yakamoz | Medium | Done |
 | [YAK-33](YAK-33-explicit-workspaceid-fallback.md) | [SECURITY] Invalid explicit `workspaceID` falls back to another workspace | PositronicKit + Yakamoz | Medium | Done |
 | [YAK-34](YAK-34-external-tool-output-forgery.md) | [SECURITY] External tool outputs can be forged into timeline history | PositronicKit + Yakamoz | Medium | Open |
 | [YAK-35](YAK-35-filesystem-search-resource-limits.md) | [BUG] Filesystem search tools lack producer-side resource limits | PositronicKit + Yakamoz | Medium | Open |
@@ -83,7 +83,7 @@ reachable — now done), then TF2/TF3 (lifecycle + output correctness), then TF4
 Status legend: Open / Delayed / In progress / Done. Each ticket also carries its
 own **Status** line.
 
-**Open:** YAK-30 (Medium — terminal workspace entrypoints), YAK-32 (Medium — agent workspace seed path traversal), YAK-34 (Medium — external tool-output forgery), YAK-35 (Medium — filesystem search resource limits), YAK-36 (Medium — local embedding resource limits), YAK-40 (Medium — centralized log handling), YAK-42 (Medium — PK pipeline levels + metadata), YAK-43 (Medium — log coverage sweep), YAK-44 (Medium — flaky `make verify` investigation), YAK-T6 (Medium — terminal output truncation + full-output store).
+**Open:** YAK-30 (Medium — terminal workspace entrypoints), YAK-34 (Medium — external tool-output forgery), YAK-35 (Medium — filesystem search resource limits), YAK-36 (Medium — local embedding resource limits), YAK-40 (Medium — centralized log handling), YAK-42 (Medium — PK pipeline levels + metadata), YAK-43 (Medium — log coverage sweep), YAK-44 (Medium — flaky `make verify` investigation), YAK-T6 (Medium — terminal output truncation + full-output store).
 
 **Logging/debuggability batch** (spec `docs/superpowers/specs/2026-06-30-logging-debuggability-design.md`): YAK-41 → YAK-42 (PositronicKit foundation), then/parallel YAK-40 (Yakamoz bootstrap consumes it; can also land first independently), then YAK-43 (coverage sweep; depends on YAK-40's `Log.*` namespace).
 **Delayed:** YAK-5 (phase 2). Note
