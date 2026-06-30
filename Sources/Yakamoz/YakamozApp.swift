@@ -28,6 +28,13 @@ private struct TerminalApproverKey: EnvironmentKey {
     static let defaultValue: MainActorApprover? = nil
 }
 
+/// Typed environment key for the permissioned-tool approver (YAK-31). The same instance is injected
+/// into `YakamozRuntime` (so `ToolRouter` routes permissioned filesystem-tool approvals through it)
+/// and exposed here so `ChatView` can render the approval banner from its pending list.
+private struct ToolApproverKey: EnvironmentKey {
+    static let defaultValue: MainActorToolApprover? = nil
+}
+
 /// Typed environment key for the shared provider status boundary (YAK-22).
 /// Both `SettingsView` and `ProviderControlMenu` read from the same instance so model-list
 /// and health state are not duplicated across surfaces.
@@ -56,6 +63,11 @@ extension EnvironmentValues {
         set { self[TerminalApproverKey.self] = newValue }
     }
 
+    var toolApprover: MainActorToolApprover? {
+        get { self[ToolApproverKey.self] }
+        set { self[ToolApproverKey.self] = newValue }
+    }
+
     var providerStatus: ProviderStatusViewModel? {
         get { self[ProviderStatusKey.self] }
         set { self[ProviderStatusKey.self] = newValue }
@@ -69,6 +81,7 @@ struct YakamozApp: App {
     private let settings: ProviderSettings
     private let secrets: any SecretStoring
     private let terminalApprover: MainActorApprover
+    private let toolApprover: MainActorToolApprover
     private let providerStatus: ProviderStatusViewModel?
     private let setupError: String?
 
@@ -83,6 +96,10 @@ struct YakamozApp: App {
         // gate) and ChatView's approval banner (pending list).
         let approver = MainActorApprover()
         terminalApprover = approver
+        // Owned here so the same instance backs both the runtime's permissioned-tool gate and
+        // ChatView's approval banner (pending list). YAK-31.
+        let toolApprover = MainActorToolApprover()
+        self.toolApprover = toolApprover
 
         var resolvedStoreDescription = "(store URL not yet resolved)"
         var builtRuntime: YakamozRuntime?
@@ -95,7 +112,13 @@ struct YakamozApp: App {
             let configuration = ModelConfiguration(schema: schema, url: storeURL)
             let container = try ModelContainer(for: schema, configurations: configuration)
             WorkspaceAttachmentSupport.pruneOrphanWorkspaces(modelContext: container.mainContext)
-            let rt = try YakamozRuntime(modelContainer: container, settings: settings, secrets: secrets, terminalApprover: approver)
+            let rt = try YakamozRuntime(
+                modelContainer: container,
+                settings: settings,
+                secrets: secrets,
+                terminalApprover: approver,
+                toolApprovalGate: toolApprover
+            )
             modelContainer = container
             builtRuntime = rt
             setupError = nil
@@ -207,6 +230,7 @@ struct YakamozApp: App {
                     .environment(\.providerSettings, settings)
                     .environment(\.secretStore, secrets)
                     .environment(\.terminalApprover, terminalApprover)
+                    .environment(\.toolApprover, toolApprover)
                     .environment(\.uiCoordinator, coordinator)
                     .environment(\.providerStatus, providerStatus)
                     .frame(minWidth: 900, minHeight: 620)

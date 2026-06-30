@@ -12,6 +12,7 @@ struct ChatView: View {
     @Environment(\.yakamozRuntime) private var runtime
     @Environment(\.uiCoordinator) private var coordinator
     @Environment(\.terminalApprover) private var terminalApprover
+    @Environment(\.toolApprover) private var toolApprover
     @Environment(\.providerStatus) private var providerStatus
     @Environment(\.providerSettings) private var providerSettings
 
@@ -186,6 +187,10 @@ struct ChatView: View {
                             approver: terminalApprover,
                             workspaceIDs: Set(attachedTerminalWorkspaces.map(\.id))
                         )
+                    }
+
+                    if let toolApprover {
+                        ToolApprovalBanner(approver: toolApprover)
                     }
 
                     conversationStack(viewModel: viewModel)

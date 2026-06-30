@@ -82,13 +82,20 @@ public actor YakamozRuntime: ChatRunning {
     /// app injects a concrete UI-bridging approver (YAK-T5).
     private let terminalApprover: any TerminalCommandApproving
 
+    /// Gate consulted by PositronicKit's `ToolRouter` before any permissioned tool (the filesystem
+    /// tools `read_file`/`ls`/`find`/`search_files`/`grep`) executes. Defaults to
+    /// `DenyAllToolApprovalGate()` (default-deny) so permissioned tools are never an un-gated
+    /// primitive when unwired; the app injects a concrete `MainActorToolApprover` (YAK-31).
+    private let toolApprovalGate: any ToolApprovalGate
+
     @MainActor
     public init(
         modelContainer: ModelContainer,
         settings: ProviderSettings,
         secrets: any SecretStoring,
         llmServiceFactory: @escaping LLMServiceFactory = defaultLLMServiceFactory,
-        terminalApprover: any TerminalCommandApproving = DenyAllApprover()
+        terminalApprover: any TerminalCommandApproving = DenyAllApprover(),
+        toolApprovalGate: any ToolApprovalGate = DenyAllToolApprovalGate()
     ) throws {
         stores = YakamozStores(modelContainer: modelContainer)
         inspector = SwiftDataTurnInspector(modelContainer: modelContainer)
@@ -96,6 +103,7 @@ public actor YakamozRuntime: ChatRunning {
         self.secrets = secrets
         self.llmServiceFactory = llmServiceFactory
         self.terminalApprover = terminalApprover
+        self.toolApprovalGate = toolApprovalGate
 
         let settingsSnapshot = settings.snapshot
         kit = try Self.makeKit(
@@ -104,7 +112,8 @@ public actor YakamozRuntime: ChatRunning {
             settingsSnapshot: settingsSnapshot,
             apiKey: ProviderSettings.storedAPIKey(for: settingsSnapshot.preset, secrets: secrets),
             llmServiceFactory: llmServiceFactory,
-            promptHistoryRegistry: promptHistoryRegistry
+            promptHistoryRegistry: promptHistoryRegistry,
+            toolApprovalGate: toolApprovalGate
         )
     }
 
@@ -331,7 +340,8 @@ public actor YakamozRuntime: ChatRunning {
             settingsSnapshot: settings,
             apiKey: key,
             llmServiceFactory: llmServiceFactory,
-            promptHistoryRegistry: promptHistoryRegistry
+            promptHistoryRegistry: promptHistoryRegistry,
+            toolApprovalGate: toolApprovalGate
         )
     }
 
@@ -341,7 +351,8 @@ public actor YakamozRuntime: ChatRunning {
         settingsSnapshot: ProviderSettingsSnapshot,
         apiKey: String,
         llmServiceFactory: LLMServiceFactory,
-        promptHistoryRegistry: TimelinePromptHistoryRegistry
+        promptHistoryRegistry: TimelinePromptHistoryRegistry,
+        toolApprovalGate: any ToolApprovalGate
     ) -> PositronicKit {
         let configuration = settingsSnapshot.configuration(apiKey: apiKey)
         let llmService = llmServiceFactory(configuration)
@@ -357,7 +368,8 @@ public actor YakamozRuntime: ChatRunning {
             sectionProviders: [CurrentTimeSectionProvider()],
             turnInspector: inspector,
             promptHistoryRegistry: promptHistoryRegistry,
-            generationParameters: settingsSnapshot.generationParameters
+            generationParameters: settingsSnapshot.generationParameters,
+            toolApprovalGate: toolApprovalGate
         )
     }
 

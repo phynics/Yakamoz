@@ -1,6 +1,15 @@
 # YAK-31 - [SECURITY] Permissioned tools execute without an approval gate
 
-- **Status:** Open
+- **Status:** Done — `ToolRouter` now consults an injected `ToolApprovalGate` at its single local-execution
+  sink (`executeLocally`, before `executeWithTimeout`) for any tool whose `requiresPermission` is true,
+  covering both structured provider tool calls and the text-fallback `<tool_call>` path (they converge
+  there). The gate defaults to `DenyAllToolApprovalGate` so permissioned tools never execute without an
+  explicit approval decision; a denied call throws the new `ToolError.permissionDenied`. Yakamoz injects
+  a `MainActorToolApprover` (a UI-bridging `ToolApprovalGate`, mirroring the terminal `MainActorApprover`)
+  and renders a `ToolApprovalBanner`, giving its permissioned filesystem tools a visible approval UX;
+  `terminal_run` is auto-approved by this gate since it keeps its own `TerminalCommandApproving` gate.
+  Tests: `ToolRouterTests` (structured deny/approve, text-fallback deny, non-permissioned regression),
+  `ToolApprovalTests` (Yakamoz approver approve/deny/self-gated).
 - **Priority:** High
 - **Repos:** PositronicKit + Yakamoz
 - **Surfaced by:** Codex Security scan of PositronicKit (`cf83525f5fc4_20260628T221104Z`)
