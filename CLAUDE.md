@@ -25,17 +25,17 @@ framework; don't mix within a file.
 
 A loop, not a line:
 
-- **Plan** — spec + ticket-by-ticket plan in [`docs/superpowers/`](docs/superpowers/); read
-  before implementing.
-- **Ticket** — decompose into tickets in [`docs/tickets/`](docs/tickets/); implement.
+- **Plan** — spec + ticket-by-ticket plan in [`../workflow/Yakamoz/`](../workflow/Yakamoz/)
+  (`specs/`, `plans/`, `checkpoints/`); read before implementing.
+- **Ticket** — decompose into tickets in [`../workflow/Yakamoz/tickets/`](../workflow/Yakamoz/tickets/); implement.
 - **Review** — review the landed merge (correctness first), **capturing findings as tickets**
   rather than only reporting inline.
 - **Repeat** — review tickets are the next implementation round.
 
-All tickets live in `docs/tickets/` — one file `YAK-<id>-<slug>.md`, each with a `Status`
+All tickets live in `../workflow/Yakamoz/tickets/` — one file `YAK-<id>-<slug>.md`, each with a `Status`
 line and (problem / affected `file:line` / before-after code / tests / acceptance criteria).
 Numeric `YAK-N` for the backlog; a lettered batch (e.g. `YAK-TF*`) for a cohesive review set.
-**Update the index** [`docs/tickets/README.md`](docs/tickets/README.md) in the same change
+**Update the index** [`../workflow/Yakamoz/tickets/README.md`](../workflow/Yakamoz/tickets/README.md) in the same change
 (table row + Open/Delayed summary; tag titles `[BUG]`/`[SECURITY]`).
 
 ### Executing a ticket
