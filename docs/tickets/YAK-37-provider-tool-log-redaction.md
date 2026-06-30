@@ -1,6 +1,6 @@
 # YAK-37 - [SECURITY] Provider and tool debug logs can capture raw sensitive payloads
 
-- **Status:** Open
+- **Status:** Done
 - **Priority:** Low
 - **Repos:** PositronicKit + Yakamoz
 - **Surfaced by:** Codex Security scan of PositronicKit (`cf83525f5fc4_20260628T221104Z`)
@@ -56,3 +56,7 @@ debugging.
 - Any developer-only raw logging requires an explicit local-only opt-in.
 - Logs retain enough metadata to debug failures: byte count, hash, model/provider, and error.
 - PositronicKit verification and Yakamoz `make verify` are green.
+
+## Resolution
+
+Replaced raw payload interpolation in OpenRouterClient, ToolCallExtractionStage, and StreamingCoordinator with byte-count/hash metadata; `redactedHash` helper added to PKShared with unit tests.
