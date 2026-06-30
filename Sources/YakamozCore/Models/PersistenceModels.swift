@@ -231,8 +231,7 @@ public final class PersonaModel {
 
 /// A persisted folder-backed workspace reference.
 /// Discriminates a `WorkspaceModel` between a plain folder workspace and a terminal
-/// (PTY shell) workspace. Stored as a raw `String` so the additive `kind` field decodes
-/// to `.folder` for existing rows under SwiftData's automatic lightweight migration.
+/// (PTY shell) workspace.
 public enum WorkspaceKind: String, Codable, Sendable {
     case folder
     case terminal
@@ -244,10 +243,21 @@ public final class WorkspaceModel {
     public var displayName: String
     public var folderPath: String
     public var bookmarkData: Data?
-    /// Workspace kind (YAK-T4). Defaults to `.folder` so existing rows decode unchanged
-    /// under automatic lightweight migration. A terminal workspace stores its originating
-    /// folder path in `folderPath` (used as the shell's initial working directory).
-    public var kind: WorkspaceKind = WorkspaceKind.folder
+    /// Raw backing for `kind`. This stays optional so rows created before the additive
+    /// workspace-kind field decode as `.folder` instead of crashing in SwiftData's getter.
+    /// The original persisted slot was named `kind`; keep that mapping so existing non-nil
+    /// terminal values can migrate into the raw backing.
+    @Attribute(originalName: "kind")
+    public var kindRaw: String? = WorkspaceKind.folder.rawValue
+
+    /// Workspace kind (YAK-T4). Defaults missing or unrecognized persisted values to `.folder`
+    /// so existing rows decode unchanged under automatic lightweight migration. A terminal
+    /// workspace stores its originating folder path in `folderPath` (used as the shell's
+    /// initial working directory).
+    public var kind: WorkspaceKind {
+        get { kindRaw.flatMap(WorkspaceKind.init(rawValue:)) ?? .folder }
+        set { kindRaw = newValue.rawValue }
+    }
 
     public init(
         id: UUID = UUID(),
@@ -260,7 +270,7 @@ public final class WorkspaceModel {
         self.displayName = displayName
         self.folderPath = folderPath
         self.bookmarkData = bookmarkData
-        self.kind = kind
+        kindRaw = kind.rawValue
     }
 }
 

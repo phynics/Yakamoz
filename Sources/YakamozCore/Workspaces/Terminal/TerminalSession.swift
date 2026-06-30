@@ -55,6 +55,8 @@ public actor TerminalSession {
     /// `TerminalSession` keeps a strong reference to this adapter for the process's lifetime.
     private final class DelegateAdapter: LocalProcessDelegate {
         weak var session: TerminalSession?
+        private let sequenceLock = NSLock()
+        private var nextSequence = 0
 
         init(session: TerminalSession? = nil) {
             self.session = session
@@ -68,11 +70,21 @@ public actor TerminalSession {
         func dataReceived(slice: ArraySlice<UInt8>) {
             guard let session else { return }
             let bytes = Array(slice)
-            Task { await session.appendOutput(bytes[...]) }
+            let sequence = reserveSequence()
+            Task { await session.appendOutput(bytes, sequence: sequence) }
         }
 
         func getWindowSize() -> winsize {
             winsize(ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0)
+        }
+
+        private func reserveSequence() -> Int {
+            sequenceLock.lock()
+            defer { sequenceLock.unlock() }
+
+            let sequence = nextSequence
+            nextSequence += 1
+            return sequence
         }
     }
 
@@ -103,6 +115,11 @@ public actor TerminalSession {
     /// Exit code of the most recently completed command, surfaced by `read()`/`wait` when no
     /// command is currently pending.
     private var lastExitCode: Int32?
+    /// Delegate callbacks are synchronous, but each callback enters this actor via its own
+    /// task. Sequence numbers preserve PTY byte ordering if those tasks are scheduled out of
+    /// order.
+    private var nextOutputSequence = 0
+    private var pendingOutputChunks: [Int: [UInt8]] = [:]
 
     public init(rootURL: URL) async throws {
         let adapter = DelegateAdapter()
@@ -317,8 +334,13 @@ public actor TerminalSession {
     }
 
     /// Invoked (via the delegate adapter) whenever new bytes arrive from the PTY.
-    func appendOutput(_ bytes: ArraySlice<UInt8>) {
-        buffer.append(contentsOf: bytes)
+    func appendOutput(_ bytes: [UInt8], sequence: Int) {
+        pendingOutputChunks[sequence] = bytes
+
+        while let chunk = pendingOutputChunks.removeValue(forKey: nextOutputSequence) {
+            buffer.append(contentsOf: chunk)
+            nextOutputSequence += 1
+        }
     }
 
     /// Invoked (via the delegate adapter) when the shell process exits.

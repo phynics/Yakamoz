@@ -2,6 +2,7 @@ import Foundation
 import PKShared
 import PKTestSupport
 import PositronicKit
+import SQLite3
 import SwiftData
 import Testing
 @testable import YakamozCore
@@ -17,6 +18,27 @@ struct TerminalToolGatingTests {
     @Test func workspaceModelCanBeTerminalKind() {
         let ws = WorkspaceModel(displayName: "term", folderPath: "/tmp", kind: .terminal)
         #expect(ws.kind == .terminal)
+    }
+
+    @Test func workspaceModelDefaultsToFolderWhenPersistedKindIsMissing() throws {
+        let storeURL = try temporaryStoreURL()
+        defer { try? FileManager.default.removeItem(at: storeURL.deletingLastPathComponent()) }
+
+        let workspaceID = UUID()
+        try autoreleasepool {
+            let container = try makeModelContainer(storeURL: storeURL)
+            let context = ModelContext(container)
+            context.insert(WorkspaceModel(id: workspaceID, displayName: "legacy", folderPath: "/tmp/legacy"))
+            try context.save()
+        }
+
+        try clearPersistedWorkspaceKind(in: storeURL)
+
+        let container = try makeModelContainer(storeURL: storeURL)
+        let context = ModelContext(container)
+        let workspace = try #require(try context.fetch(FetchDescriptor<WorkspaceModel>()).first { $0.id == workspaceID })
+
+        #expect(workspace.kind == .folder)
     }
 
     // MARK: - toolOptions gating
@@ -40,13 +62,7 @@ struct TerminalToolGatingTests {
 
     @MainActor
     private func makeRuntime() throws -> YakamozRuntime {
-        let schema = Schema([
-            ConversationModel.self, MessageModel.self, TurnInspectionModel.self,
-            PersonaModel.self, WorkspaceModel.self, TimelineModel.self,
-            WorkspaceReferenceModel.self, ToolReferenceModel.self,
-            AgentInstanceModel.self, AgentTemplateModel.self, RequestOriginModel.self,
-        ])
-        let container = try ModelContainer(for: schema, configurations: .init(isStoredInMemoryOnly: true))
+        let container = try makeModelContainer()
         let suiteName = "TerminalToolGatingTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
@@ -89,4 +105,97 @@ struct TerminalToolGatingTests {
         let ids = filtered.map(\.id)
         #expect(ids == ["terminal_run"])
     }
+}
+
+private func makeModelContainer(storeURL: URL? = nil) throws -> ModelContainer {
+    let schema = Schema(YakamozSchema.models)
+    let configuration: ModelConfiguration
+    if let storeURL {
+        configuration = ModelConfiguration(schema: schema, url: storeURL)
+    } else {
+        configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+    }
+    return try ModelContainer(for: schema, configurations: configuration)
+}
+
+private func temporaryStoreURL() throws -> URL {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("YakamozTests-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    return directory.appendingPathComponent("Yakamoz.store", isDirectory: false)
+}
+
+private enum SQLiteFixtureError: Error, CustomStringConvertible {
+    case open(String)
+    case prepare(String)
+    case execute(String)
+    case missingWorkspaceKindColumn
+
+    var description: String {
+        switch self {
+        case let .open(message): "Unable to open SQLite fixture: \(message)"
+        case let .prepare(message): "Unable to prepare SQLite fixture statement: \(message)"
+        case let .execute(message): "Unable to execute SQLite fixture statement: \(message)"
+        case .missingWorkspaceKindColumn: "Unable to find a persisted workspace kind column"
+        }
+    }
+}
+
+private func clearPersistedWorkspaceKind(in storeURL: URL) throws {
+    var database: OpaquePointer?
+    guard sqlite3_open_v2(storeURL.path, &database, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else {
+        throw SQLiteFixtureError.open(sqliteMessage(database))
+    }
+    defer { sqlite3_close(database) }
+
+    let tables = try sqliteTextRows(database, sql: "SELECT name FROM sqlite_master WHERE type = 'table'")
+    let workspaceTables = tables.filter { $0.uppercased().contains("WORKSPACEMODEL") }
+    var clearedKindColumn = false
+
+    for table in workspaceTables {
+        let columns = try sqliteTextRows(database, sql: "PRAGMA table_info(\(quotedSQLiteIdentifier(table)))", textColumn: 1)
+        for column in columns where column.uppercased().contains("KIND") {
+            let sql = "UPDATE \(quotedSQLiteIdentifier(table)) SET \(quotedSQLiteIdentifier(column)) = NULL"
+            try sqliteExecute(database, sql: sql)
+            clearedKindColumn = true
+        }
+    }
+
+    guard clearedKindColumn else {
+        throw SQLiteFixtureError.missingWorkspaceKindColumn
+    }
+}
+
+private func sqliteTextRows(_ database: OpaquePointer?, sql: String, textColumn: Int32 = 0) throws -> [String] {
+    var statement: OpaquePointer?
+    guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK else {
+        throw SQLiteFixtureError.prepare(sqliteMessage(database))
+    }
+    defer { sqlite3_finalize(statement) }
+
+    var rows: [String] = []
+    while sqlite3_step(statement) == SQLITE_ROW {
+        guard let text = sqlite3_column_text(statement, textColumn) else { continue }
+        rows.append(String(cString: text))
+    }
+    return rows
+}
+
+private func sqliteExecute(_ database: OpaquePointer?, sql: String) throws {
+    var errorMessage: UnsafeMutablePointer<CChar>?
+    defer { sqlite3_free(errorMessage) }
+
+    guard sqlite3_exec(database, sql, nil, nil, &errorMessage) == SQLITE_OK else {
+        let message = errorMessage.map { String(cString: $0) } ?? sqliteMessage(database)
+        throw SQLiteFixtureError.execute(message)
+    }
+}
+
+private func sqliteMessage(_ database: OpaquePointer?) -> String {
+    guard let database else { return "unknown SQLite error" }
+    return String(cString: sqlite3_errmsg(database))
+}
+
+private func quotedSQLiteIdentifier(_ identifier: String) -> String {
+    "\"\(identifier.replacingOccurrences(of: "\"", with: "\"\""))\""
 }
