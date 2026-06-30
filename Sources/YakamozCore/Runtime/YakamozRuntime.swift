@@ -223,7 +223,15 @@ public actor YakamozRuntime: ChatRunning {
     ) async -> ChatViewModel {
         let turnInspector = inspector
         let tools = resolveTools(enabledToolIds: enabledToolIds, workspaceRoot: workspaceRoot, terminals: terminals)
-        let loadedTranscript = (try? await loadTranscript(for: timelineId)) ?? .empty
+        let loadedTranscript: LoadedTranscript
+        do {
+            loadedTranscript = try await loadTranscript(for: timelineId)
+        } catch {
+            Log.chat.warning("failed to load transcript, returning empty", metadata: [
+                "timelineID": "\(timelineId)",
+            ])
+            loadedTranscript = .empty
+        }
 
         // The autonomous-follow-up plugin is opt-in per conversation. When enabled, the
         // conversation runs through a runner that injects the plugin into the per-turn kit

@@ -1,4 +1,5 @@
 import Foundation
+import Logging
 import PKShared
 import PositronicKit
 
@@ -50,6 +51,9 @@ public actor FileSystemWorkspace: WorkspaceProtocol {
         do {
             return try String(contentsOf: url, encoding: .utf8)
         } catch {
+            Log.workspace.warning("failed to read file", metadata: [
+                "workspaceID": .string("\(id)"),
+            ])
             throw WorkspaceError.connectionFailed
         }
     }
@@ -63,6 +67,9 @@ public actor FileSystemWorkspace: WorkspaceProtocol {
             )
             try content.write(to: url, atomically: true, encoding: .utf8)
         } catch {
+            Log.workspace.warning("failed to write file", metadata: [
+                "workspaceID": .string("\(id)"),
+            ])
             throw WorkspaceError.connectionFailed
         }
     }
@@ -81,6 +88,9 @@ public actor FileSystemWorkspace: WorkspaceProtocol {
             )
             return contents.map(\.lastPathComponent).sorted()
         } catch {
+            Log.workspace.warning("failed to list directory", metadata: [
+                "workspaceID": .string("\(id)"),
+            ])
             throw WorkspaceError.connectionFailed
         }
     }
@@ -93,6 +103,9 @@ public actor FileSystemWorkspace: WorkspaceProtocol {
         do {
             try FileManager.default.removeItem(at: url)
         } catch {
+            Log.workspace.warning("failed to delete file", metadata: [
+                "workspaceID": .string("\(id)"),
+            ])
             throw WorkspaceError.connectionFailed
         }
     }

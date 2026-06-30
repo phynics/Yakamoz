@@ -1,3 +1,4 @@
+import Logging
 import SwiftData
 import SwiftUI
 import YakamozCore
@@ -290,7 +291,13 @@ struct ChatView: View {
                 guard conversation.timelineState != state else { return }
                 conversation.timelineState = state
                 conversation.timelineStateUpdatedAt = .now
-                try? modelContext.save()
+                do {
+                    try modelContext.save()
+                } catch {
+                    Log.appError("failed to save conversation state change", metadata: [
+                        "conversationID": "\(conversation.id)",
+                    ])
+                }
             }
         )
         let inspection = await runtime.makeInspectionViewModel()
@@ -410,6 +417,13 @@ struct ChatView: View {
             hasWorkspace: hasFolderWorkspace,
             hasTerminal: hasTerminalWorkspace
         )
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            Log.appError("failed to save enabled tool settings", metadata: [
+                "conversationID": "\(conversation.id)",
+                "toolID": id,
+            ])
+        }
     }
 }

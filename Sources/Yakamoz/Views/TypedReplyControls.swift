@@ -1,3 +1,4 @@
+import Logging
 import SwiftUI
 import YakamozCore
 
@@ -30,7 +31,13 @@ struct TypedReplyControls: View {
             get: { conversation[keyPath: keyPath] },
             set: {
                 conversation[keyPath: keyPath] = $0
-                try? modelContext.save()
+                do {
+                    try modelContext.save()
+                } catch {
+                    Log.appError("failed to save conversation toggle setting", metadata: [
+                        "conversationID": "\(conversation.id)",
+                    ])
+                }
             }
         )
     }

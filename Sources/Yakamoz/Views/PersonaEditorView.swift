@@ -1,3 +1,4 @@
+import Logging
 import SwiftData
 import SwiftUI
 import YakamozCore
@@ -138,7 +139,13 @@ struct PersonaEditorView: View {
             model = PersonaModel(name: trimmedName, systemInstructions: instructions, builtIn: false)
             modelContext.insert(model)
         }
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            Log.appError("failed to save persona", metadata: [
+                "personaID": "\(model.id)",
+            ])
+        }
         onSave(model)
         dismiss()
     }
