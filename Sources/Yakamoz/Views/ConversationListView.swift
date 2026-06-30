@@ -1,4 +1,3 @@
-import Logging
 import SwiftData
 import SwiftUI
 import YakamozCore
@@ -92,7 +91,9 @@ struct ConversationListView: View {
                     selection = conversation
                 }
             } catch {
-                creationError = error.localizedDescription
+                let message = Log.userFriendlyErrorMessage(for: error)
+                Log.appError("failed to create conversation", metadata: ["error": message])
+                creationError = message
             }
         }
     }
