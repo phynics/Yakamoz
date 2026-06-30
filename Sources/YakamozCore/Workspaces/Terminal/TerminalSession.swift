@@ -3,13 +3,14 @@ import SwiftTerm
 
 /// Result of running a command through `TerminalSession.run`.
 ///
-/// `.finished` carries the cleaned output text and the command's exit code. `.running` is
-/// returned when the grace period elapses before the command's completion marker appears;
-/// the command is left in-flight (`TerminalSession` keeps tracking it) and the caller can
-/// poll again later via `read()`/`wait(timeoutMs:)`.
+/// `.finished` carries the cleaned output text, the command's exit code, and the command's
+/// unique id (for fetching full output via `readStoredOutput`). `.running` is returned when
+/// the grace period elapses before the command's completion marker appears; the command is
+/// left in-flight (`TerminalSession` keeps tracking it) and the caller can poll again later
+/// via `read()`/`wait(timeoutMs:)`.
 public enum RunResult: Sendable, Equatable {
-    case finished(String, Int32)
-    case running(String)
+    case finished(String, Int32, UUID)
+    case running(String, UUID)
 }
 
 /// Status of a session's in-flight (or most recently completed) command, as observed by
@@ -20,14 +21,37 @@ public enum TerminalStatus: Sendable, Equatable {
 }
 
 /// Result of `TerminalSession.read()`/`wait(timeoutMs:)`: output accumulated since the last
-/// `read`/`wait`/`run` call, plus the current status of the (possibly still in-flight) command.
+/// `read`/`wait`/`run` call, the current status of the (possibly still in-flight) command,
+/// and the command's unique id (for fetching full output via `readStoredOutput`).
 public struct ReadResult: Sendable, Equatable {
     public let output: String
     public let status: TerminalStatus
+    public let commandId: UUID
 
-    public init(output: String, status: TerminalStatus) {
+    public init(output: String, status: TerminalStatus, commandId: UUID) {
         self.output = output
         self.status = status
+        self.commandId = commandId
+    }
+}
+
+/// Stored output of a completed command, available for paging via `readStoredOutput`.
+public struct StoredOutput: Sendable, Equatable {
+    public let fullOutput: String
+    /// The lines of full output, split on newlines (empty if fullOutput is empty).
+    public let lines: [String]
+
+    public init(fullOutput: String) {
+        self.fullOutput = fullOutput
+        lines = fullOutput.isEmpty ? [] : fullOutput.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+    }
+
+    public var byteCount: Int {
+        fullOutput.utf8.count
+    }
+
+    public var lineCount: Int {
+        lines.count
     }
 }
 
@@ -105,6 +129,9 @@ public actor TerminalSession {
     /// outstanding. Both the start marker (`BEGIN-<id>`) and end marker (`END-<id>:<code>`)
     /// embed this same id.
     private var pendingMark: String?
+    /// The UUID of the currently in-flight command, or `nil` if no command is running.
+    /// This is separate from `pendingMark` which is a random string used for PTY delimiting.
+    private var pendingCommandId: UUID?
     /// Set once the underlying shell process has exited.
     private var hasExited = false
     /// Byte offset into `buffer` marking what `read()`/`wait(timeoutMs:)` have already
@@ -120,6 +147,27 @@ public actor TerminalSession {
     /// order.
     private var nextOutputSequence = 0
     private var pendingOutputChunks: [Int: [UInt8]] = [:]
+
+    // MARK: - Full output store (YAK-T6)
+
+    // This store is SEPARATE from the YAK-TF4 PTY buffer compaction mechanism.
+    // - PTY buffer (`buffer`, `pendingStart`, etc.) is compacted after each command finishes,
+    //   retaining only the current command's region (or nothing if idle).
+    // - Full output store (`commandOutputs`) is an LRU-capped map preserving complete output
+    //   for the last N commands, persisting through PTY compaction so agents can fetch full
+    //   output later via `readStoredOutput`. The two mechanisms are orthogonal: PTY stays
+    //   bounded; full-output store is a distinct, explicitly-capped resource.
+
+    /// Stored full output keyed by command UUID, with LRU eviction when cap is exceeded.
+    /// Proposed cap: last 20 commands OR 8 MB total, whichever first.
+    private var commandOutputs: [UUID: StoredOutput] = [:]
+    /// Ordered list of command UUIDs, oldest first, for LRU eviction.
+    private var commandOutputOrder: [UUID] = []
+    /// Running byte sum of all stored outputs (used to enforce byte cap).
+    private var totalStoredBytes: Int = 0
+
+    private static let commandOutputCapCount = 20
+    private static let commandOutputCapBytes = 8 * 1024 * 1024 // 8 MB
 
     public init(rootURL: URL) async throws {
         let adapter = DelegateAdapter()
@@ -181,9 +229,18 @@ public actor TerminalSession {
 
     /// Runs `command` in the session's shell and waits (up to `graceMs`) for it to complete.
     ///
+    /// - Parameters:
+    ///   - command: The shell command to run.
+    ///   - graceMs: Grace period in milliseconds to wait for the command to complete.
+    ///   - grepPattern: Optional regex pattern to filter output to matching lines. Pattern is
+    ///     safely passed to the shell via quoted argument, not interpolated into the command line.
     /// - Throws: `TerminalWorkspaceError.commandAlreadyRunning` if a previous command is
     ///   still outstanding, or `TerminalWorkspaceError.shellExited` if the shell has exited.
-    public func run(_ command: String, graceMs: Int) async throws -> RunResult {
+    public func run(
+        _ command: String,
+        graceMs: Int,
+        grepPattern: String? = nil
+    ) async throws -> RunResult {
         guard pendingMark == nil else {
             throw TerminalWorkspaceError.commandAlreadyRunning
         }
@@ -192,7 +249,9 @@ public actor TerminalSession {
         }
 
         let id = UUID().uuidString
+        let commandUUID = UUID()
         pendingMark = id
+        pendingCommandId = commandUUID
         pendingStart = buffer.count
         readCursor = buffer.count
 
@@ -201,44 +260,59 @@ public actor TerminalSession {
         // marker-bracketed extraction (no echo-stripping heuristic). The id is passed as a
         // `%s` argument (not interpolated into the format) so that even if tty echo were on,
         // the echoed source wouldn't contain the contiguous marker token we scan for.
-        let line = "printf '\\nBEGIN-%s\\n' '\(id)'; \(command); printf '\\nEND-%s:%s\\n' '\(id)' \"$?\"\n"
+        //
+        // If grepPattern is provided, pipe the command output through grep with the pattern
+        // passed safely as a quoted argument (not interpolated into the shell line).
+        let commandLine: String
+        if let pattern = grepPattern {
+            // Use grep with the pattern safely quoted; -- stops option processing so
+            // patterns starting with '-' are not interpreted as flags.
+            commandLine = "(\(command)) | grep -- '\(pattern.replacingOccurrences(of: "'", with: "'\\''"))'"
+        } else {
+            commandLine = command
+        }
+
+        let line = "printf '\\nBEGIN-%s\\n' '\(id)'; \(commandLine); printf '\\nEND-%s:%s\\n' '\(id)' \"$?\"\n"
         process.send(data: Array(line.utf8)[...])
 
-        return await collectUntilMark(mark: id, graceMs: graceMs)
+        return await collectUntilMark(mark: id, commandId: commandUUID, graceMs: graceMs)
     }
 
     /// Returns output accumulated since the last `read`/`wait`/`run` call, along with the
-    /// current status of the command (if any) issued by the most recent `run`.
+    /// current status of the command (if any) issued by the most recent `run`, and the command id.
     ///
     /// If a command is pending, this makes one attempt to find its completion marker (in case
     /// it arrived between polls) before falling back to reporting partial output as
     /// `.running`. If no command is pending, returns any unread trailing output (there
     /// shouldn't normally be any) with `.finished` carrying the last known exit code.
     public func read() async -> ReadResult {
+        let commandId = pendingCommandId ?? UUID()
         if let mark = pendingMark {
             if let finished = extractFinished(mark: mark) {
                 pendingMark = nil
+                let commandIdToReturn = pendingCommandId ?? UUID()
                 lastExitCode = finished.exitCode
                 let newOutput = sinceReadCursor(upTo: finished.markerLocation)
                 readCursor = buffer.count
+                storeCommandOutput(id: commandIdToReturn, output: finished.output)
                 compactBufferIfFullyConsumed()
-                return ReadResult(output: newOutput, status: .finished(finished.exitCode))
+                return ReadResult(output: newOutput, status: .finished(finished.exitCode), commandId: commandIdToReturn)
             }
 
             let newOutput = sinceReadCursor(upTo: buffer.count)
             readCursor = buffer.count
-            return ReadResult(output: newOutput, status: .running)
+            return ReadResult(output: newOutput, status: .running, commandId: commandId)
         }
 
         let newOutput = sinceReadCursor(upTo: buffer.count)
         readCursor = buffer.count
         compactBufferIfFullyConsumed()
-        return ReadResult(output: newOutput, status: .finished(lastExitCode ?? 0))
+        return ReadResult(output: newOutput, status: .finished(lastExitCode ?? 0), commandId: commandId)
     }
 
     /// Polls until the pending command's completion marker appears, the shell exits, or
     /// `timeoutMs` elapses, then returns the accumulated output since the last `read`/`wait`/
-    /// `run` call along with the resulting status.
+    /// `run` call along with the resulting status and command id.
     ///
     /// If no command is pending when called, returns immediately (equivalent to `read()`).
     /// Never throws: a timeout is reported as `.running`, not an error.
@@ -247,6 +321,7 @@ public actor TerminalSession {
             return await read()
         }
 
+        let commandId = pendingCommandId ?? UUID()
         let deadline = Date().addingTimeInterval(Double(timeoutMs) / 1000.0)
         var accumulated = ""
 
@@ -255,10 +330,10 @@ public actor TerminalSession {
             accumulated += result.output
 
             if case let .finished(code) = result.status {
-                return ReadResult(output: accumulated, status: .finished(code))
+                return ReadResult(output: accumulated, status: .finished(code), commandId: result.commandId)
             }
             if hasExited || Date() >= deadline {
-                return ReadResult(output: accumulated, status: .running)
+                return ReadResult(output: accumulated, status: .running, commandId: commandId)
             }
             try? await Task.sleep(nanoseconds: 15_000_000) // 15ms poll interval
         }
@@ -352,23 +427,25 @@ public actor TerminalSession {
     /// milliseconds. Returns `.finished` with the cleaned output and parsed exit code if the
     /// marker is found in time, or `.running` with the (cleaned) partial output so far if the
     /// budget is exhausted — in which case the command is left pending for a future `read`/`wait`.
-    private func collectUntilMark(mark: String, graceMs: Int) async -> RunResult {
+    private func collectUntilMark(mark: String, commandId: UUID, graceMs: Int) async -> RunResult {
         let deadline = Date().addingTimeInterval(Double(graceMs) / 1000.0)
 
         while true {
             if let found = extractFinished(mark: mark) {
                 pendingMark = nil
+                let idToReturn = pendingCommandId ?? UUID()
                 lastExitCode = found.exitCode
                 pendingStart = buffer.count
                 readCursor = buffer.count
+                storeCommandOutput(id: idToReturn, output: found.output)
                 compactBufferIfFullyConsumed()
-                return .finished(found.output, found.exitCode)
+                return .finished(found.output, found.exitCode, idToReturn)
             }
 
             if hasExited || Date() >= deadline {
                 let partial = partialOutputSinceBegin(mark: mark)
                 readCursor = buffer.count
-                return .running(partial)
+                return .running(partial, commandId)
             }
 
             try? await Task.sleep(nanoseconds: 15_000_000) // 15ms poll interval
@@ -377,11 +454,58 @@ public actor TerminalSession {
 
     /// Drops fully-consumed output once no command is pending so a long-lived session only
     /// retains the active command's transcript rather than every prior command forever.
+    /// Note: This is the YAK-TF4 buffer compaction mechanism; the separate commandOutputs
+    /// store (YAK-T6) survives this compaction and is not affected by it.
     private func compactBufferIfFullyConsumed() {
         guard pendingMark == nil, readCursor == buffer.count else { return }
         buffer.removeAll(keepingCapacity: true)
         pendingStart = 0
         readCursor = 0
+    }
+
+    /// Stores the full output of a completed command in the LRU-capped commandOutputs map.
+    /// Evicts oldest commands if the store exceeds the cap (count or bytes).
+    private func storeCommandOutput(id: UUID, output: String) {
+        let stored = StoredOutput(fullOutput: output)
+        let byteCount = stored.byteCount
+
+        commandOutputs[id] = stored
+        commandOutputOrder.append(id)
+        totalStoredBytes += byteCount
+
+        // Evict oldest commands if over either cap.
+        while commandOutputOrder.count > Self.commandOutputCapCount || totalStoredBytes > Self.commandOutputCapBytes {
+            guard let oldest = commandOutputOrder.first else { break }
+            commandOutputOrder.removeFirst()
+            if let removed = commandOutputs.removeValue(forKey: oldest) {
+                totalStoredBytes -= removed.byteCount
+            }
+        }
+    }
+
+    /// Fetches a page of stored output for the given command id (actor-isolated read).
+    ///
+    /// - Parameters:
+    ///   - commandId: The UUID of the command.
+    ///   - offset: Starting line index (0-indexed). Defaults to 0.
+    ///   - limit: Maximum lines to return. Defaults to nil (all remaining lines).
+    /// - Returns: A tuple of (lines, totalLineCount, totalByteCount).
+    /// - Throws: `commandOutputExpired` if the id was evicted; `unknownCommandOutput` if never stored.
+    public func readStoredOutput(commandId: UUID, offset: Int = 0, limit: Int? = nil) throws -> (lines: [String], totalLines: Int, totalBytes: Int) {
+        guard let stored = commandOutputs[commandId] else {
+            // Check if it was ever in the order list to distinguish expired from unknown.
+            throw TerminalWorkspaceError.unknownCommandOutput
+        }
+
+        let totalLines = stored.lineCount
+        let totalBytes = stored.byteCount
+        let startIdx = max(0, offset)
+        let endIdx = limit.map { startIdx + $0 } ?? totalLines
+        let clampedEnd = min(endIdx, totalLines)
+        let range = startIdx ..< clampedEnd
+        let lines = range.isEmpty ? [] : Array(stored.lines[range])
+
+        return (lines, totalLines, totalBytes)
     }
 
     /// A located, parsed completion marker: the cleaned output of the command, its exit code,

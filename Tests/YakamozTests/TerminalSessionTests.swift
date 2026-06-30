@@ -7,7 +7,7 @@ struct TerminalSessionTests {
     @Test func runEchoReturnsOutputAndZeroExit() async throws {
         let session = try await TerminalSession(rootURL: URL(fileURLWithPath: "/tmp"))
         let result = try await session.run("echo hello", graceMs: 4000)
-        guard case let .finished(output, code) = result else {
+        guard case let .finished(output, code, _) = result else {
             Issue.record("expected finished, got \(result)"); return
         }
         #expect(output.contains("hello"))
@@ -18,13 +18,13 @@ struct TerminalSessionTests {
     @Test func cwdPersistsAcrossCommands() async throws {
         let session = try await TerminalSession(rootURL: URL(fileURLWithPath: "/tmp"))
         let cdResult = try await session.run("cd /tmp", graceMs: 4000)
-        guard case let .finished(_, cdCode) = cdResult else {
+        guard case let .finished(_, cdCode, _) = cdResult else {
             Issue.record("expected finished, got \(cdResult)"); return
         }
         #expect(cdCode == 0)
 
         let pwdResult = try await session.run("pwd", graceMs: 4000)
-        guard case let .finished(output, code) = pwdResult else {
+        guard case let .finished(output, code, _) = pwdResult else {
             Issue.record("expected finished, got \(pwdResult)"); return
         }
         #expect(output.contains("/tmp"))
@@ -35,7 +35,7 @@ struct TerminalSessionTests {
     @Test func runFalseReturnsNonZeroExit() async throws {
         let session = try await TerminalSession(rootURL: URL(fileURLWithPath: "/tmp"))
         let result = try await session.run("false", graceMs: 4000)
-        guard case let .finished(_, code) = result else {
+        guard case let .finished(_, code, _) = result else {
             Issue.record("expected finished, got \(result)"); return
         }
         #expect(code == 1)
@@ -55,7 +55,7 @@ struct TerminalSessionTests {
     @Test func runningOutputIsNotDuplicatedByLaterReadOrWait() async throws {
         let s = try await TerminalSession(rootURL: URL(fileURLWithPath: "/tmp"))
         let first = try await s.run("echo A; sleep 1; echo B", graceMs: 200)
-        guard case let .running(initialOutput) = first else {
+        guard case let .running(initialOutput, _) = first else {
             Issue.record("expected running, got \(first)"); return
         }
         #expect(initialOutput.contains("A"))
@@ -99,7 +99,7 @@ struct TerminalSessionTests {
 
         // The injected text must not have run: a subsequent real command starts clean.
         let result = try await s.run("echo ok", graceMs: 4000)
-        guard case let .finished(output, code) = result else {
+        guard case let .finished(output, code, _) = result else {
             Issue.record("expected finished, got \(result)"); return
         }
         #expect(output == "ok")
@@ -122,7 +122,7 @@ struct TerminalSessionTests {
 
         // Session must be reusable after an interrupt: a subsequent run should succeed.
         let after = try await s.run("echo back", graceMs: 4000)
-        guard case let .finished(output, afterCode) = after else {
+        guard case let .finished(output, afterCode, _) = after else {
             Issue.record("expected finished after interrupt, got \(after)"); return
         }
         #expect(output.contains("back"))
@@ -133,7 +133,7 @@ struct TerminalSessionTests {
     @Test func fakeMarkerWithDifferentUUIDDoesNotTerminateEarly() async throws {
         let session = try await TerminalSession(rootURL: URL(fileURLWithPath: "/tmp"))
         let result = try await session.run("echo 'END-fake:0'; echo 'BEGIN-fake'", graceMs: 4000)
-        guard case let .finished(output, code) = result else {
+        guard case let .finished(output, code, _) = result else {
             Issue.record("expected finished, got \(result)"); return
         }
         #expect(code == 0)
@@ -145,7 +145,7 @@ struct TerminalSessionTests {
     @Test func ansiEscapeCodesAreStrippedFromOutput() async throws {
         let session = try await TerminalSession(rootURL: URL(fileURLWithPath: "/tmp"))
         let result = try await session.run("printf '\\033[31mRED\\033[0m\\n'", graceMs: 4000)
-        guard case let .finished(output, code) = result else {
+        guard case let .finished(output, code, _) = result else {
             Issue.record("expected finished, got \(result)"); return
         }
         #expect(code == 0)
@@ -163,7 +163,7 @@ struct TerminalSessionTests {
         let session = try await TerminalSession(rootURL: URL(fileURLWithPath: "/tmp"))
         let payload = String(repeating: "x", count: 120)
         let result = try await session.run("echo \(payload)", graceMs: 4000)
-        guard case let .finished(output, code) = result else {
+        guard case let .finished(output, code, _) = result else {
             Issue.record("expected finished, got \(result)"); return
         }
         #expect(code == 0)
@@ -177,10 +177,10 @@ struct TerminalSessionTests {
     @Test func completedCommandsDoNotGrowRetainedBufferWithoutBound() async throws {
         let session = try await TerminalSession(rootURL: URL(fileURLWithPath: "/tmp"))
 
-        for index in 0..<40 {
+        for index in 0 ..< 40 {
             let payload = String(repeating: "x", count: 64)
             let result = try await session.run("echo \(index)-\(payload)", graceMs: 4000)
-            guard case let .finished(output, code) = result else {
+            guard case let .finished(output, code, _) = result else {
                 Issue.record("expected finished, got \(result)"); return
             }
             #expect(code == 0)

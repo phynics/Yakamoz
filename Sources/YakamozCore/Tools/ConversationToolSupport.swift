@@ -30,7 +30,7 @@ public enum ConversationToolSupport {
         builtInToolOptions.map(\.id)
     }
 
-    /// The five terminal tool options (YAK-T4), offered only when a terminal workspace is
+    /// The six terminal tool options (YAK-T4 + YAK-T6), offered only when a terminal workspace is
     /// attached. Their ids mirror `TerminalWorkspace.toolIds`.
     public static let terminalToolOptions: [ConversationToolOption] = [
         ConversationToolOption(id: "terminal_run", title: "Run Command", systemImage: "terminal", requiresWorkspace: false, requiresTerminal: true),
@@ -38,6 +38,7 @@ public enum ConversationToolSupport {
         ConversationToolOption(id: "terminal_send_input", title: "Send Input", systemImage: "keyboard", requiresWorkspace: false, requiresTerminal: true),
         ConversationToolOption(id: "terminal_interrupt", title: "Interrupt", systemImage: "stop.circle", requiresWorkspace: false, requiresTerminal: true),
         ConversationToolOption(id: "terminal_wait", title: "Wait", systemImage: "hourglass", requiresWorkspace: false, requiresTerminal: true),
+        ConversationToolOption(id: "terminal_read_output", title: "Read Stored Output", systemImage: "archivebox", requiresWorkspace: false, requiresTerminal: true),
     ]
 
     public static func toolOptions(hasWorkspace: Bool, hasTerminal: Bool = false) -> [ConversationToolOption] {

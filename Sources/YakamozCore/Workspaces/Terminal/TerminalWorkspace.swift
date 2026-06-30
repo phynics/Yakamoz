@@ -68,7 +68,8 @@ public actor TerminalWorkspace: WorkspaceProtocol {
     // MARK: - WorkspaceProtocol: tool routing
 
     /// The terminal tool ids this workspace exposes, in display order.
-    static let toolIds = ["terminal_run", "terminal_read", "terminal_send_input", "terminal_interrupt", "terminal_wait"]
+    /// Includes the six tools: run, read, send_input, interrupt, wait, and read_output (YAK-T6).
+    static let toolIds = ["terminal_run", "terminal_read", "terminal_send_input", "terminal_interrupt", "terminal_wait", "terminal_read_output"]
 
     public func listTools() async throws -> [ToolReference] {
         Self.toolIds.map { .known(id: $0) }
@@ -88,6 +89,8 @@ public actor TerminalWorkspace: WorkspaceProtocol {
             tool = TerminalInterruptTool(workspaceId: id, registry: registry, rootURL: rootURL)
         case "terminal_wait":
             tool = TerminalWaitTool(workspaceId: id, registry: registry, rootURL: rootURL)
+        case "terminal_read_output":
+            tool = TerminalReadOutputTool(workspaceId: id, registry: registry, rootURL: rootURL)
         default:
             throw WorkspaceError.toolExecutionNotSupported
         }

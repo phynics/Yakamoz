@@ -11,6 +11,10 @@ public enum TerminalWorkspaceError: PKError, Sendable, Equatable {
     case commandAlreadyRunning
     /// An operation that requires an in-flight command was called with none pending.
     case notRunning
+    /// The requested command id's full output has been evicted from the capped store.
+    case commandOutputExpired
+    /// The command id does not exist in the output store.
+    case unknownCommandOutput
 
     public var errorDomain: String {
         PKErrorDomain.workspace
@@ -22,6 +26,8 @@ public enum TerminalWorkspaceError: PKError, Sendable, Equatable {
         case .shellExited: return 1002
         case .commandAlreadyRunning: return 1003
         case .notRunning: return 1004
+        case .commandOutputExpired: return 1005
+        case .unknownCommandOutput: return 1006
         }
     }
 
@@ -35,6 +41,10 @@ public enum TerminalWorkspaceError: PKError, Sendable, Equatable {
             return "A command is already running in this terminal session."
         case .notRunning:
             return "No command is currently running in this terminal session."
+        case .commandOutputExpired:
+            return "The terminal command's output has expired and is no longer available."
+        case .unknownCommandOutput:
+            return "The specified command output was not found."
         }
     }
 }

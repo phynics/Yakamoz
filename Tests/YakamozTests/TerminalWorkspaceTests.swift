@@ -6,7 +6,7 @@ import Testing
 
 @Suite("TerminalWorkspace")
 struct TerminalWorkspaceTests {
-    @Test("listTools returns the five terminal tool ids")
+    @Test("listTools returns the six terminal tool ids (including read_output from YAK-T6)")
     func listToolsReturnsFiveIds() async throws {
         let registry = TerminalSessionRegistry()
         let approver = MockApprover(decision: .deny)
@@ -22,7 +22,7 @@ struct TerminalWorkspaceTests {
             }
         }
 
-        #expect(Set(ids) == Set(["terminal_run", "terminal_read", "terminal_send_input", "terminal_interrupt", "terminal_wait"]))
+        #expect(Set(ids) == Set(["terminal_run", "terminal_read", "terminal_send_input", "terminal_interrupt", "terminal_wait", "terminal_read_output"]))
         await registry.terminateAll()
     }
 

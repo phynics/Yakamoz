@@ -49,7 +49,7 @@ struct TerminalToolGatingTests {
 
         let withTerminal = ConversationToolSupport.toolOptions(hasWorkspace: false, hasTerminal: true)
         let terminalIds = Set(withTerminal.filter { $0.requiresTerminal }.map(\.id))
-        #expect(terminalIds == ["terminal_run", "terminal_read", "terminal_send_input", "terminal_interrupt", "terminal_wait"])
+        #expect(terminalIds == ["terminal_run", "terminal_read", "terminal_send_input", "terminal_interrupt", "terminal_wait", "terminal_read_output"])
     }
 
     @Test func toolOptionsDefaultsHasTerminalFalse() {
