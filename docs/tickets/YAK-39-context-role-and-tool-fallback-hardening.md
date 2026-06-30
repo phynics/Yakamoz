@@ -1,6 +1,6 @@
 # YAK-39 - [SECURITY] Follow up prompt-context role elevation and text tool fallback
 
-- **Status:** Open
+- **Status:** Done — fallback guard added (empty-tools → no fallback); `.context` sections separated from `.system` in `RenderedPromptProjection` and labeled `=== Retrieved Context ===` in `Prompt+OpenAI.swift`; 3 new tests in PositronicKit; `make verify` green (546 tests).
 - **Priority:** Medium
 - **Repos:** PositronicKit + Yakamoz
 - **Surfaced by:** Codex Security scan of PositronicKit (`cf83525f5fc4_20260628T221104Z`)

@@ -28,7 +28,7 @@ review items left for the next person.
 | [YAK-19](YAK-19-tool-calls-not-working.md) | [BUG] Tool calls not working; no streaming UI indicator | Yakamoz + PositronicKit | High | Done |
 | [YAK-20](YAK-20-selection-indicator-too-strong.md) | Turn-selection indicator overpowers message bubbles | Yakamoz | Low | Done |
 | [YAK-21](YAK-21-new-conversation-list-jump.md) | [BUG] Creating a conversation causes a list jump/reorder | Yakamoz | Medium | Done |
-| [YAK-22](YAK-22-settings-ux-polish.md) | Settings UX polish | Yakamoz | Low | Open |
+| [YAK-22](YAK-22-settings-ux-polish.md) | Settings UX polish | Yakamoz | Low | Done |
 | [YAK-23](YAK-23-tool-followup-turn-hangs.md) | [BUG] Streamed tool calls dropped via OpenRouter (SSE decoder ignored snake_case) — FIXED | Yakamoz + PositronicKit | High | Done |
 | [YAK-24](YAK-24-surface-empty-model-response.md) | Surface empty model responses instead of a silent blank bubble | Yakamoz | High | Done |
 | [YAK-25](YAK-25-context-assembly-latency.md) | Context assembly makes a slow LLM call on every send | PositronicKit | Medium | Done |
@@ -45,7 +45,7 @@ review items left for the next person.
 | [YAK-36](YAK-36-local-embedding-resource-limits.md) | [BUG] Local embedding APIs allocate attacker-sized batches | PositronicKit + Yakamoz | Medium | Open |
 | [YAK-37](YAK-37-provider-tool-log-redaction.md) | [SECURITY] Provider and tool debug logs can capture raw sensitive payloads | PositronicKit + Yakamoz | Low | Open |
 | [YAK-38](YAK-38-pktestsupport-mock-workspace-sanitizer.md) | [BUG] Exported `MockLocalWorkspace` omits path containment checks | PositronicKit + Yakamoz | Low | Open |
-| [YAK-39](YAK-39-context-role-and-tool-fallback-hardening.md) | [SECURITY] Follow up prompt-context role elevation and text tool fallback | PositronicKit + Yakamoz | Medium | Open |
+| [YAK-39](YAK-39-context-role-and-tool-fallback-hardening.md) | [SECURITY] Follow up prompt-context role elevation and text tool fallback | PositronicKit + Yakamoz | Medium | Done |
 
 ## Terminal-workspace post-merge review (YAK-TF series)
 
@@ -69,7 +69,7 @@ reachable — now done), then TF2/TF3 (lifecycle + output correctness), then TF4
 Status legend: Open / Delayed / In progress / Done. Each ticket also carries its
 own **Status** line.
 
-**Open:** YAK-31 (High — permissioned tool approval gate), YAK-30 (Medium — terminal workspace entrypoints), YAK-32 (Medium — agent workspace seed path traversal), YAK-33 (Medium — explicit workspaceID fallback), YAK-34 (Medium — external tool-output forgery), YAK-35 (Medium — filesystem search resource limits), YAK-36 (Medium — local embedding resource limits), YAK-39 (Medium — context-role and fallback hardening), YAK-22 (Low — settings plus actionable provider/model chat control), YAK-37 (Low — provider/tool log redaction), YAK-38 (Low — PKTestSupport mock workspace containment).
+**Open:** YAK-31 (High — permissioned tool approval gate), YAK-30 (Medium — terminal workspace entrypoints), YAK-32 (Medium — agent workspace seed path traversal), YAK-33 (Medium — explicit workspaceID fallback), YAK-34 (Medium — external tool-output forgery), YAK-35 (Medium — filesystem search resource limits), YAK-36 (Medium — local embedding resource limits), YAK-37 (Low — provider/tool log redaction), YAK-38 (Low — PKTestSupport mock workspace containment).
 **Delayed:** YAK-5 (phase 2). Note
 (YAK-23, FIXED): streamed tool calls were dropped for every
 model via OpenRouter because the SSE decoder ignored snake_case (`tool_calls`/`finish_reason`);

@@ -1,6 +1,6 @@
 # YAK-22 — Settings UX polish
 
-- **Status:** Open
+- **Status:** Done — introduced `ProviderStatusViewModel` (shared state boundary in YakamozCore); reorganized `SettingsView` into Active Target / Credentials / Diagnostics / Generation / Retry sections; added `ProviderControlMenu` to chat toolbar; wired both surfaces through the same `ProviderStatusViewModel` via environment; 12 focused tests added; `make build` green.
 - **Priority:** Low
 - **Repos:** Yakamoz
 - **Surfaced by:** field feedback (2026-06-25)

@@ -12,6 +12,8 @@ struct ChatView: View {
     @Environment(\.yakamozRuntime) private var runtime
     @Environment(\.uiCoordinator) private var coordinator
     @Environment(\.terminalApprover) private var terminalApprover
+    @Environment(\.providerStatus) private var providerStatus
+    @Environment(\.providerSettings) private var providerSettings
 
     @State private var viewModel: ChatViewModel?
     @State private var inspectionViewModel: InspectionViewModel?
@@ -122,6 +124,12 @@ struct ChatView: View {
 
             ToolbarItem(placement: .automatic) {
                 TypedReplyControls(conversation: conversation)
+            }
+
+            if let providerStatus, let settings = providerSettings {
+                ToolbarItem(placement: .automatic) {
+                    ProviderControlMenu(status: providerStatus, settings: settings)
+                }
             }
         }
         .task(id: conversation.id) {

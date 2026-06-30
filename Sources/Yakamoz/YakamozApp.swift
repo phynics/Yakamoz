@@ -28,6 +28,13 @@ private struct TerminalApproverKey: EnvironmentKey {
     static let defaultValue: MainActorApprover? = nil
 }
 
+/// Typed environment key for the shared provider status boundary (YAK-22).
+/// Both `SettingsView` and `ProviderControlMenu` read from the same instance so model-list
+/// and health state are not duplicated across surfaces.
+private struct ProviderStatusKey: EnvironmentKey {
+    static let defaultValue: ProviderStatusViewModel? = nil
+}
+
 extension EnvironmentValues {
     var yakamozRuntime: YakamozRuntime? {
         get { self[YakamozRuntimeKey.self] }
@@ -48,6 +55,11 @@ extension EnvironmentValues {
         get { self[TerminalApproverKey.self] }
         set { self[TerminalApproverKey.self] = newValue }
     }
+
+    var providerStatus: ProviderStatusViewModel? {
+        get { self[ProviderStatusKey.self] }
+        set { self[ProviderStatusKey.self] = newValue }
+    }
 }
 
 @main
@@ -57,6 +69,7 @@ struct YakamozApp: App {
     private let settings: ProviderSettings
     private let secrets: any SecretStoring
     private let terminalApprover: MainActorApprover
+    private let providerStatus: ProviderStatusViewModel?
     private let setupError: String?
 
     @State private var coordinator = UICoordinator()
@@ -72,6 +85,7 @@ struct YakamozApp: App {
         terminalApprover = approver
 
         var resolvedStoreDescription = "(store URL not yet resolved)"
+        var builtRuntime: YakamozRuntime?
         do {
             let storeURL = try Self.resolveStoreURL()
             resolvedStoreDescription = storeURL.path
@@ -81,15 +95,16 @@ struct YakamozApp: App {
             let configuration = ModelConfiguration(schema: schema, url: storeURL)
             let container = try ModelContainer(for: schema, configurations: configuration)
             WorkspaceAttachmentSupport.pruneOrphanWorkspaces(modelContext: container.mainContext)
-            let builtRuntime = try YakamozRuntime(modelContainer: container, settings: settings, secrets: secrets, terminalApprover: approver)
+            let rt = try YakamozRuntime(modelContainer: container, settings: settings, secrets: secrets, terminalApprover: approver)
             modelContainer = container
-            runtime = builtRuntime
+            builtRuntime = rt
             setupError = nil
         } catch {
             modelContainer = nil
-            runtime = nil
             setupError = "\(error.localizedDescription) (store path: \(resolvedStoreDescription))"
         }
+        runtime = builtRuntime
+        providerStatus = builtRuntime.map { ProviderStatusViewModel(settings: settings, secrets: secrets, runtime: $0) }
     }
 
     /// Bundle identifier used as the per-app subdirectory under Application Support, and as
@@ -193,6 +208,7 @@ struct YakamozApp: App {
                     .environment(\.secretStore, secrets)
                     .environment(\.terminalApprover, terminalApprover)
                     .environment(\.uiCoordinator, coordinator)
+                    .environment(\.providerStatus, providerStatus)
                     .frame(minWidth: 900, minHeight: 620)
                     .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
                         // Best-effort teardown of any live terminal shells on quit. This detached
@@ -216,8 +232,8 @@ struct YakamozApp: App {
         .defaultSize(width: 1200, height: 820)
 
         Settings {
-            if let runtime {
-                SettingsView(runtime: runtime, settings: settings, secrets: secrets)
+            if let providerStatus {
+                SettingsView(providerStatus: providerStatus, settings: settings, secrets: secrets)
             } else {
                 ContentUnavailableView(
                     "Settings Unavailable",

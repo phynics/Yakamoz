@@ -1,148 +1,208 @@
 import SwiftUI
 import YakamozCore
 
-/// Provider settings scene (Command-comma). Non-secret fields write straight through
-/// to the injected `ProviderSettings` (and are persisted via `persist()` on change);
-/// the API key is staged in local `@State` and only reaches the secret store when the user
-/// taps Apply.
+/// Provider settings scene (Command-comma).
+///
+/// Organized into five groups: Active Target, Credentials, Diagnostics, Generation, Retry.
+/// Reads and drives `ProviderStatusViewModel` (shared with `ProviderControlMenu`) so
+/// model-list and health state are not duplicated. Non-secret fields write straight through
+/// to the injected `ProviderSettings`; the API key is staged in local `@State` and only
+/// reaches the secret store when the user taps Apply.
 struct SettingsView: View {
-    let runtime: YakamozRuntime
+    let providerStatus: ProviderStatusViewModel
     @Bindable var settings: ProviderSettings
     let secrets: any SecretStoring
 
     @State private var apiKeyDraft: String = ""
-    @State private var availableModels: [String] = []
     @State private var applyError: String?
-    @State private var healthStatus: AppHealthStatus?
-    @State private var isCheckingHealth = false
-    @State private var isLoadingModels = false
-    @State private var modelLoadError: String?
 
     var body: some View {
         Form {
-            Section("Provider") {
-                Picker("Preset", selection: presetBinding) {
-                    ForEach(ProviderPreset.allCases, id: \.self) { preset in
-                        Text(presetLabel(preset)).tag(preset)
-                    }
-                }
-
-                TextField("Base URL", text: baseURLBinding)
-                    .textFieldStyle(.roundedBorder)
-                    .disableAutocorrection(true)
-
-                SecureField("API Key", text: $apiKeyDraft)
-                    .textFieldStyle(.roundedBorder)
-
-                if isLoadingModels {
-                    ProgressView("Loading models…")
-                        .controlSize(.small)
-                } else if !rankedAvailableModels.isEmpty {
-                    Picker("Suggested Model", selection: suggestedModelBinding) {
-                        ForEach(rankedAvailableModels, id: \.self) { modelID in
-                            Text(modelID).tag(modelID)
-                        }
-                    }
-                }
-
-                TextField("Model", text: $settings.model)
-                    .textFieldStyle(.roundedBorder)
-                    .onChange(of: settings.model) { _, _ in settings.persist() }
-
-                HStack {
-                    Button("Refresh Models") {
-                        Task { await loadAvailableModels() }
-                    }
-                    .disabled(isLoadingModels)
-
-                    if !settings.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Button(settings.isFavoriteModel(settings.model) ? "Unfavorite Current Model" : "Favorite Current Model") {
-                            settings.toggleFavoriteModel(settings.model)
-                        }
-                    }
-                }
-
-                if let modelLoadError {
-                    Text(modelLoadError)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Section("Generation") {
-                OptionalDoubleField(label: "Temperature", value: $settings.temperature)
-                    .onChange(of: settings.temperature) { _, _ in settings.persist() }
-                OptionalIntField(label: "Max Output Tokens", value: $settings.maxTokens)
-                    .onChange(of: settings.maxTokens) { _, _ in settings.persist() }
-            }
-
-            Section("Retry") {
-                Stepper("Max Retries: \(settings.maxRetries)", value: $settings.maxRetries, in: 0 ... 10)
-                    .onChange(of: settings.maxRetries) { _, _ in settings.persist() }
-
-                HStack {
-                    Text("Timeout (seconds)")
-                    Spacer()
-                    TextField(
-                        "Timeout",
-                        value: $settings.timeoutInterval,
-                        format: .number
-                    )
-                    .frame(width: 80)
-                    .textFieldStyle(.roundedBorder)
-                    .multilineTextAlignment(.trailing)
-                    .labelsHidden()
-                    .accessibilityLabel("Timeout in seconds")
-                    .onChange(of: settings.timeoutInterval) { _, _ in settings.persist() }
-                }
-            }
-
-            Section {
-                HStack {
-                    Button("Apply API Key") {
-                        applyAPIKey()
-                    }
-                    .accessibilityLabel("Apply API Key")
-
-                    Button("Test Connection") {
-                        Task { await testConnection() }
-                    }
-                    .disabled(isCheckingHealth)
-                    .accessibilityLabel("Test Connection")
-
-                    if isCheckingHealth {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else if let healthStatus {
-                        HealthStatusBadge(status: healthStatus)
-                    }
-                }
-
-                if let applyError {
-                    Text(applyError)
-                        .font(.callout)
-                        .foregroundStyle(.red)
-                }
-            }
+            activeTargetSection
+            credentialsSection
+            diagnosticsSection
+            generationSection
+            retrySection
         }
         .formStyle(.grouped)
-        .frame(minWidth: 420, minHeight: 420)
+        .frame(minWidth: 440, minHeight: 480)
         .task {
-            loadAPIKeyForSelectedPreset()
-            await loadAvailableModels()
+            apiKeyDraft = providerStatus.loadAPIKey()
+            if providerStatus.availableModels.isEmpty {
+                await providerStatus.refreshModels()
+            }
         }
     }
 
-    private var rankedAvailableModels: [String] {
-        settings.rankedModels(from: availableModels)
+    // MARK: - Active Target
+
+    private var activeTargetSection: some View {
+        Section("Active Target") {
+            Picker("Preset", selection: presetBinding) {
+                ForEach(ProviderPreset.allCases, id: \.self) { preset in
+                    Text(presetLabel(preset)).tag(preset)
+                }
+            }
+
+            TextField("Base URL", text: baseURLBinding)
+                .textFieldStyle(.roundedBorder)
+                .disableAutocorrection(true)
+
+            if providerStatus.isLoadingModels {
+                ProgressView("Loading models…")
+                    .controlSize(.small)
+            } else if !providerStatus.rankedModels.isEmpty {
+                Picker("Suggested Model", selection: suggestedModelBinding) {
+                    ForEach(providerStatus.rankedModels, id: \.self) { modelID in
+                        Text(modelID).tag(modelID)
+                    }
+                }
+            }
+
+            TextField("Model", text: $settings.model)
+                .textFieldStyle(.roundedBorder)
+                .onChange(of: settings.model) { _, _ in settings.persist() }
+
+            if let modelLoadError = providerStatus.modelLoadError {
+                Text(modelLoadError)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack {
+                Button("Refresh Models") {
+                    Task { await providerStatus.refreshModels() }
+                }
+                .disabled(providerStatus.isLoadingModels)
+
+                let currentModel = settings.model.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !currentModel.isEmpty {
+                    Button(settings.isFavoriteModel(currentModel) ? "Unfavorite" : "Favorite Model") {
+                        providerStatus.toggleFavoriteCurrent()
+                    }
+                }
+            }
+        }
     }
+
+    // MARK: - Credentials
+
+    private var credentialsSection: some View {
+        Section("Credentials") {
+            SecureField("API Key", text: $apiKeyDraft)
+                .textFieldStyle(.roundedBorder)
+
+            Text("Stored in UserDefaults (plaintext). See README for security context.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            HStack {
+                Button("Apply API Key") {
+                    applyError = nil
+                    do {
+                        try providerStatus.applyAPIKey(apiKeyDraft)
+                        apiKeyDraft = providerStatus.loadAPIKey()
+                    } catch {
+                        applyError = error.localizedDescription
+                    }
+                }
+                .accessibilityLabel("Apply API Key")
+            }
+
+            if let applyError {
+                Text(applyError)
+                    .font(.callout)
+                    .foregroundStyle(.red)
+            }
+        }
+    }
+
+    // MARK: - Diagnostics
+
+    private var diagnosticsSection: some View {
+        Section("Diagnostics") {
+            HStack {
+                Button("Test Connection") {
+                    Task { await providerStatus.testConnection() }
+                }
+                .disabled(providerStatus.isCheckingHealth)
+                .accessibilityLabel("Test Connection")
+
+                if providerStatus.isCheckingHealth {
+                    ProgressView()
+                        .controlSize(.small)
+                } else if let healthStatus = providerStatus.healthStatus {
+                    HealthStatusBadge(status: healthStatus)
+                    if let checkedAt = providerStatus.lastHealthCheckAt {
+                        Text(checkedAt, style: .relative)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            HStack {
+                Text("Endpoint")
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(settings.preset == .custom ? settings.baseURL.absoluteString : presetLabel(settings.preset))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack {
+                Text("Model")
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(settings.model.isEmpty ? "—" : settings.model)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    // MARK: - Generation
+
+    private var generationSection: some View {
+        Section("Generation") {
+            OptionalDoubleField(label: "Temperature", value: $settings.temperature)
+                .onChange(of: settings.temperature) { _, _ in settings.persist() }
+            OptionalIntField(label: "Max Output Tokens", value: $settings.maxTokens)
+                .onChange(of: settings.maxTokens) { _, _ in settings.persist() }
+        }
+    }
+
+    // MARK: - Retry
+
+    private var retrySection: some View {
+        Section("Retry") {
+            Stepper("Max Retries: \(settings.maxRetries)", value: $settings.maxRetries, in: 0 ... 10)
+                .onChange(of: settings.maxRetries) { _, _ in settings.persist() }
+
+            HStack {
+                Text("Timeout (seconds)")
+                Spacer()
+                TextField(
+                    "Timeout",
+                    value: $settings.timeoutInterval,
+                    format: .number
+                )
+                .frame(width: 80)
+                .textFieldStyle(.roundedBorder)
+                .multilineTextAlignment(.trailing)
+                .labelsHidden()
+                .accessibilityLabel("Timeout in seconds")
+                .onChange(of: settings.timeoutInterval) { _, _ in settings.persist() }
+            }
+        }
+    }
+
+    // MARK: - Helpers
 
     private var suggestedModelBinding: Binding<String> {
         Binding(
             get: { settings.model },
-            set: { newValue in
-                settings.applyModelSelection(newValue)
-            }
+            set: { providerStatus.selectModel($0) }
         )
     }
 
@@ -152,8 +212,10 @@ struct SettingsView: View {
             set: { newValue in
                 settings.applyPreset(newValue)
                 settings.persist()
-                loadAPIKeyForSelectedPreset()
-                Task { await loadAvailableModels() }
+                providerStatus.clearStaleState()
+                apiKeyDraft = providerStatus.loadAPIKey()
+                applyError = nil
+                Task { await providerStatus.refreshModels() }
             }
         )
     }
@@ -165,7 +227,8 @@ struct SettingsView: View {
                 if let url = URL(string: newValue) {
                     settings.baseURL = url
                     settings.persist()
-                    Task { await loadAvailableModels() }
+                    providerStatus.clearStaleState()
+                    Task { await providerStatus.refreshModels() }
                 }
             }
         )
@@ -179,51 +242,9 @@ struct SettingsView: View {
         case .custom: "Custom"
         }
     }
-
-    private func applyAPIKey() {
-        applyError = nil
-        let normalizedKey = ProviderSettings.normalizeAPIKey(apiKeyDraft)
-        do {
-            try settings.validateBaseURL()
-            try settings.validateAPIKey(normalizedKey)
-            let account = ProviderSettings.apiKeyAccount(for: settings.preset)
-            if normalizedKey.isEmpty {
-                try secrets.delete(account: account)
-            } else {
-                try secrets.write(normalizedKey, account: account)
-            }
-            apiKeyDraft = normalizedKey
-            Task { await loadAvailableModels() }
-        } catch {
-            applyError = error.localizedDescription
-        }
-    }
-
-    private func loadAPIKeyForSelectedPreset() {
-        apiKeyDraft = (try? ProviderSettings.storedAPIKey(for: settings.preset, secrets: secrets)) ?? ""
-        applyError = nil
-        healthStatus = nil
-    }
-
-    private func testConnection() async {
-        isCheckingHealth = true
-        healthStatus = await runtime.appHealthCheck()
-        isCheckingHealth = false
-    }
-
-    private func loadAvailableModels() async {
-        isLoadingModels = true
-        defer { isLoadingModels = false }
-
-        do {
-            availableModels = try await runtime.fetchAvailableModels()
-            modelLoadError = nil
-        } catch {
-            availableModels = []
-            modelLoadError = "Model list unavailable. Manual entry remains available."
-        }
-    }
 }
+
+// MARK: - Subviews
 
 private struct HealthStatusBadge: View {
     let status: AppHealthStatus
