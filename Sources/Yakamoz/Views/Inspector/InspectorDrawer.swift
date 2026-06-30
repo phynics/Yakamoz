@@ -70,6 +70,8 @@ struct InspectorDrawer: View {
     let onChooseWorkspace: () -> Void
     let onDetachWorkspace: () -> Void
     let onSetToolEnabled: (String, Bool) -> Void
+    /// Creates a terminal workspace for the conversation (YAK-30).
+    let onCreateTerminal: () -> Void
     @Binding var isOpen: Bool
     /// The selected inspector tab's raw value, owned by `ChatView` (via `@SceneStorage`)
     /// so menu-bar commands (Command-1…6) can drive it. Bound here so the segmented picker
@@ -167,7 +169,8 @@ struct InspectorDrawer: View {
                 liveTurn: selectedTurnState,
                 availableTools: availableTools,
                 enabledToolIds: enabledToolIds,
-                onSetToolEnabled: onSetToolEnabled
+                onSetToolEnabled: onSetToolEnabled,
+                onCreateTerminal: onCreateTerminal
             )
         case .workspace:
             WorkspaceInspectorView(

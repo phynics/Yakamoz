@@ -223,6 +223,7 @@ struct ChatView: View {
                         onChooseWorkspace: pickFolderForPrompt,
                         onDetachWorkspace: detachWorkspace,
                         onSetToolEnabled: setToolEnabled,
+                        onCreateTerminal: pickFolderForTerminal,
                         isOpen: $isInspectorOpen,
                         selectedTabRaw: $selectedInspectorTabRaw,
                         canSelectTurn: { viewModel.canSelectInspectionTurn($0) },
@@ -383,6 +384,24 @@ struct ChatView: View {
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
         WorkspaceAttachmentSupport.attachWorkspace(to: conversation, modelContext: modelContext, url: url)
+        Task { await buildViewModelIfNeeded() }
+    }
+
+    private func pickFolderForTerminal() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Create Terminal"
+        panel.message = """
+        Choose a folder to be your terminal's starting directory.
+
+        The terminal shell is NOT jailed to this folder; it can access any file on your system. \
+        Each command is approval-gated unless you allow the terminal for the session.
+        """
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        WorkspaceAttachmentSupport.createTerminalFromFolderURL(url, for: conversation, modelContext: modelContext)
         Task { await buildViewModelIfNeeded() }
     }
 

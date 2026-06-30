@@ -22,27 +22,45 @@ struct WorkspacePicker: View {
     var body: some View {
         HStack(spacing: 6) {
             if attachedWorkspaces.isEmpty {
-                Button {
-                    pickFolder()
+                Menu {
+                    Button {
+                        pickFolder()
+                    } label: {
+                        Label("Folder", systemImage: "folder.badge.plus")
+                    }
+                    Button {
+                        pickFolderForTerminal()
+                    } label: {
+                        Label("Terminal Workspace", systemImage: "terminal")
+                    }
                 } label: {
-                    Label("Attach Folder", systemImage: "folder.badge.plus")
+                    Label("Add Workspace", systemImage: "plus.circle")
                 }
                 .buttonStyle(.borderless)
-                .help("Attach a folder workspace to this conversation")
-                .accessibilityLabel("Attach folder workspace")
+                .help("Add a workspace to this conversation: a folder or a terminal")
+                .accessibilityLabel("Add workspace")
             } else {
                 ForEach(attachedWorkspaces) { workspace in
                     chip(for: workspace)
                 }
 
-                Button {
-                    pickFolder()
+                Menu {
+                    Button {
+                        pickFolder()
+                    } label: {
+                        Label("Folder", systemImage: "folder.badge.plus")
+                    }
+                    Button {
+                        pickFolderForTerminal()
+                    } label: {
+                        Label("Terminal Workspace", systemImage: "terminal")
+                    }
                 } label: {
                     Image(systemName: "plus.circle")
                 }
                 .buttonStyle(.borderless)
-                .help("Attach another folder workspace")
-                .accessibilityLabel("Attach another folder workspace")
+                .help("Add another workspace: a folder or a terminal")
+                .accessibilityLabel("Add another workspace")
             }
         }
     }
@@ -99,12 +117,33 @@ struct WorkspacePicker: View {
         attachWorkspace(at: url)
     }
 
+    private func pickFolderForTerminal() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Create Terminal"
+        panel.message = """
+        Choose a folder to be your terminal's starting directory.
+
+        The terminal shell is NOT jailed to this folder; it can access any file on your system. \
+        Each command is approval-gated unless you allow the terminal for the session.
+        """
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        createTerminalFromFolderURL(url)
+    }
+
     private func attachWorkspace(at url: URL) {
         WorkspaceAttachmentSupport.attachWorkspace(to: conversation, modelContext: modelContext, url: url)
     }
 
     private func createTerminal(from folder: WorkspaceModel) {
         WorkspaceAttachmentSupport.attachTerminal(to: conversation, fromFolder: folder, modelContext: modelContext)
+    }
+
+    private func createTerminalFromFolderURL(_ url: URL) {
+        WorkspaceAttachmentSupport.createTerminalFromFolderURL(url, for: conversation, modelContext: modelContext)
     }
 
     private func detach(_ workspace: WorkspaceModel) {
