@@ -1,7 +1,7 @@
 # Yakamoz
 
 A native macOS chat client that puts the **prompt pipeline under glass**. Yakamoz drives
-the shared [`PositronicKit`](../PositronicKit) agent runtime and, for every assistant turn,
+the shared [`PositronicKit`](https://github.com/phynics/PositronicKit) agent runtime and, for every assistant turn,
 exposes exactly what was assembled, sent, journaled, and returned — through a six-tab
 inspector drawer. It is a showcase/dev app, not a shipping product.
 
@@ -12,10 +12,20 @@ inspector drawer. It is a showcase/dev app, not a shipping product.
   `SWIFT_VERSION = 6.0` and `SWIFT_STRICT_CONCURRENCY = complete`).
 - **[XcodeGen](https://github.com/yonsei/XcodeGen)** (`brew install xcodegen`) — the
   `.xcodeproj` is generated from [`project.yml`](project.yml) and is not the source of truth.
-- The sibling **`../PositronicKit`** checkout must remain a sibling of this directory
-  (consumed via a local SwiftPM path dependency).
+- This repository is a **source release**, not a signed or notarized binary distribution.
+  Build and run it locally from source.
 
 ## Build, test, run
+
+Clone and enter the repository:
+
+```bash
+git clone git@github.com:phynics/Yakamoz.git
+cd Yakamoz
+```
+
+`make generate` resolves [`PositronicKit`](https://github.com/phynics/PositronicKit)
+through SwiftPM from its public GitHub repository.
 
 All commands run from this directory and go through the [`Makefile`](Makefile), which wraps
 `xcodegen` + `xcodebuild` with a project-local `DerivedData`/`SourcePackages` path.
@@ -197,4 +207,7 @@ The **app target** (`Sources/Yakamoz`) imports only `SwiftUI`, `SwiftData`, and
 types (e.g. `AppHealthStatus`, `UICoordinator`) live in the app/core so the optimized test
 build's linker never needs the unembedded framework metadata. All shared runtime logic lives
 in `YakamozCore` (which links PositronicKit) or upstream in `PositronicKit` itself.
-```
+
+## License
+
+Yakamoz is released under the Apache License, Version 2.0. See [`LICENSE`](LICENSE).
