@@ -1,4 +1,5 @@
 import Foundation
+import Logging
 import SwiftData
 
 public struct ConversationToolOption: Sendable, Equatable, Identifiable {
@@ -125,7 +126,14 @@ public enum WorkspaceAttachmentSupport {
             .union(FileSystemWorkspace.toolIds)
         conversation.enabledToolIds = ConversationToolSupport.persistedEnabledToolIDs(selectedTools, hasWorkspace: true)
 
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            Log.workspace.error("failed to save workspace attachment", metadata: [
+                "conversationID": "\(conversation.id)",
+                "workspaceID": "\(workspace.id)",
+            ])
+        }
         return workspace
     }
 
@@ -148,7 +156,15 @@ public enum WorkspaceAttachmentSupport {
         // this short-circuit agrees with WorkspaceResolutionHelper's source of truth: a
         // non-matching legacy id left on `workspaceId` still counts as an attachment even when
         // `attachedWorkspaceIds` is empty.
-        let allWorkspaces = (try? modelContext.fetch(FetchDescriptor<WorkspaceModel>())) ?? []
+        let allWorkspaces: [WorkspaceModel]
+        do {
+            allWorkspaces = try modelContext.fetch(FetchDescriptor<WorkspaceModel>())
+        } catch {
+            Log.workspace.warning("failed to fetch workspaces during detach", metadata: [
+                "conversationID": "\(id)",
+            ])
+            allWorkspaces = []
+        }
         let remainingWorkspaces = WorkspaceResolutionHelper.attachedWorkspaces(for: conversation, in: allWorkspaces)
 
         reconcileEnabledTools(for: conversation, attachedWorkspaces: remainingWorkspaces)
@@ -219,17 +235,35 @@ public enum WorkspaceAttachmentSupport {
     /// no access to the registry).
     @discardableResult
     public static func pruneOrphanWorkspaces(modelContext: ModelContext) -> [UUID] {
-        let conversations = (try? modelContext.fetch(FetchDescriptor<ConversationModel>())) ?? []
+        let conversations: [ConversationModel]
+        do {
+            conversations = try modelContext.fetch(FetchDescriptor<ConversationModel>())
+        } catch {
+            Log.workspace.warning("failed to fetch conversations during workspace prune", metadata: [:])
+            conversations = []
+        }
         let referencedIds = Set(conversations.flatMap(\.allAttachedWorkspaceIds))
 
-        let allWorkspaces = (try? modelContext.fetch(FetchDescriptor<WorkspaceModel>())) ?? []
+        let allWorkspaces: [WorkspaceModel]
+        do {
+            allWorkspaces = try modelContext.fetch(FetchDescriptor<WorkspaceModel>())
+        } catch {
+            Log.workspace.warning("failed to fetch workspaces during prune", metadata: [:])
+            allWorkspaces = []
+        }
         var prunedTerminalIds: [UUID] = []
         for workspace in allWorkspaces where !referencedIds.contains(workspace.id) {
             if workspace.kind == .terminal { prunedTerminalIds.append(workspace.id) }
             modelContext.delete(workspace)
         }
 
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            Log.workspace.error("failed to save workspace pruning", metadata: [
+                "count": "\(prunedTerminalIds.count)",
+            ])
+        }
         return prunedTerminalIds
     }
 
@@ -238,7 +272,13 @@ public enum WorkspaceAttachmentSupport {
     @discardableResult
     public static func deleteConversation(_ conversation: ConversationModel, modelContext: ModelContext) -> [UUID] {
         modelContext.delete(conversation)
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            Log.workspace.error("failed to save conversation deletion", metadata: [
+                "conversationID": "\(conversation.id)",
+            ])
+        }
         return pruneOrphanWorkspaces(modelContext: modelContext)
     }
 
@@ -262,7 +302,15 @@ public enum WorkspaceAttachmentSupport {
         conversation.attachedWorkspaceIds.append(terminal.id)
 
         // Whether a folder workspace remains attached governs whether folder tools stay offered.
-        let allWorkspaces = (try? modelContext.fetch(FetchDescriptor<WorkspaceModel>())) ?? []
+        let allWorkspaces: [WorkspaceModel]
+        do {
+            allWorkspaces = try modelContext.fetch(FetchDescriptor<WorkspaceModel>())
+        } catch {
+            Log.workspace.warning("failed to fetch workspaces during terminal attachment", metadata: [
+                "conversationID": "\(conversation.id)",
+            ])
+            allWorkspaces = []
+        }
         let attached = WorkspaceResolutionHelper.attachedWorkspaces(for: conversation, in: allWorkspaces)
         let hasFolder = attached.contains { $0.kind == .folder }
 
@@ -270,7 +318,14 @@ public enum WorkspaceAttachmentSupport {
             .union(TerminalWorkspace.toolIds)
         conversation.enabledToolIds = ConversationToolSupport.persistedEnabledToolIDs(selected, hasWorkspace: hasFolder, hasTerminal: true)
 
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            Log.workspace.error("failed to save terminal workspace attachment", metadata: [
+                "conversationID": "\(conversation.id)",
+                "terminalID": "\(terminal.id)",
+            ])
+        }
         return terminal
     }
 }

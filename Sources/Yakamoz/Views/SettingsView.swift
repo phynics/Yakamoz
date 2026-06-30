@@ -103,7 +103,12 @@ struct SettingsView: View {
                         try providerStatus.applyAPIKey(apiKeyDraft)
                         apiKeyDraft = providerStatus.loadAPIKey()
                     } catch {
-                        applyError = error.localizedDescription
+                        // Redaction: applyAPIKey's errors (missingAPIKey / invalidBaseURL /
+                        // secret-store failures) never embed the key or draft, so logging the
+                        // user-friendly message is safe.
+                        let message = Log.userFriendlyErrorMessage(for: error)
+                        Log.appError("failed to apply API key", metadata: ["error": message])
+                        applyError = message
                     }
                 }
                 .accessibilityLabel("Apply API Key")

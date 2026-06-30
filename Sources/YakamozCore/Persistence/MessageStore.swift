@@ -1,4 +1,5 @@
 import Foundation
+import Logging
 import PKShared
 import PositronicKit
 import SwiftData
@@ -79,7 +80,16 @@ public actor SwiftDataMessageStore: MessageStoreProtocol {
     public func saveMessage(_ message: ConversationMessage) async throws {
         let model = try MessageModel(message)
         modelContext.insert(model)
-        try modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            Log.runtime.error("failed to save ConversationMessage", metadata: [
+                "store": "MessageStore",
+                "timelineID": "\(message.timelineId)",
+                "messageID": "\(message.id)",
+            ])
+            throw error
+        }
     }
 
     public func fetchMessages(for timelineId: UUID) async throws -> [ConversationMessage] {
@@ -87,12 +97,28 @@ public actor SwiftDataMessageStore: MessageStoreProtocol {
             predicate: #Predicate { $0.conversationId == timelineId },
             sortBy: [SortDescriptor(\.createdAt)]
         )
-        return try modelContext.fetch(descriptor).map { try $0.toConversationMessage() }
+        do {
+            return try modelContext.fetch(descriptor).map { try $0.toConversationMessage() }
+        } catch {
+            Log.runtime.warning("failed to fetch ConversationMessages", metadata: [
+                "store": "MessageStore",
+                "timelineID": "\(timelineId)",
+            ])
+            throw error
+        }
     }
 
     public func deleteMessages(for timelineId: UUID) async throws {
         try modelContext.delete(model: MessageModel.self, where: #Predicate { $0.conversationId == timelineId })
-        try modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            Log.runtime.error("failed to delete ConversationMessages", metadata: [
+                "store": "MessageStore",
+                "timelineID": "\(timelineId)",
+            ])
+            throw error
+        }
     }
 
     public func pruneMessages(olderThan timeInterval: TimeInterval, dryRun: Bool) async throws -> Int {
@@ -103,7 +129,15 @@ public actor SwiftDataMessageStore: MessageStoreProtocol {
             for model in matches {
                 modelContext.delete(model)
             }
-            try modelContext.save()
+            do {
+                try modelContext.save()
+            } catch {
+                Log.runtime.error("failed to prune ConversationMessages", metadata: [
+                    "store": "MessageStore",
+                    "count": "\(matches.count)",
+                ])
+                throw error
+            }
         }
         return matches.count
     }

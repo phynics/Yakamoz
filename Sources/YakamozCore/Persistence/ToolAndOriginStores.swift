@@ -1,4 +1,5 @@
 import Foundation
+import Logging
 import PKShared
 import PositronicKit
 import SwiftData
@@ -72,7 +73,16 @@ public actor SwiftDataToolStore: ToolPersistenceProtocol {
         } else {
             try modelContext.insert(ToolReferenceModel(workspaceId: workspaceId, tool: tool))
         }
-        try modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            Log.runtime.error("failed to add tool to workspace", metadata: [
+                "store": "ToolStore",
+                "workspaceID": "\(workspaceId)",
+                "toolID": .string(toolId),
+            ])
+            throw error
+        }
     }
 
     public func syncTools(workspaceId: UUID, tools: [ToolReference]) async throws {
@@ -80,14 +90,31 @@ public actor SwiftDataToolStore: ToolPersistenceProtocol {
         for tool in tools {
             try modelContext.insert(ToolReferenceModel(workspaceId: workspaceId, tool: tool))
         }
-        try modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            Log.runtime.error("failed to sync tools", metadata: [
+                "store": "ToolStore",
+                "workspaceID": "\(workspaceId)",
+                "count": "\(tools.count)",
+            ])
+            throw error
+        }
     }
 
     public func fetchTools(forWorkspaces workspaceIds: [UUID]) async throws -> [ToolReference] {
         let descriptor = FetchDescriptor<ToolReferenceModel>(
             predicate: #Predicate { workspaceIds.contains($0.workspaceId) }
         )
-        return try modelContext.fetch(descriptor).map { try $0.toToolReference() }
+        do {
+            return try modelContext.fetch(descriptor).map { try $0.toToolReference() }
+        } catch {
+            Log.runtime.warning("failed to fetch tools", metadata: [
+                "store": "ToolStore",
+                "workspaceCount": "\(workspaceIds.count)",
+            ])
+            throw error
+        }
     }
 
     public func fetchOriginTools(originId: UUID) async throws -> [ToolReference] {
@@ -99,7 +126,15 @@ public actor SwiftDataToolStore: ToolPersistenceProtocol {
         let toolDescriptor = FetchDescriptor<ToolReferenceModel>(
             predicate: #Predicate { workspaceIds.contains($0.workspaceId) }
         )
-        return try modelContext.fetch(toolDescriptor).map { try $0.toToolReference() }
+        do {
+            return try modelContext.fetch(toolDescriptor).map { try $0.toToolReference() }
+        } catch {
+            Log.runtime.warning("failed to fetch origin tools", metadata: [
+                "store": "ToolStore",
+                "originID": "\(originId)",
+            ])
+            throw error
+        }
     }
 
     public func findWorkspaceId(forToolId toolId: String, in workspaceIds: [UUID]) async throws -> UUID? {
@@ -107,7 +142,15 @@ public actor SwiftDataToolStore: ToolPersistenceProtocol {
             predicate: #Predicate { $0.toolId == toolId && workspaceIds.contains($0.workspaceId) }
         )
         descriptor.fetchLimit = 1
-        return try modelContext.fetch(descriptor).first?.workspaceId
+        do {
+            return try modelContext.fetch(descriptor).first?.workspaceId
+        } catch {
+            Log.runtime.warning("failed to find workspace for tool", metadata: [
+                "store": "ToolStore",
+                "toolID": .string(toolId),
+            ])
+            throw error
+        }
     }
 
     public func fetchToolSource(
@@ -139,18 +182,41 @@ public actor SwiftDataRequestOriginStore: RequestOriginStoreProtocol {
         } else {
             modelContext.insert(RequestOriginModel(origin))
         }
-        try modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            Log.runtime.error("failed to save RequestOrigin", metadata: [
+                "store": "RequestOriginStore",
+                "originID": "\(id)",
+            ])
+            throw error
+        }
     }
 
     public func fetchOrigin(id: UUID) async throws -> RequestOriginIdentity? {
         var descriptor = FetchDescriptor<RequestOriginModel>(predicate: #Predicate { $0.id == id })
         descriptor.fetchLimit = 1
-        return try modelContext.fetch(descriptor).first?.toRequestOriginIdentity()
+        do {
+            return try modelContext.fetch(descriptor).first?.toRequestOriginIdentity()
+        } catch {
+            Log.runtime.warning("failed to fetch RequestOrigin", metadata: [
+                "store": "RequestOriginStore",
+                "originID": "\(id)",
+            ])
+            throw error
+        }
     }
 
     public func fetchAllOrigins() async throws -> [RequestOriginIdentity] {
         let descriptor = FetchDescriptor<RequestOriginModel>(sortBy: [SortDescriptor(\.registeredAt)])
-        return try modelContext.fetch(descriptor).map { $0.toRequestOriginIdentity() }
+        do {
+            return try modelContext.fetch(descriptor).map { $0.toRequestOriginIdentity() }
+        } catch {
+            Log.runtime.warning("failed to fetch all RequestOrigins", metadata: [
+                "store": "RequestOriginStore",
+            ])
+            throw error
+        }
     }
 
     public func deleteOrigin(id: UUID) async throws -> Bool {
@@ -158,7 +224,15 @@ public actor SwiftDataRequestOriginStore: RequestOriginStoreProtocol {
         descriptor.fetchLimit = 1
         guard let model = try modelContext.fetch(descriptor).first else { return false }
         modelContext.delete(model)
-        try modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            Log.runtime.error("failed to delete RequestOrigin", metadata: [
+                "store": "RequestOriginStore",
+                "originID": "\(id)",
+            ])
+            throw error
+        }
         return true
     }
 }

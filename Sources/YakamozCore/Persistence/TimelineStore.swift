@@ -1,4 +1,5 @@
 import Foundation
+import Logging
 import PKShared
 import PositronicKit
 import SwiftData
@@ -77,14 +78,30 @@ public actor SwiftDataTimelineStore: TimelinePersistenceProtocol {
         } else {
             try modelContext.insert(TimelineModel(timeline))
         }
-        try modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            Log.runtime.error("failed to save Timeline", metadata: [
+                "store": "TimelineStore",
+                "timelineID": "\(id)",
+            ])
+            throw error
+        }
     }
 
     public func fetchTimeline(id: UUID) async throws -> Timeline? {
         var descriptor = FetchDescriptor<TimelineModel>(predicate: #Predicate { $0.id == id })
         descriptor.fetchLimit = 1
-        guard let model = try modelContext.fetch(descriptor).first else { return nil }
-        return try model.toTimeline()
+        do {
+            guard let model = try modelContext.fetch(descriptor).first else { return nil }
+            return try model.toTimeline()
+        } catch {
+            Log.runtime.warning("failed to fetch Timeline", metadata: [
+                "store": "TimelineStore",
+                "timelineID": "\(id)",
+            ])
+            throw error
+        }
     }
 
     public func fetchAllTimelines(includeArchived: Bool) async throws -> [Timeline] {
@@ -97,12 +114,27 @@ public actor SwiftDataTimelineStore: TimelinePersistenceProtocol {
                 sortBy: [SortDescriptor(\.createdAt)]
             )
         }
-        return try modelContext.fetch(descriptor).map { try $0.toTimeline() }
+        do {
+            return try modelContext.fetch(descriptor).map { try $0.toTimeline() }
+        } catch {
+            Log.runtime.warning("failed to fetch all Timelines", metadata: [
+                "store": "TimelineStore",
+            ])
+            throw error
+        }
     }
 
     public func deleteTimeline(id: UUID) async throws {
         try modelContext.delete(model: TimelineModel.self, where: #Predicate { $0.id == id })
-        try modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            Log.runtime.error("failed to delete Timeline", metadata: [
+                "store": "TimelineStore",
+                "timelineID": "\(id)",
+            ])
+            throw error
+        }
     }
 
     public func pruneTimelines(
@@ -117,7 +149,15 @@ public actor SwiftDataTimelineStore: TimelinePersistenceProtocol {
             for model in candidates {
                 modelContext.delete(model)
             }
-            try modelContext.save()
+            do {
+                try modelContext.save()
+            } catch {
+                Log.runtime.error("failed to prune Timelines", metadata: [
+                    "store": "TimelineStore",
+                    "count": "\(candidates.count)",
+                ])
+                throw error
+            }
         }
         return candidates.count
     }

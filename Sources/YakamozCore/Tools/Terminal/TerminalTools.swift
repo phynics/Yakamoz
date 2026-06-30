@@ -1,5 +1,6 @@
 import Foundation
 import JSONSchemaBuilder
+import Logging
 import PKShared
 
 /// Renders a `RunResult` into agent-facing text: status tag (`[exit N]` / `[running]`)
@@ -237,8 +238,14 @@ public struct TerminalSendInputTool: Tool, Sendable {
         do {
             try await session.sendInput(text)
         } catch let error as TerminalWorkspaceError {
+            Log.terminal.warning("failed to send input to terminal", metadata: [
+                "workspaceID": "\(workspaceId)",
+            ])
             return .failure(error.userFriendlyMessage)
         } catch {
+            Log.terminal.warning("unexpected error sending input to terminal", metadata: [
+                "workspaceID": "\(workspaceId)",
+            ])
             return .failure(error.localizedDescription)
         }
         return .success("input sent")

@@ -1,4 +1,5 @@
 import Foundation
+import Logging
 import PKShared
 import PositronicKit
 import SwiftData
@@ -132,24 +133,55 @@ public actor SwiftDataAgentInstanceStore: AgentInstanceStoreProtocol {
         } else {
             try modelContext.insert(AgentInstanceModel(instance))
         }
-        try modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            Log.runtime.error("failed to save AgentInstance", metadata: [
+                "store": "AgentInstanceStore",
+                "agentInstanceID": "\(id)",
+            ])
+            throw error
+        }
     }
 
     public func fetchAgentInstance(id: UUID) async throws -> AgentInstance? {
         var descriptor = FetchDescriptor<AgentInstanceModel>(predicate: #Predicate { $0.id == id })
         descriptor.fetchLimit = 1
-        guard let model = try modelContext.fetch(descriptor).first else { return nil }
-        return try model.toAgentInstance()
+        do {
+            guard let model = try modelContext.fetch(descriptor).first else { return nil }
+            return try model.toAgentInstance()
+        } catch {
+            Log.runtime.warning("failed to fetch AgentInstance", metadata: [
+                "store": "AgentInstanceStore",
+                "agentInstanceID": "\(id)",
+            ])
+            throw error
+        }
     }
 
     public func fetchAllAgentInstances() async throws -> [AgentInstance] {
         let descriptor = FetchDescriptor<AgentInstanceModel>(sortBy: [SortDescriptor(\.createdAt)])
-        return try modelContext.fetch(descriptor).map { try $0.toAgentInstance() }
+        do {
+            return try modelContext.fetch(descriptor).map { try $0.toAgentInstance() }
+        } catch {
+            Log.runtime.warning("failed to fetch all AgentInstances", metadata: [
+                "store": "AgentInstanceStore",
+            ])
+            throw error
+        }
     }
 
     public func deleteAgentInstance(id: UUID) async throws {
         try modelContext.delete(model: AgentInstanceModel.self, where: #Predicate { $0.id == id })
-        try modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            Log.runtime.error("failed to delete AgentInstance", metadata: [
+                "store": "AgentInstanceStore",
+                "agentInstanceID": "\(id)",
+            ])
+            throw error
+        }
     }
 
     public func fetchTimelines(attachedToAgent agentInstanceId: UUID) async throws -> [Timeline] {
@@ -157,7 +189,15 @@ public actor SwiftDataAgentInstanceStore: AgentInstanceStoreProtocol {
             predicate: #Predicate { $0.attachedAgentInstanceId == agentInstanceId },
             sortBy: [SortDescriptor(\.createdAt)]
         )
-        return try modelContext.fetch(descriptor).map { try $0.toTimeline() }
+        do {
+            return try modelContext.fetch(descriptor).map { try $0.toTimeline() }
+        } catch {
+            Log.runtime.warning("failed to fetch Timelines for AgentInstance", metadata: [
+                "store": "AgentInstanceStore",
+                "agentInstanceID": "\(agentInstanceId)",
+            ])
+            throw error
+        }
     }
 }
 
@@ -177,31 +217,68 @@ public actor SwiftDataAgentTemplateStore: AgentTemplateStoreProtocol {
         } else {
             try modelContext.insert(AgentTemplateModel(agent))
         }
-        try modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            Log.runtime.error("failed to save AgentTemplate", metadata: [
+                "store": "AgentTemplateStore",
+                "templateID": "\(id)",
+            ])
+            throw error
+        }
     }
 
     public func fetchAgentTemplate(id: UUID) async throws -> AgentTemplate? {
         var descriptor = FetchDescriptor<AgentTemplateModel>(predicate: #Predicate { $0.id == id })
         descriptor.fetchLimit = 1
-        guard let model = try modelContext.fetch(descriptor).first else { return nil }
-        return try model.toAgentTemplate()
+        do {
+            guard let model = try modelContext.fetch(descriptor).first else { return nil }
+            return try model.toAgentTemplate()
+        } catch {
+            Log.runtime.warning("failed to fetch AgentTemplate", metadata: [
+                "store": "AgentTemplateStore",
+                "templateID": "\(id)",
+            ])
+            throw error
+        }
     }
 
     public func fetchAgentTemplate(key: String) async throws -> AgentTemplate? {
         let descriptor = FetchDescriptor<AgentTemplateModel>()
-        let models = try modelContext.fetch(descriptor)
-        guard let model = models.first(where: { $0.id.uuidString == key }) else { return nil }
-        return try model.toAgentTemplate()
+        do {
+            let models = try modelContext.fetch(descriptor)
+            guard let model = models.first(where: { $0.id.uuidString == key }) else { return nil }
+            return try model.toAgentTemplate()
+        } catch {
+            Log.runtime.warning("failed to fetch AgentTemplate by key", metadata: [
+                "store": .string("AgentTemplateStore"),
+                "key": .string(key),
+            ])
+            throw error
+        }
     }
 
     public func fetchAllAgentTemplates() async throws -> [AgentTemplate] {
         let descriptor = FetchDescriptor<AgentTemplateModel>(sortBy: [SortDescriptor(\.createdAt)])
-        return try modelContext.fetch(descriptor).map { try $0.toAgentTemplate() }
+        do {
+            return try modelContext.fetch(descriptor).map { try $0.toAgentTemplate() }
+        } catch {
+            Log.runtime.warning("failed to fetch all AgentTemplates", metadata: [
+                "store": "AgentTemplateStore",
+            ])
+            throw error
+        }
     }
 
     public func hasAgentTemplate(id: String) async -> Bool {
         let descriptor = FetchDescriptor<AgentTemplateModel>()
-        guard let models = try? modelContext.fetch(descriptor) else { return false }
+        guard let models = try? modelContext.fetch(descriptor) else {
+            Log.runtime.warning("failed to fetch AgentTemplates for hasAgentTemplate check", metadata: [
+                "store": .string("AgentTemplateStore"),
+                "templateID": .string(id),
+            ])
+            return false
+        }
         return models.contains { $0.id.uuidString == id }
     }
 }
