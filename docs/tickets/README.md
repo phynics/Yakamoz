@@ -69,7 +69,7 @@ reachable — now done), then TF2/TF3 (lifecycle + output correctness), then TF4
 Status legend: Open / Delayed / In progress / Done. Each ticket also carries its
 own **Status** line.
 
-**Open:** YAK-31 (High — permissioned tool approval gate), YAK-30 (Medium — terminal workspace entrypoints), YAK-32 (Medium — agent workspace seed path traversal), YAK-33 (Medium — explicit workspaceID fallback), YAK-34 (Medium — external tool-output forgery), YAK-35 (Medium — filesystem search resource limits), YAK-36 (Medium — local embedding resource limits), YAK-39 (Medium — context-role and fallback hardening), YAK-22 (Low — settings polish, needs design direction), YAK-37 (Low — provider/tool log redaction), YAK-38 (Low — PKTestSupport mock workspace containment).
+**Open:** YAK-31 (High — permissioned tool approval gate), YAK-30 (Medium — terminal workspace entrypoints), YAK-32 (Medium — agent workspace seed path traversal), YAK-33 (Medium — explicit workspaceID fallback), YAK-34 (Medium — external tool-output forgery), YAK-35 (Medium — filesystem search resource limits), YAK-36 (Medium — local embedding resource limits), YAK-39 (Medium — context-role and fallback hardening), YAK-22 (Low — settings plus actionable provider/model chat control), YAK-37 (Low — provider/tool log redaction), YAK-38 (Low — PKTestSupport mock workspace containment).
 **Delayed:** YAK-5 (phase 2). Note
 (YAK-23, FIXED): streamed tool calls were dropped for every
 model via OpenRouter because the SSE decoder ignored snake_case (`tool_calls`/`finish_reason`);
