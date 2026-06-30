@@ -31,8 +31,8 @@ struct YakamozLogHandler: LogHandler {
         metadata: Logging.Logger.Metadata?,
         source _: String,
         file _: String,
-        line _: UInt,
-        function _: String
+        function _: String,
+        line _: UInt
     ) {
         let mergedMetadata = self.metadata.merging(metadata ?? [:]) { _, new in new }
 

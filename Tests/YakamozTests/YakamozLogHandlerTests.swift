@@ -6,6 +6,26 @@ import Testing
 
 @Suite("YakamozLogHandler")
 struct YakamozLogHandlerTests {
+    // MARK: - LogHandler Conformance Tests
+
+    @Test("Implements source-aware LogHandler entry point with current swift-log parameter ordering")
+    func implementsSourceAwareLogHandlerEntryPoint() throws {
+        let testsURL = URL(fileURLWithPath: #filePath)
+        let projectRoot = testsURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let handlerURL = projectRoot
+            .appendingPathComponent("Sources")
+            .appendingPathComponent("YakamozCore")
+            .appendingPathComponent("Logging")
+            .appendingPathComponent("YakamozLogHandler.swift")
+        let source = try String(contentsOf: handlerURL, encoding: .utf8)
+
+        #expect(source.contains("source _: String,\n        file _: String,\n        function _: String,\n        line _: UInt"))
+        #expect(!source.contains("source _: String,\n        file _: String,\n        line _: UInt,\n        function _: String"))
+    }
+
     // MARK: - Level Mapping Tests
 
     @Test("Maps .trace to OSLogType.debug")
