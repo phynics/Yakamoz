@@ -3,6 +3,7 @@ import SwiftData
 import Testing
 @testable import YakamozCore
 
+@Suite("ConversationAttachment")
 struct ConversationAttachmentTests {
     @Test func legacyWorkspaceIdFoldsIntoAttachedList() throws {
         let c = ConversationModel(title: "t")
@@ -187,6 +188,89 @@ struct ConversationAttachmentTests {
         // The five terminal tools are now enabled.
         let effective = ConversationToolSupport.effectiveEnabledToolIDs(c.enabledToolIds, hasWorkspace: true, hasTerminal: true)
         #expect(effective.isSuperset(of: TerminalWorkspace.toolIds))
+    }
+
+    @Test func createTerminalFromFolderURLCreatesAndAttachesFolderAndTerminal() throws {
+        let container = try makeTestModelContainer()
+        let context = ModelContext(container)
+        let c = ConversationModel(title: "t")
+        context.insert(c)
+
+        let url = URL(fileURLWithPath: "/tmp/test-project")
+
+        let terminal = WorkspaceAttachmentSupport.createTerminalFromFolderURL(url, for: c, modelContext: context)
+
+        // A folder workspace at the URL was created
+        let folderExists = try context.fetch(FetchDescriptor<WorkspaceModel>()).contains { ws in
+            ws.kind == .folder && ws.folderPath == url.path
+        }
+        #expect(folderExists)
+
+        // A terminal workspace was created and attached
+        #expect(terminal.kind == .terminal)
+        #expect(terminal.folderPath == url.path)
+        #expect(c.allAttachedWorkspaceIds.contains(terminal.id))
+
+        // Terminal tools are enabled
+        let effective = ConversationToolSupport.effectiveEnabledToolIDs(c.enabledToolIds, hasWorkspace: true, hasTerminal: true)
+        #expect(effective.isSuperset(of: TerminalWorkspace.toolIds))
+    }
+
+    @Test func createTerminalFromFolderURLPreventsDuplicateTerminals() throws {
+        let container = try makeTestModelContainer()
+        let context = ModelContext(container)
+        let c = ConversationModel(title: "t")
+        context.insert(c)
+
+        let url = URL(fileURLWithPath: "/tmp/duplicate-test")
+
+        // Create first terminal
+        let terminal1 = WorkspaceAttachmentSupport.createTerminalFromFolderURL(url, for: c, modelContext: context)
+
+        // Create "terminal" again for same conversation/folder
+        let terminal2 = WorkspaceAttachmentSupport.createTerminalFromFolderURL(url, for: c, modelContext: context)
+
+        // Should return the same terminal (not create a duplicate)
+        #expect(terminal1.id == terminal2.id)
+
+        // Verify only one terminal is attached for this conversation/folder
+        let terminals = try context.fetch(FetchDescriptor<WorkspaceModel>()).filter { ws in
+            ws.kind == .terminal && ws.folderPath == url.path
+        }
+        #expect(terminals.count == 1)
+
+        // Attached workspace ids should not contain duplicates
+        let terminalIds = c.allAttachedWorkspaceIds.filter { id in
+            let ws = try? context.fetch(FetchDescriptor<WorkspaceModel>()).first { $0.id == id && $0.kind == .terminal }
+            return ws != nil
+        }
+        #expect(terminalIds.count == 1)
+    }
+
+    @Test func createTerminalFromFolderURLReusesExistingFolderWorkspace() throws {
+        let container = try makeTestModelContainer()
+        let context = ModelContext(container)
+        let c = ConversationModel(title: "t")
+        context.insert(c)
+
+        let url = URL(fileURLWithPath: "/tmp/reuse-folder")
+
+        // First, attach a folder workspace
+        let folder = WorkspaceAttachmentSupport.attachWorkspace(to: c, modelContext: context, url: url)
+        let folderId = folder.id
+
+        // Then create a terminal from the same URL
+        let terminal = WorkspaceAttachmentSupport.createTerminalFromFolderURL(url, for: c, modelContext: context)
+
+        // The same folder should still be attached (not duplicated)
+        #expect(c.allAttachedWorkspaceIds.contains(folderId))
+
+        // The terminal should be attached
+        #expect(c.allAttachedWorkspaceIds.contains(terminal.id))
+
+        // Total workspaces should be 2 (folder + terminal), not 3
+        let count = c.allAttachedWorkspaceIds.count
+        #expect(count == 2)
     }
 }
 

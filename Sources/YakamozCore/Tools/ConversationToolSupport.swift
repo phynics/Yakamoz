@@ -329,6 +329,66 @@ public enum WorkspaceAttachmentSupport {
         }
         return terminal
     }
+
+    /// Creates a terminal workspace for a given folder URL. If a folder workspace at that URL
+    /// is already attached to `conversation`, reuses it and attaches a terminal to it. If not,
+    /// creates and attaches the folder workspace first, then creates and attaches the terminal.
+    /// This funnels through `attachWorkspace` and `attachTerminal` so the persistence path
+    /// and tool-enabling logic remain centralized.
+    ///
+    /// YAK-30: Provides a single entry point for terminal creation from arbitrary folder URLs,
+    /// preventing duplicate terminal workspaces for the same conversation/folder pair unless
+    /// explicitly requested.
+    ///
+    /// Returns the created or reused terminal workspace.
+    @discardableResult
+    public static func createTerminalFromFolderURL(
+        _ folderURL: URL,
+        for conversation: ConversationModel,
+        modelContext: ModelContext
+    ) -> WorkspaceModel {
+        // Fetch all workspaces to check for existing folder at this URL
+        let allWorkspaces: [WorkspaceModel]
+        do {
+            allWorkspaces = try modelContext.fetch(FetchDescriptor<WorkspaceModel>())
+        } catch {
+            Log.workspace.warning("failed to fetch workspaces during terminal creation", metadata: [
+                "conversationID": "\(conversation.id)",
+            ])
+            allWorkspaces = []
+        }
+
+        let folderPath = folderURL.path
+        // Check if a folder workspace at this exact path already exists
+        let existingFolder = allWorkspaces.first { workspace in
+            workspace.kind == .folder && workspace.folderPath == folderPath
+        }
+
+        // Use existing folder or create a new one
+        let folderWorkspace: WorkspaceModel
+        if let existing = existingFolder {
+            // Ensure this folder is attached to the conversation (it might not be yet)
+            if !conversation.attachedWorkspaceIds.contains(existing.id) {
+                conversation.attachedWorkspaceIds.append(existing.id)
+            }
+            folderWorkspace = existing
+        } else {
+            // Create and attach a new folder workspace at this URL
+            folderWorkspace = attachWorkspace(to: conversation, modelContext: modelContext, url: folderURL)
+        }
+
+        // Check if a terminal for this conversation/folder already exists to prevent duplicates
+        let attached = WorkspaceResolutionHelper.attachedWorkspaces(for: conversation, in: allWorkspaces)
+        if let existingTerminal = attached.first(where: { terminal in
+            terminal.kind == .terminal && terminal.folderPath == folderPath
+        }) {
+            // Terminal already exists for this conversation/folder; return it without creating a duplicate
+            return existingTerminal
+        }
+
+        // Create and attach the terminal
+        return attachTerminal(to: conversation, fromFolder: folderWorkspace, modelContext: modelContext)
+    }
 }
 
 /// Pure resolution helpers for turning a conversation's attached-id list into concrete

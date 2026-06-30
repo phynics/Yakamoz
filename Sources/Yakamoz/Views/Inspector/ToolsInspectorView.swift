@@ -19,6 +19,7 @@ struct ToolsInspectorView: View {
     let availableTools: [ConversationToolOption]
     let enabledToolIds: Set<String>
     let onSetToolEnabled: (String, Bool) -> Void
+    let onCreateTerminal: () -> Void
 
     /// Persisted traces win when present; otherwise project the live turn's traces.
     private var traces: [ToolTraceDTO] {
@@ -48,15 +49,31 @@ struct ToolsInspectorView: View {
         availableTools.filter(\.requiresWorkspace)
     }
 
+    /// Terminal tools would be available if a terminal workspace were attached.
+    private var terminalTools: [ConversationToolOption] {
+        availableTools.filter(\.requiresTerminal)
+    }
+
+    /// True if no terminal is currently attached but terminal tools would be available with one.
+    private var shouldShowTerminalCTA: Bool {
+        !availableTools.contains { $0.requiresTerminal } && !ConversationToolSupport.terminalToolOptions.isEmpty
+    }
+
     /// YAK-18: groups the flat tool list into "Built-in" (always available) and
     /// "Workspace" (only present, and confined to, an attached folder) sections, using
     /// `ConversationToolOption.requiresWorkspace` to split. The Workspace group renders
     /// only when non-empty, i.e. only when a workspace is attached.
+    ///
+    /// YAK-30: Also shows a call-to-action for creating a terminal workspace when no
+    /// terminal is attached.
     private var availableToolsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             toolGroup(title: "Built-in", tools: builtInTools)
             if !workspaceTools.isEmpty {
                 toolGroup(title: "Workspace", tools: workspaceTools)
+            }
+            if shouldShowTerminalCTA {
+                terminalCTA
             }
         }
     }
@@ -75,6 +92,32 @@ struct ToolsInspectorView: View {
                 .disabled(enabledToolIds.count == 1 && enabledToolIds.contains(tool.id))
                 .help(tool.requiresWorkspace ? "Available because this conversation has a workspace attached." : "")
             }
+        }
+    }
+
+    private var terminalCTA: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Terminal")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Terminal tools let the agent run shell commands and interact with your environment.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Button {
+                    onCreateTerminal()
+                } label: {
+                    Label("Create Terminal Workspace", systemImage: "plus.circle.fill")
+                        .font(.caption)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityLabel("Create terminal workspace")
+                .help("Create a terminal workspace to enable terminal tools")
+            }
+            .padding(8)
+            .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 6))
         }
     }
 
