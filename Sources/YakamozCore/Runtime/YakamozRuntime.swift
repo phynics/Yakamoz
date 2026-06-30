@@ -150,8 +150,9 @@ public actor YakamozRuntime: ChatRunning {
             ])
         }
 
-        // One set of the five terminal tools per attached terminal, all backed by the shared
+        // One set of the six terminal tools per attached terminal, all backed by the shared
         // registry/approver so the live agent path and any parity path see the same session.
+        // Includes the YAK-T6 `terminal_read_output` tool for fetching full stored output.
         for terminal in terminals {
             let id = terminal.workspaceId
             let url = terminal.rootURL
@@ -161,6 +162,7 @@ public actor YakamozRuntime: ChatRunning {
                 TerminalSendInputTool(workspaceId: id, registry: terminalRegistry, rootURL: url).toAnyTool(),
                 TerminalInterruptTool(workspaceId: id, registry: terminalRegistry, rootURL: url).toAnyTool(),
                 TerminalWaitTool(workspaceId: id, registry: terminalRegistry, rootURL: url).toAnyTool(),
+                TerminalReadOutputTool(workspaceId: id, registry: terminalRegistry, rootURL: url).toAnyTool(),
             ])
         }
 
