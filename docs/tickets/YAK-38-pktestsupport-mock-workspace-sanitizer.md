@@ -1,6 +1,7 @@
 # YAK-38 - [BUG] Exported `MockLocalWorkspace` omits path containment checks
 
-- **Status:** Open
+- **Status:** Done
+- **Resolution:** Added `PathSanitizer.safelyResolve` to `readFile`, `writeFile`, and `deleteFile` in `MockLocalWorkspace`; new traversal-rejection tests added.
 - **Priority:** Low
 - **Repos:** PositronicKit + Yakamoz
 - **Surfaced by:** Codex Security scan of PositronicKit (`cf83525f5fc4_20260628T221104Z`)
