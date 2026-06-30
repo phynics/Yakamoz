@@ -13,7 +13,8 @@ inspector drawer. It is a showcase/dev app, not a shipping product.
 - **[XcodeGen](https://github.com/yonsei/XcodeGen)** (`brew install xcodegen`) — the
   `.xcodeproj` is generated from [`project.yml`](project.yml) and is not the source of truth.
 - This repository is a **source release**, not a signed or notarized binary distribution.
-  Build and run it locally from source.
+  It does not include Apple signing certificates, provisioning profiles, notarization
+  credentials, or export archives. Build and run it locally from source.
 
 ## Build, test, run
 
@@ -58,12 +59,9 @@ Three presets ship, each mapped to a `PositronicKit` provider adapter:
 | **OpenRouter** | `PKOpenRouterProvider` | `https://openrouter.ai/api/v1`.              |
 | **Ollama**   | `PKOllamaProvider`     | Local; typically no API key required.        |
 
-- **API keys are stored in `UserDefaults`, in plaintext** (`UserDefaultsSecretStore`,
-  YAK-14) — this app previously used the macOS Keychain; that dependency has been removed.
-  Keys are written to the dedicated `me.atkn.Yakamoz.secrets` `UserDefaults` suite, under a
-  provider-specific account (`provider-api-key`, `provider-api-key.openRouter`, …) so switching
-  presets does not clobber another provider's key. Keys are written **only** on an explicit
-  **Apply** in Settings.
+- **API keys are stored in `UserDefaults`, in plaintext.** Keys are stored in a dedicated
+  preferences suite under provider-specific accounts, so switching presets does not clobber
+  another provider's key. Keys are written **only** on an explicit **Apply** in Settings.
 - **⚠️ Security tradeoff, accepted deliberately.** Unlike the Keychain, `UserDefaults` is not
   encrypted: values land in a `.plist` file under `~/Library/Preferences/`, readable by any
   process running as the user (no Keychain prompt, no ACL) and included in unencrypted backups
@@ -100,34 +98,10 @@ Do not copy this unconfined-shell pattern into anything that requires real isola
 
 ## Where data is stored
 
-The SwiftData store location is **explicit**, not left to SwiftData's implicit default
-(YAK-7). On a normal (non-sandboxed) run the database lands at:
-
-```
-~/Library/Application Support/me.atkn.Yakamoz/Yakamoz.store
-```
-
-`YakamozApp` computes this from `FileManager`'s `.applicationSupportDirectory`, the
-hard-coded bundle identifier `me.atkn.Yakamoz`, and the stable filename
-`Yakamoz.store`, creating the directory if missing and passing the resolved `url:` into
-`ModelConfiguration`. The resolved path is included in the on-screen `setupError` if the
-container fails to open, for diagnosability. Tests are unaffected — they use in-memory or
-temp-directory `ModelContainer`s and never touch this path.
-
-Because earlier builds relied on SwiftData's *implicit* default
-(`~/Library/Application Support/default.store`), the app performs a **one-time, best-effort
-migration**: on launch, if a store exists at that legacy path and nothing exists yet at the
-new explicit path, the `default.store` file and its `-shm`/`-wal` sidecars are moved over.
-The move is skipped on fresh installs and on every subsequent launch, and never overwrites an
-existing store.
-
-The app's bundle identifier was later renamed from `com.atakandulker.Yakamoz` to
-`me.atkn.Yakamoz` (YAK-13). A second, identically-shaped one-time migration moves an existing
-store from the *old* identifier's directory
-(`~/Library/Application Support/com.atakandulker.Yakamoz/Yakamoz.store`, plus its `-shm`/`-wal`
-sidecars) into the new `me.atkn.Yakamoz/` directory — guarded the same way: only runs if the
-legacy store exists and nothing exists yet at the new path, so it's a no-op on fresh installs
-and on every later launch.
+On a normal (non-sandboxed) run the SwiftData database lives under the user's
+`~/Library/Application Support/` directory. The app creates its storage directory if needed
+and reports the resolved path if the persistent container fails to open. Tests use in-memory
+or temporary `ModelContainer`s and do not touch this location.
 
 ## The inspector — six tabs
 
@@ -161,7 +135,7 @@ The inspector distinguishes **what actually happened** from **a derived view of 
   structured/typed replies, the schema is shown to the model and the final text is decoded
   against `TypedReplyPayload` **after** the turn (`TypedReply.decode`). It is a post-hoc
   decode that may fail and surface a validation error in the Response tab — the provider is
-  not constrained to honor the schema (see Task 10).
+  not constrained to honor the schema.
 
 ### Tool-trace persistence
 
@@ -192,13 +166,13 @@ from disk.
 
 The composer regains focus after each send.
 
-## Deferred (not in this app)
+## Out of scope
 
 The following PositronicKit capabilities are intentionally **out of scope** for Yakamoz's
 showcase build and are not wired up: the embeddings / vector-recall pipeline (semantic
 memory, embedding-backed context gathering) and the broader multi-stage retrieval cluster.
-The runtime composes without them; they are left as a deliberate follow-up so the inspector
-story stays focused on prompt assembly, sending, journaling, response, tools, and workspaces.
+The runtime composes without them so the inspector story stays focused on prompt assembly,
+sending, journaling, response, tools, and workspaces.
 
 ## Architecture boundary
 

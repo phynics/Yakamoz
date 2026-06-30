@@ -3,4 +3,17 @@ DerivedData/
 .build/
 *.xcuserstate
 
+# Apple signing, provisioning, and notarization material
+*.cer
+*.certSigningRequest
+*.developerprofile
+*.keychain
+*.keychain-db
+*.mobileprovision
+*.p12
+*.provisionprofile
+*.xcarchive
+ExportOptions.plist
+fastlane/
+
 .worktrees/
