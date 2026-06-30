@@ -165,9 +165,16 @@ public actor TerminalSession {
     private var commandOutputOrder: [UUID] = []
     /// Running byte sum of all stored outputs (used to enforce byte cap).
     private var totalStoredBytes: Int = 0
+    /// FIFO record of command ids evicted from `commandOutputs` by the LRU cap, so
+    /// `readStoredOutput` can distinguish an evicted id (`commandOutputExpired`) from a
+    /// never-issued one (`unknownCommandOutput`). Bounded to the last N evicted ids; once an id
+    /// ages out of this list it legitimately falls back to `unknownCommandOutput`.
+    private var evictedCommandIds: [UUID] = []
+    private var evictedCommandIdSet: Set<UUID> = []
 
     private static let commandOutputCapCount = 20
     private static let commandOutputCapBytes = 8 * 1024 * 1024 // 8 MB
+    private static let evictedCommandIdCapCount = 200
 
     public init(rootURL: URL) async throws {
         let adapter = DelegateAdapter()
@@ -473,13 +480,27 @@ public actor TerminalSession {
         commandOutputOrder.append(id)
         totalStoredBytes += byteCount
 
-        // Evict oldest commands if over either cap.
+        // Evict oldest commands if over either cap, recording each eviction so a later
+        // `readStoredOutput` can report `commandOutputExpired` (vs. `unknownCommandOutput`).
         while commandOutputOrder.count > Self.commandOutputCapCount || totalStoredBytes > Self.commandOutputCapBytes {
             guard let oldest = commandOutputOrder.first else { break }
             commandOutputOrder.removeFirst()
             if let removed = commandOutputs.removeValue(forKey: oldest) {
                 totalStoredBytes -= removed.byteCount
             }
+            recordEvictedCommandId(oldest)
+        }
+    }
+
+    /// Records an evicted command id in a bounded FIFO so `readStoredOutput` can distinguish
+    /// an evicted id from a never-issued one. When the FIFO overflows its cap, the oldest
+    /// evicted id is dropped — at which point that very old id falls back to `unknownCommandOutput`.
+    private func recordEvictedCommandId(_ id: UUID) {
+        evictedCommandIds.append(id)
+        evictedCommandIdSet.insert(id)
+        while evictedCommandIds.count > Self.evictedCommandIdCapCount {
+            let dropped = evictedCommandIds.removeFirst()
+            evictedCommandIdSet.remove(dropped)
         }
     }
 
@@ -490,10 +511,15 @@ public actor TerminalSession {
     ///   - offset: Starting line index (0-indexed). Defaults to 0.
     ///   - limit: Maximum lines to return. Defaults to nil (all remaining lines).
     /// - Returns: A tuple of (lines, totalLineCount, totalByteCount).
-    /// - Throws: `commandOutputExpired` if the id was evicted; `unknownCommandOutput` if never stored.
+    /// - Throws: `commandOutputExpired` if the id was stored then evicted by the LRU cap (and is
+    ///   still tracked in the bounded evicted-id FIFO); `unknownCommandOutput` if the id was never
+    ///   issued (or aged out of the evicted-id FIFO).
     public func readStoredOutput(commandId: UUID, offset: Int = 0, limit: Int? = nil) throws -> (lines: [String], totalLines: Int, totalBytes: Int) {
         guard let stored = commandOutputs[commandId] else {
-            // Check if it was ever in the order list to distinguish expired from unknown.
+            // Distinguish an evicted (was-stored, then dropped by the cap) id from a never-issued one.
+            if evictedCommandIdSet.contains(commandId) {
+                throw TerminalWorkspaceError.commandOutputExpired
+            }
             throw TerminalWorkspaceError.unknownCommandOutput
         }
 

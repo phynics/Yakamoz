@@ -56,9 +56,14 @@ struct TerminalOutputTruncationTests {
 
         #expect(commandIds.count == 25)
 
-        // The first few commands should be evicted; the last should still be present.
-        await #expect(throws: TerminalWorkspaceError.unknownCommandOutput) {
+        // The first few commands were stored then evicted by the LRU cap → commandOutputExpired.
+        await #expect(throws: TerminalWorkspaceError.commandOutputExpired) {
             try await session.readStoredOutput(commandId: commandIds[0])
+        }
+
+        // A freshly-generated random id was never issued → unknownCommandOutput.
+        await #expect(throws: TerminalWorkspaceError.unknownCommandOutput) {
+            try await session.readStoredOutput(commandId: UUID())
         }
 
         // The most recent should still be there.
