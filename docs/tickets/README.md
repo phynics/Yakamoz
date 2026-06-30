@@ -68,13 +68,22 @@ Findings from the integration review of merge `78a7b7f`
 | [YAK-TF5](YAK-TF5-approval-banner-conversation-scoping.md) | Approval banner is app-global; can show/approve another conversation's command | Yakamoz | Low | Done |
 | [YAK-TF6](YAK-TF6-minor-cleanup.md) | Cleanup: orphan `WorkspaceModel` on detach; fire-and-forget quit teardown; dead `.notRunning` | Yakamoz | Low | Done |
 
+## Terminal-workspace feature follow-ups (YAK-T series)
+
+Continuations of the original terminal feature (YAK-T1..T5; spec/plan in
+`docs/superpowers/{specs,plans}/2026-06-26-terminal-workspace*`).
+
+| ID | Title | Repo(s) | Priority | Status |
+|----|-------|---------|----------|--------|
+| [YAK-T6](YAK-T6-terminal-output-truncation.md) | Truncate long terminal command output + retrievable full-output store | Yakamoz | Medium | Open |
+
 Suggested order: **TF1 first** (security blocker; also makes `.notRunning` in TF6c
 reachable — now done), then TF2/TF3 (lifecycle + output correctness), then TF4/TF5/TF6.
 
 Status legend: Open / Delayed / In progress / Done. Each ticket also carries its
 own **Status** line.
 
-**Open:** YAK-30 (Medium — terminal workspace entrypoints), YAK-32 (Medium — agent workspace seed path traversal), YAK-34 (Medium — external tool-output forgery), YAK-35 (Medium — filesystem search resource limits), YAK-36 (Medium — local embedding resource limits), YAK-40 (Medium — centralized log handling), YAK-42 (Medium — PK pipeline levels + metadata), YAK-43 (Medium — log coverage sweep), YAK-44 (Medium — flaky `make verify` investigation).
+**Open:** YAK-30 (Medium — terminal workspace entrypoints), YAK-32 (Medium — agent workspace seed path traversal), YAK-34 (Medium — external tool-output forgery), YAK-35 (Medium — filesystem search resource limits), YAK-36 (Medium — local embedding resource limits), YAK-40 (Medium — centralized log handling), YAK-42 (Medium — PK pipeline levels + metadata), YAK-43 (Medium — log coverage sweep), YAK-44 (Medium — flaky `make verify` investigation), YAK-T6 (Medium — terminal output truncation + full-output store).
 
 **Logging/debuggability batch** (spec `docs/superpowers/specs/2026-06-30-logging-debuggability-design.md`): YAK-41 → YAK-42 (PositronicKit foundation), then/parallel YAK-40 (Yakamoz bootstrap consumes it; can also land first independently), then YAK-43 (coverage sweep; depends on YAK-40's `Log.*` namespace).
 **Delayed:** YAK-5 (phase 2). Note
