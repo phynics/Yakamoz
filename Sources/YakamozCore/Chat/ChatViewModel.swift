@@ -19,7 +19,7 @@ public protocol ChatRunning: Sendable {
         maxTurns: Int,
         generationParameters: GenerationParameters?,
         structuredOutput: StructuredOutputRequest?,
-        promptAssemblyLogger: Logger?
+        promptAssemblyLogger: Logging.Logger?
     ) async throws -> AsyncThrowingStream<ChatEvent, Error>
 }
 
@@ -282,6 +282,10 @@ public final class ChatViewModel {
             let message = error.localizedDescription
             errorMessage = message
             state.errorMessage = message
+            Log.chat.error(
+                "turn execution failed",
+                metadata: ["conversationID": "\(timelineId)", "turnIndex": "\(state.turnIndex)"]
+            )
             state = finalizeFailedTurn(state, assistantItemId: assistantItemId)
             await publishTimelineStateIfNeeded(state.timelineState)
             appendErrorItem(message)

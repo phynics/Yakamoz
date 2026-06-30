@@ -88,6 +88,8 @@ struct YakamozApp: App {
     @State private var coordinator = UICoordinator()
 
     init() {
+        YakamozLogging.bootstrap()
+
         let settings = ProviderSettings()
         let secrets = UserDefaultsSecretStore()
         self.settings = settings
@@ -124,7 +126,8 @@ struct YakamozApp: App {
             setupError = nil
         } catch {
             modelContainer = nil
-            setupError = "\(error.localizedDescription) (store path: \(resolvedStoreDescription))"
+            Log.appError("runtime init failed", metadata: ["storePath": "\(resolvedStoreDescription)"])
+            setupError = "\(Log.userFriendlyErrorMessage(for: error)) (store path: \(resolvedStoreDescription))"
         }
         runtime = builtRuntime
         providerStatus = builtRuntime.map { ProviderStatusViewModel(settings: settings, secrets: secrets, runtime: $0) }
