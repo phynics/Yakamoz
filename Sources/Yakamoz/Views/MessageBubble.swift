@@ -1,3 +1,4 @@
+import MarkdownUI
 import SwiftUI
 import YakamozCore
 
@@ -112,12 +113,14 @@ private struct ChatPromptRow: View {
 
 private struct AssistantTurnContent: View {
     let turn: ChatTurnState
-    private let markdownRenderer = AssistantMarkdownRenderer()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if !turn.response.reconstructedText.isEmpty {
-                Text(markdownRenderer.render(turn.response.reconstructedText))
+                // MarkdownUI renders full GFM (tables, nested lists, code blocks, thematic
+                // breaks) as real SwiftUI views — a single `AttributedString`-backed `Text`
+                // cannot express tables and drops block separators.
+                Markdown(turn.response.reconstructedText)
                     .textSelection(.enabled)
             } else if turn.isCancelled {
                 Text("Cancelled")

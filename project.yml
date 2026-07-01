@@ -35,6 +35,13 @@ packages:
   SwiftTerm:
     url: https://github.com/migueldeicaza/SwiftTerm
     from: "1.5.0"
+  # MarkdownUI renders assistant turns as real SwiftUI views with full GitHub-flavored
+  # markdown support (tables, nested lists, code blocks, thematic breaks) — things a
+  # single `AttributedString`-backed `Text` cannot express (tables in particular). Kept
+  # on the app target since it is pure view code.
+  MarkdownUI:
+    url: https://github.com/gonzalezreal/swift-markdown-ui
+    from: "2.4.0"
 targets:
   Yakamoz:
     type: application
@@ -48,6 +55,8 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
     dependencies:
       - target: YakamozCore
+      - package: MarkdownUI
+        product: MarkdownUI
   YakamozCore:
     type: framework
     platform: macOS
