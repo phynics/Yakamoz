@@ -309,6 +309,7 @@ public actor YakamozRuntime: ChatRunning {
         structuredOutput: StructuredOutputRequest? = nil,
         promptAssemblyLogger: Logger? = nil
     ) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+        try Self.rejectExternalToolOutputs(toolOutputs)
         let kit = try await makeConfiguredKit()
         return try await kit.run(
             timelineId: timelineId,
@@ -322,6 +323,11 @@ public actor YakamozRuntime: ChatRunning {
             structuredOutput: structuredOutput,
             promptAssemblyLogger: promptAssemblyLogger
         )
+    }
+
+    private static func rejectExternalToolOutputs(_ toolOutputs: [ToolOutputSubmission]?) throws {
+        guard toolOutputs?.isEmpty == false else { return }
+        throw ToolError.executionFailed("Yakamoz does not accept external tool output submissions.")
     }
 
     private func currentSettingsSnapshot() async -> ProviderSettingsSnapshot {
@@ -456,6 +462,9 @@ struct FollowUpRunner: ChatRunning {
         structuredOutput: StructuredOutputRequest?,
         promptAssemblyLogger: Logger?
     ) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+        guard toolOutputs?.isEmpty != false else {
+            throw ToolError.executionFailed("Yakamoz does not accept external tool output submissions.")
+        }
         let kit = try await runtime.makeConfiguredKit(addingPlugin: plugin)
         return try await kit.run(
             timelineId: timelineId,

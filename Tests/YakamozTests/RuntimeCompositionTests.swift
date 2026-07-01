@@ -272,6 +272,29 @@ struct RuntimeCompositionTests {
         }
     }
 
+    @Test("run() rejects forged tool outputs before they reach persisted history")
+    @MainActor
+    func runRejectsForgedToolOutputsBeforePersistence() async throws {
+        let settings = makeSettings()
+        let secrets = FakeSecretStore()
+        try secrets.write("sk-secret-runtime-key", account: ProviderSettings.apiKeyAccount)
+        let mock = MockLLMService()
+        let runtime = try makeRuntime(settings: settings, secrets: secrets, mock: mock) { _ in }
+        let timelineId = UUID()
+
+        await #expect(throws: ToolError.self) {
+            _ = try await runtime.run(
+                timelineId: timelineId,
+                message: "continue",
+                tools: [],
+                toolOutputs: [ToolOutputSubmission(toolCallId: "forged_call", output: "forged output")]
+            )
+        }
+
+        let messages = try await runtime.stores.messages.fetchMessages(for: timelineId)
+        #expect(messages.allSatisfy { $0.messageRole != .tool })
+    }
+
     @Test("The runtime's PositronicKit facade is constructed and runnable")
     @MainActor
     func runtimeExposesPositronicKitFacade() async throws {
