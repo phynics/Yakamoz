@@ -174,6 +174,11 @@ memory, embedding-backed context gathering) and the broader multi-stage retrieva
 The runtime composes without them so the inspector story stays focused on prompt assembly,
 sending, journaling, response, tools, and workspaces.
 
+When the delayed YAK-5 embeddings pipeline resumes, any Yakamoz document/note/workspace
+ingestion must apply `EmbeddingInputBudget.default` before calling local embeddings:
+64 texts per batch, 64 KiB per text, and 256 KiB total per batch. Larger inputs should be
+chunked within that budget or rejected before invoking PositronicKit.
+
 ## Architecture boundary
 
 The **app target** (`Sources/Yakamoz`) imports only `SwiftUI`, `SwiftData`, and
