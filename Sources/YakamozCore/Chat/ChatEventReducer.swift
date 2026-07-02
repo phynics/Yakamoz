@@ -247,14 +247,14 @@ public struct ChatPrompt: Sendable, Equatable {
 public enum TranscriptItem: Sendable, Identifiable, Equatable {
     case user(id: UUID, text: String, timestamp: Date)
     case assistant(id: UUID, turn: ChatTurnState)
-    case error(id: UUID, message: String)
+    case error(id: UUID, message: String, retryPrompt: String?)
     case prompt(id: UUID, prompt: ChatPrompt)
 
     public var id: UUID {
         switch self {
         case let .user(id, _, _): id
         case let .assistant(id, _): id
-        case let .error(id, _): id
+        case let .error(id, _, _): id
         case let .prompt(id, _): id
         }
     }

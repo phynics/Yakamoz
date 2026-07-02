@@ -272,7 +272,8 @@ struct ChatView: View {
                                 item: item,
                                 isSelected: isSelected(item, viewModel: viewModel),
                                 onSelectTurn: { viewModel.selectTurn($0) },
-                                onSelectPromptOption: handlePromptSelection
+                                onSelectPromptOption: handlePromptSelection,
+                                onRetry: { viewModel.retryFailedTurn(errorId: $0) }
                             )
                             .id(item.id)
                         }

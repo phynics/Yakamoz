@@ -11,6 +11,7 @@ struct MessageBubble: View {
     let isSelected: Bool
     let onSelectTurn: (Int) -> Void
     let onSelectPromptOption: (UUID, ChatPromptOption) -> Void
+    let onRetry: (UUID) -> Void
 
     var body: some View {
         switch item {
@@ -53,11 +54,19 @@ struct MessageBubble: View {
                 Spacer(minLength: 40)
             }
 
-        case let .error(_, message):
+        case let .error(id, message, retryPrompt):
             HStack {
                 Label(message, systemImage: "exclamationmark.triangle.fill")
                     .font(.callout)
                     .foregroundStyle(.red)
+                if let prompt = retryPrompt, !prompt.isEmpty {
+                    Button("Retry") {
+                        onRetry(id)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityLabel("Retry failed turn")
+                }
                 Spacer(minLength: 40)
             }
             .padding(.vertical, 4)
