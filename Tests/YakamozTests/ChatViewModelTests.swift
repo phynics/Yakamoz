@@ -7,6 +7,65 @@ import SwiftData
 import Testing
 @testable import YakamozCore
 
+private final class AsyncCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    private var waiters: [(target: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    func increment() {
+        let ready: [CheckedContinuation<Void, Never>]
+        lock.lock()
+        value += 1
+        var pending: [(target: Int, continuation: CheckedContinuation<Void, Never>)] = []
+        var matched: [CheckedContinuation<Void, Never>] = []
+        for waiter in waiters {
+            if value >= waiter.target {
+                matched.append(waiter.continuation)
+            } else {
+                pending.append(waiter)
+            }
+        }
+        waiters = pending
+        ready = matched
+        lock.unlock()
+
+        for continuation in ready {
+            continuation.resume()
+        }
+    }
+
+    func wait(until target: Int) async {
+        if hasReached(target) {
+            return
+        }
+
+        await withCheckedContinuation { continuation in
+            enqueue(continuation, until: target)
+        }
+    }
+
+    private func hasReached(_ target: Int) -> Bool {
+        lock.lock()
+        if value >= target {
+            lock.unlock()
+            return true
+        }
+        lock.unlock()
+        return false
+    }
+
+    private func enqueue(_ continuation: CheckedContinuation<Void, Never>, until target: Int) {
+        lock.lock()
+        if value >= target {
+            lock.unlock()
+            continuation.resume()
+        } else {
+            waiters.append((target, continuation))
+            lock.unlock()
+        }
+    }
+}
+
 /// A scripted `ChatRunning` fake: the test drives a hand-built `AsyncThrowingStream`
 /// via its continuation, so `ChatViewModel` tests are deterministic and network-free.
 /// No real `ChatEngine`/`PositronicKit` instance is constructed.
@@ -15,6 +74,16 @@ private final class ScriptedRunner: ChatRunning, @unchecked Sendable {
     private(set) var lastStructuredOutput: StructuredOutputRequest?
     var continuation: AsyncThrowingStream<ChatEvent, Error>.Continuation?
     var onRun: (@Sendable (String) -> Void)?
+    private let runCounter = AsyncCounter()
+    private let continuationCounter = AsyncCounter()
+
+    func waitUntilRunCount(_ count: Int) async {
+        await runCounter.wait(until: count)
+    }
+
+    func waitUntilContinuationCount(_ count: Int) async {
+        await continuationCounter.wait(until: count)
+    }
 
     func run(
         timelineId _: UUID,
@@ -31,8 +100,10 @@ private final class ScriptedRunner: ChatRunning, @unchecked Sendable {
         capturedMessages.append(message)
         lastStructuredOutput = structuredOutput
         onRun?(message)
+        runCounter.increment()
         return AsyncThrowingStream { continuation in
             self.continuation = continuation
+            self.continuationCounter.increment()
             // Mirrors the real `ChatEngine` behavior (see `ChatEngine.swift`:
             // `continuation.onTermination = { task.cancel() }`): cancelling the
             // consuming Task finishes the stream's continuation, which is what lets
@@ -78,7 +149,8 @@ struct ChatViewModelTests {
 
         // The assistant placeholder and the runner call both happen inside the
         // spawned `consume` Task; wait for them rather than asserting synchronously.
-        try await waitUntil { viewModel.transcript.count == 2 }
+        await runner.waitUntilRunCount(1)
+        #expect(viewModel.transcript.count == 2)
         #expect(runner.capturedMessages == ["hello there"])
 
         runner.continuation?.yield(.streamCompleted())
@@ -126,11 +198,10 @@ struct ChatViewModelTests {
         let viewModel = ChatViewModel(timelineId: UUID(), runner: runner)
 
         viewModel.send("first")
-        try await Task.sleep(for: .milliseconds(10))
+        await runner.waitUntilRunCount(1)
         #expect(viewModel.isSending)
 
         viewModel.send("second")
-        try await Task.sleep(for: .milliseconds(10))
 
         // Only the first message should have reached the runner.
         #expect(runner.capturedMessages == ["first"])
@@ -152,7 +223,7 @@ struct ChatViewModelTests {
 
         viewModel.send("summarize this")
 
-        try await waitUntil { runner.lastStructuredOutput != nil }
+        await runner.waitUntilRunCount(1)
         #expect(runner.lastStructuredOutput == TypedReply.request())
 
         runner.continuation?.yield(.streamCompleted())
@@ -166,7 +237,7 @@ struct ChatViewModelTests {
         let viewModel = ChatViewModel(timelineId: UUID(), runner: runner)
 
         viewModel.send("tell me a story")
-        try await Task.sleep(for: .milliseconds(10))
+        await runner.waitUntilContinuationCount(1)
 
         runner.continuation?.yield(.generation("Once "))
         try await waitUntil {
@@ -221,7 +292,7 @@ struct ChatViewModelTests {
         await inspector.didComposeTurn(seedInspection)
 
         viewModel.send("hi")
-        try await Task.sleep(for: .milliseconds(10))
+        await runner.waitUntilContinuationCount(1)
 
         runner.continuation?.yield(.generation("hello back"))
         runner.continuation?.yield(.generationCompleted(
@@ -269,7 +340,7 @@ struct ChatViewModelTests {
         ))
 
         viewModel.send("hi")
-        try await Task.sleep(for: .milliseconds(10))
+        await runner.waitUntilContinuationCount(1)
 
         runner.continuation?.yield(.generation("final answer"))
         // No `.streamCompleted` — just finish the stream, like the real engine.
@@ -298,7 +369,7 @@ struct ChatViewModelTests {
         )
 
         viewModel.send("use a tool if needed")
-        try await waitUntil { runner.continuation != nil }
+        await runner.waitUntilContinuationCount(1)
 
         runner.continuation?.finish()
 
@@ -326,7 +397,7 @@ struct ChatViewModelTests {
         )
 
         viewModel.send("long running request")
-        try await Task.sleep(for: .milliseconds(10))
+        await runner.waitUntilContinuationCount(1)
 
         viewModel.cancel()
 
@@ -353,7 +424,7 @@ struct ChatViewModelTests {
         )
 
         viewModel.send("trigger an error")
-        try await Task.sleep(for: .milliseconds(10))
+        await runner.waitUntilContinuationCount(1)
 
         runner.continuation?.yield(.error("the provider rejected the request"))
         try await waitUntil { viewModel.errorMessage != nil }
@@ -391,7 +462,7 @@ struct ChatViewModelTests {
         )
 
         viewModel.send("run blocked command")
-        try await Task.sleep(for: .milliseconds(10))
+        await runner.waitUntilContinuationCount(1)
 
         runner.continuation?.yield(.error("Command denied by user."))
         try await waitUntilAsync { await states.snapshot().suffix(1).first == .blocked }
@@ -470,7 +541,7 @@ struct ChatViewModelTests {
         )
 
         viewModel.send("next")
-        try await Task.sleep(for: .milliseconds(10))
+        await runner.waitUntilRunCount(1)
 
         #expect(viewModel.selectedTurnIndex == 4)
 
@@ -485,7 +556,7 @@ struct ChatViewModelTests {
         let viewModel = ChatViewModel(timelineId: UUID(), runner: runner)
 
         viewModel.send("first turn")
-        try await Task.sleep(for: .milliseconds(10))
+        await runner.waitUntilRunCount(1)
         #expect(viewModel.selectedTurnIndex == 0)
 
         runner.continuation?.yield(.streamCompleted())
@@ -493,7 +564,7 @@ struct ChatViewModelTests {
         try await waitUntil { !viewModel.isSending }
 
         viewModel.send("second turn")
-        try await Task.sleep(for: .milliseconds(10))
+        await runner.waitUntilRunCount(2)
         #expect(viewModel.selectedTurnIndex == 1)
 
         runner.continuation?.yield(.streamCompleted())

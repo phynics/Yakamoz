@@ -10,10 +10,74 @@ import Testing
 
 @Suite("RuntimeComposition")
 struct RuntimeCompositionTests {
+    private final class AsyncCounter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = 0
+        private var waiters: [(target: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+        func increment() {
+            let ready: [CheckedContinuation<Void, Never>]
+            lock.lock()
+            value += 1
+            var pending: [(target: Int, continuation: CheckedContinuation<Void, Never>)] = []
+            var matched: [CheckedContinuation<Void, Never>] = []
+            for waiter in waiters {
+                if value >= waiter.target {
+                    matched.append(waiter.continuation)
+                } else {
+                    pending.append(waiter)
+                }
+            }
+            waiters = pending
+            ready = matched
+            lock.unlock()
+
+            for continuation in ready {
+                continuation.resume()
+            }
+        }
+
+        func wait(until target: Int) async {
+            if hasReached(target) {
+                return
+            }
+
+            await withCheckedContinuation { continuation in
+                enqueue(continuation, until: target)
+            }
+        }
+
+        private func hasReached(_ target: Int) -> Bool {
+            lock.lock()
+            if value >= target {
+                lock.unlock()
+                return true
+            }
+            lock.unlock()
+            return false
+        }
+
+        private func enqueue(_ continuation: CheckedContinuation<Void, Never>, until target: Int) {
+            lock.lock()
+            if value >= target {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                waiters.append((target, continuation))
+                lock.unlock()
+            }
+        }
+    }
+
     private final class ScriptedRunner: ChatRunning, @unchecked Sendable {
         private(set) var capturedMessages: [String] = []
         private(set) var capturedToolIds: [[String]] = []
         var continuation: AsyncThrowingStream<ChatEvent, Error>.Continuation?
+        private let runCounter = AsyncCounter()
+
+        func waitUntilRunCount(_ count: Int) async {
+            await runCounter.wait(until: count)
+        }
 
         func run(
             timelineId _: UUID,
@@ -29,6 +93,7 @@ struct RuntimeCompositionTests {
         ) async throws -> AsyncThrowingStream<ChatEvent, Error> {
             capturedMessages.append(message)
             capturedToolIds.append(tools.map(\.id))
+            runCounter.increment()
             return AsyncThrowingStream { continuation in
                 self.continuation = continuation
                 continuation.onTermination = { @Sendable _ in
@@ -327,7 +392,7 @@ struct RuntimeCompositionTests {
         )
 
         viewModel.send("before attach")
-        try await waitUntil { runner.capturedMessages.count == 1 }
+        await runner.waitUntilRunCount(1)
         #expect(runner.capturedToolIds[0] == ["calculator", "current_datetime"])
         runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
@@ -344,7 +409,7 @@ struct RuntimeCompositionTests {
         )
 
         viewModel.send("after attach")
-        try await waitUntil { runner.capturedMessages.count == 2 }
+        await runner.waitUntilRunCount(2)
         #expect(Set(runner.capturedToolIds[1]) == Set(FileSystemWorkspace.toolIds))
         #expect(!runner.capturedToolIds[1].contains("calculator"))
         runner.continuation?.yield(.streamCompleted())
@@ -354,7 +419,7 @@ struct RuntimeCompositionTests {
         viewModel.updateTools(runtime.resolveTools(enabledToolIds: [], workspaceRoot: nil))
 
         viewModel.send("after detach")
-        try await waitUntil { runner.capturedMessages.count == 3 }
+        await runner.waitUntilRunCount(3)
         #expect(runner.capturedToolIds[2] == ["calculator", "current_datetime"])
         #expect(!runner.capturedToolIds[2].contains { FileSystemWorkspace.toolIds.contains($0) })
         runner.continuation?.yield(.streamCompleted())
