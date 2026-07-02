@@ -124,8 +124,35 @@ private struct AssistantTurnContent: View {
     let turn: ChatTurnState
     @State private var isThinkingExpanded: Bool = true
 
+    /// STAB-9: MarkdownUI re-parses the *entire* accumulated response on every body
+    /// re-evaluation. During streaming the body re-renders per token (the view model
+    /// rewrites the assistant transcript item in place on each delta), so a response of
+    /// N tokens costs O(N²) markdown parsing — visibly laggy on long streams.
+    ///
+    /// We break that quadratic by snapshotting the streamed text into
+    /// `streamingMarkdownText` at most every `streamingMarkdownCoalesceInterval`
+    /// (~200ms) while `!turn.isComplete`, so `Markdown` only re-parses on that cadence
+    /// (a plain `Text` in between would drop code blocks/lists/tables/bold, which is
+    /// too much to lose on markdown-heavy streams). Once the turn completes,
+    /// `markdownSource` returns the live `reconstructedText` directly, so the finished
+    /// render is byte-identical to the pre-STAB-9 render — no visual change after
+    /// completion.
+    @State private var streamingMarkdownText: String = ""
+    @State private var lastMarkdownRenderAt: Date = .distantPast
+    private static let streamingMarkdownCoalesceInterval: TimeInterval = 0.2
+
     private var thinkingContent: String {
         turn.response.thinking.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The text `Markdown` should parse right now. Once the turn is complete this is the
+    /// full `reconstructedText` (final, exact render). While streaming it is the
+    /// throttled `streamingMarkdownText` snapshot — except before the first snapshot
+    /// exists, where it falls back to the live text so the first token renders
+    /// immediately instead of blanking for ~200ms.
+    private var markdownSource: String {
+        if turn.isComplete { return turn.response.reconstructedText }
+        return streamingMarkdownText.isEmpty ? turn.response.reconstructedText : streamingMarkdownText
     }
 
     var body: some View {
@@ -157,11 +184,12 @@ private struct AssistantTurnContent: View {
                 .accessibilityLabel("Reasoning trace")
             }
 
-            if !turn.response.reconstructedText.isEmpty {
+            if !markdownSource.isEmpty {
                 // MarkdownUI renders full GFM (tables, nested lists, code blocks, thematic
                 // breaks) as real SwiftUI views — a single `AttributedString`-backed `Text`
-                // cannot express tables and drops block separators.
-                Markdown(turn.response.reconstructedText)
+                // cannot express tables and drops block separators. STAB-9: `markdownSource`
+                // is the throttled snapshot while streaming, the live text once complete.
+                Markdown(markdownSource)
                     .textSelection(.enabled)
             } else if turn.isCancelled {
                 Text("Cancelled")
@@ -177,6 +205,19 @@ private struct AssistantTurnContent: View {
 
             ForEach(turn.orderedTools) { trace in
                 ToolTraceRow(trace: trace)
+            }
+        }
+        .onChange(of: turn.response.reconstructedText) { _, newText in
+            // STAB-9: coalesce Markdown re-parses during streaming. `lastMarkdownRenderAt`
+            // starts at `.distantPast` so the first non-empty delta snapshots immediately
+            // (no ~200ms blank gap); subsequent deltas are batched onto a ~200ms cadence.
+            // Completion is handled by `markdownSource` returning the live
+            // `reconstructedText` directly, not here.
+            guard !turn.isComplete, !newText.isEmpty else { return }
+            let now = Date()
+            if now.timeIntervalSince(lastMarkdownRenderAt) >= Self.streamingMarkdownCoalesceInterval {
+                streamingMarkdownText = newText
+                lastMarkdownRenderAt = now
             }
         }
     }

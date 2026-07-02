@@ -781,6 +781,195 @@ struct ChatViewModelTests {
         runner.continuation?.finish()
         try await waitUntil { !viewModel.isSending }
     }
+
+    @Test("Streamed deltas update the correct assistant item in a pre-populated transcript (STAB-9)")
+    func streamedDeltasUpdateCorrectAssistantItemInLongTranscript() async throws {
+        let runner = ScriptedRunner()
+        // Pre-populate with several items so the new assistant item lands at a non-trivial
+        // index (5) rather than index 1 — exercising that the recorded index tracks the
+        // right slot, not just "the last item".
+        let earlierAssistantId = UUID()
+        var earlierTurn = ChatTurnState(turnIndex: 0)
+        earlierTurn.response.reconstructedText = "earlier complete turn"
+        earlierTurn.isComplete = true
+        let viewModel = ChatViewModel(
+            timelineId: UUID(),
+            runner: runner,
+            initialTranscript: [
+                .user(id: UUID(), text: "old question", timestamp: Date()),
+                .assistant(id: earlierAssistantId, turn: earlierTurn),
+                .user(id: UUID(), text: "another old question", timestamp: Date()),
+                .prompt(
+                    id: UUID(),
+                    prompt: ChatPrompt(
+                        title: "Skip?",
+                        options: [ChatPromptOption(id: "skip", title: "Skip", systemImage: "xmark")]
+                    )
+                ),
+            ]
+        )
+
+        viewModel.send("stream me")
+        try await waitUntil { viewModel.transcript.count == 6 }
+
+        // The new assistant item is at index 5 (user send at 4, assistant at 5); the
+        // recorded index should point there, not at the earlier assistant at index 1.
+        #expect(viewModel.activeAssistantItemIndex == 5)
+
+        runner.continuation?.yield(.generation("Hello "))
+        try await waitUntil {
+            guard case let .assistant(_, turn) = viewModel.transcript.last else { return false }
+            return turn.response.reconstructedText == "Hello "
+        }
+
+        runner.continuation?.yield(.generation("world"))
+        try await waitUntil {
+            guard case let .assistant(_, turn) = viewModel.transcript.last else { return false }
+            return turn.response.reconstructedText == "Hello world"
+        }
+
+        // The earlier assistant item is untouched.
+        guard case let .assistant(id, earlierResult) = viewModel.transcript[1] else {
+            Issue.record("Expected earlier assistant item at index 1 to be untouched")
+            return
+        }
+        #expect(id == earlierAssistantId)
+        #expect(earlierResult.response.reconstructedText == "earlier complete turn")
+        #expect(earlierResult.isComplete)
+
+        // The streaming item received every delta at its recorded index.
+        guard case let .assistant(_, streamTurn) = viewModel.transcript[5] else {
+            Issue.record("Expected streaming assistant item at index 5")
+            return
+        }
+        #expect(streamTurn.response.reconstructedText == "Hello world")
+        #expect(!streamTurn.isComplete)
+        // The recorded index is still pointing at the streaming item mid-turn.
+        #expect(viewModel.activeAssistantItemIndex == 5)
+
+        runner.continuation?.yield(.streamCompleted())
+        runner.continuation?.finish()
+        try await waitUntil { !viewModel.isSending }
+
+        // On turn completion the recorded index is cleared so it is never trusted
+        // across turns.
+        #expect(viewModel.activeAssistantItemIndex == nil)
+    }
+
+    @Test("updateAssistantItem uses the recorded index O(1) and falls back to a scan when invalid (STAB-9)")
+    func updateAssistantItemFastPathAndFallback() {
+        let runner = ScriptedRunner()
+        let assistantId = UUID()
+        var initialTurn = ChatTurnState(turnIndex: 5)
+        initialTurn.response.reconstructedText = "initial"
+        let viewModel = ChatViewModel(
+            timelineId: UUID(),
+            runner: runner,
+            initialTranscript: [
+                .user(id: UUID(), text: "q", timestamp: Date()),
+                .assistant(id: UUID(), turn: ChatTurnState(turnIndex: 3)),
+                .assistant(id: assistantId, turn: initialTurn),  // index 2
+            ]
+        )
+
+        // No turn in flight → recorded index is nil → the first update must fall back to
+        // a full scan (the O(1) path is skipped because there is no recorded index).
+        #expect(viewModel.activeAssistantItemIndex == nil)
+
+        var updated = initialTurn
+        updated.response.reconstructedText = "updated"
+        viewModel.updateAssistantItem(id: assistantId, turn: updated)
+
+        // The fallback scan found the item at index 2 and recorded it for O(1) reuse.
+        #expect(viewModel.activeAssistantItemIndex == 2)
+        guard case let .assistant(_, resultTurn) = viewModel.transcript[2] else {
+            Issue.record("Expected assistant item at index 2 to be updated")
+            return
+        }
+        #expect(resultTurn.response.reconstructedText == "updated")
+
+        // A second update uses the recorded O(1) index (no scan); the index is unchanged.
+        var updatedAgain = initialTurn
+        updatedAgain.response.reconstructedText = "updated again"
+        viewModel.updateAssistantItem(id: assistantId, turn: updatedAgain)
+        #expect(viewModel.activeAssistantItemIndex == 2)
+        guard case let .assistant(_, resultTurn2) = viewModel.transcript[2] else {
+            Issue.record("Expected assistant item at index 2 to be updated again")
+            return
+        }
+        #expect(resultTurn2.response.reconstructedText == "updated again")
+
+        // Sibling items are untouched.
+        guard case .user = viewModel.transcript[0] else {
+            Issue.record("Expected user item at index 0 to be untouched")
+            return
+        }
+        guard case let .assistant(_, earlierTurn) = viewModel.transcript[1] else {
+            Issue.record("Expected earlier assistant item at index 1 to be untouched")
+            return
+        }
+        #expect(earlierTurn.turnIndex == 3)
+        #expect(earlierTurn.response.reconstructedText.isEmpty)
+
+        // An unknown id no-ops and leaves the recorded index as-is (scan finds nothing,
+        // returns without re-recording).
+        viewModel.updateAssistantItem(id: UUID(), turn: initialTurn)
+        #expect(viewModel.activeAssistantItemIndex == 2)
+        guard case let .assistant(_, unchangedTurn) = viewModel.transcript[2] else {
+            Issue.record("Expected assistant item at index 2 to be unchanged")
+            return
+        }
+        #expect(unchangedTurn.response.reconstructedText == "updated again")
+    }
+
+    @Test("An error mid-stream with visible content finalizes the assistant item and appends an error row (STAB-9)")
+    func errorMidStreamWithVisibleContentFinalizesAndAppendsError() async throws {
+        let runner = ScriptedRunner()
+        let viewModel = ChatViewModel(timelineId: UUID(), runner: runner)
+
+        viewModel.send("do something")
+        try await waitUntil { runner.continuation != nil }
+
+        // Stream visible content first so the assistant item has
+        // `hasVisibleTranscriptContent`, which makes `finalizeFailedTurn` keep it
+        // (marking `isComplete`) rather than removing it.
+        runner.continuation?.yield(.generation("partial answer"))
+        try await waitUntil {
+            guard case let .assistant(_, turn) = viewModel.transcript.last else { return false }
+            return turn.response.reconstructedText == "partial answer"
+        }
+
+        // An error event mid-stream: `finalizeFailedTurn` rewrites the assistant item in
+        // place (via `updateAssistantItem`) and `appendErrorItem` mutates the transcript
+        // by appending an `.error` row — the recorded index must remain valid across
+        // that mutation so the right item is finalized.
+        runner.continuation?.yield(.error("the provider failed"))
+        try await waitUntil { !viewModel.isSending }
+
+        // transcript: [user(0), assistant(1), error(2)]
+        #expect(viewModel.transcript.count == 3)
+        guard case .user = viewModel.transcript[0] else {
+            Issue.record("Expected user item at index 0")
+            return
+        }
+        guard case let .assistant(_, finalizedTurn) = viewModel.transcript[1] else {
+            Issue.record("Expected finalized assistant item at index 1")
+            return
+        }
+        #expect(finalizedTurn.isComplete)
+        #expect(finalizedTurn.response.reconstructedText == "partial answer")
+        #expect(finalizedTurn.errorMessage == "the provider failed")
+
+        guard case let .error(_, message, retryPrompt) = viewModel.transcript[2] else {
+            Issue.record("Expected error item at index 2")
+            return
+        }
+        #expect(message == "the provider failed")
+        #expect(retryPrompt == "do something")
+
+        // The recorded index is cleared after the turn ends.
+        #expect(viewModel.activeAssistantItemIndex == nil)
+    }
 }
 
 private actor LockedStateLog {

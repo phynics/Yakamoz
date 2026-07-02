@@ -81,6 +81,21 @@ public final class ChatViewModel {
     private var nextInspectionTurnIndex = 0
     private var lastPublishedTimelineState: ConversationTimelineState?
 
+    /// STAB-9: the index in `transcript` of the assistant item for the
+    /// currently-streaming turn, recorded when the item is appended in `consume` and
+    /// used by `updateAssistantItem` for an O(1) in-place rewrite instead of
+    /// `firstIndex(where:)` (which scanned the whole transcript on every token).
+    ///
+    /// Invariant: this index is only trusted mid-turn. `updateAssistantItem` validates
+    /// it (bounds + id match) before using it — the transcript may be mutated between
+    /// updates (e.g. an `.error` item appended by `appendErrorItem`, or the assistant
+    /// item removed by `finalizeFailedTurn`), which can invalidate a recorded index. On
+    /// mismatch it falls back to a full scan and re-records the corrected index. It is
+    /// cleared (`nil`) when `consume` exits (its `defer`) so a stale index is never
+    /// trusted across turns. `internal private(set)` so tests can assert the O(1) path
+    /// via `@testable import`; invisible to the app target (module-internal).
+    internal private(set) var activeAssistantItemIndex: Int?
+
     public init(
         timelineId: UUID,
         runner: any ChatRunning,
@@ -213,12 +228,20 @@ public final class ChatViewModel {
         state.inspectionTurnIndex = nextInspectionTurnIndex
         let assistantItemId = UUID()
         transcript.append(.assistant(id: assistantItemId, turn: state))
+        // STAB-9: record the just-appended item's index so `updateAssistantItem` can
+        // rewrite it in place O(1) per token instead of scanning `transcript` by id.
+        activeAssistantItemIndex = transcript.count - 1
         selectedTurnIndex = turnIndex
         selectedInspectionTurnIndex = nextInspectionTurnIndex
         await publishTimelineStateIfNeeded(state.timelineState)
         var lastRecordedErrorMessage: String?
 
-        defer { isSending = false }
+        defer {
+            isSending = false
+            // STAB-9: the turn has reached its terminal state; drop the recorded index
+            // so it is never trusted across turns.
+            activeAssistantItemIndex = nil
+        }
 
         do {
             let stream = try await runner.run(
@@ -323,8 +346,19 @@ public final class ChatViewModel {
         return failedState
     }
 
-    private func updateAssistantItem(id: UUID, turn: ChatTurnState) {
+    internal func updateAssistantItem(id: UUID, turn: ChatTurnState) {
+        // STAB-9: prefer the recorded O(1) index; validate it still points at `id`
+        // (the transcript may have been mutated mid-turn — e.g. an `.error` item
+        // appended by `appendErrorItem`, or the item removed by `finalizeFailedTurn`).
+        // On mismatch, fall back to a full scan and re-record the corrected index.
+        if let index = activeAssistantItemIndex,
+           transcript.indices.contains(index),
+           transcript[index].id == id {
+            transcript[index] = .assistant(id: id, turn: turn)
+            return
+        }
         guard let index = transcript.firstIndex(where: { $0.id == id }) else { return }
+        activeAssistantItemIndex = index
         transcript[index] = .assistant(id: id, turn: turn)
     }
 
