@@ -25,6 +25,13 @@ struct ChatView: View {
     @State private var dismissedWorkspacePromptConversationId: UUID?
     @State private var composerFocusToken = 0
 
+    /// Tracks whether the conversation scroll view is currently pinned near the
+    /// bottom, so mid-stream autoscroll only follows the growing assistant bubble
+    /// when the user is already riding along the bottom (not scrolled up to read
+    /// history). Updated from `onScrollGeometryChange` on the transcript
+    /// `ScrollView`; force-set to `true` whenever a new turn snaps to bottom.
+    @State private var isStickyToBottom = true
+
     @SceneStorage("inspector.isOpen") private var isInspectorOpen = false
     @SceneStorage("inspector.tab") private var selectedInspectorTabRaw = "prompt"
 
@@ -234,6 +241,27 @@ struct ChatView: View {
         }
     }
 
+    /// The reconstructed-text character count of the last assistant transcript
+    /// item, or `nil` if the transcript is empty / ends in a non-assistant item.
+    ///
+    /// This value already mutates per streamed token — `ChatViewModel.consume`
+    /// appends a `.assistant(id:turn:)` item once per turn and then mutates that
+    /// same `ChatTurnState.response.reconstructedText` in place via
+    /// `updateAssistantItem` (rewriting the transcript element in place), so the
+    /// count grows monotonically as tokens arrive without ever touching its id.
+    private func lastAssistantReconstructedTextCount(viewModel: ChatViewModel) -> Int {
+        guard case let .assistant(_, turn) = viewModel.transcript.last else { return 0 }
+        return turn.response.reconstructedText.count
+    }
+
+    /// `true` when the last transcript item is an assistant turn that has not
+    /// yet reached its terminal state (`turn.isComplete == false`), i.e. it is
+    /// still accumulating streamed tokens / tool activity.
+    private func isLastAssistantTurnStreaming(viewModel: ChatViewModel) -> Bool {
+        guard case let .assistant(_, turn) = viewModel.transcript.last else { return false }
+        return !turn.isComplete
+    }
+
     private func conversationStack(viewModel: ChatViewModel) -> some View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
@@ -244,17 +272,44 @@ struct ChatView: View {
                                 item: item,
                                 isSelected: isSelected(item, viewModel: viewModel),
                                 onSelectTurn: { viewModel.selectTurn($0) },
-                                onSelectPromptOption: handlePromptSelection
+                                onSelectPromptOption: handlePromptSelection,
+                                onRetry: { viewModel.retryFailedTurn(errorId: $0) }
                             )
                             .id(item.id)
                         }
                     }
                     .padding()
                 }
+                .onScrollGeometryChange(for: Bool.self) { geo in
+                    // Within ~80pt of the bottom counts as "sticky", so the
+                    // mid-stream follow only runs when the user is already
+                    // riding along the bottom — not after they scroll up.
+                    geo.contentSize.height - geo.containerSize.height - geo.contentOffset.y <= 80
+                } action: { _, isAtBottom in
+                    isStickyToBottom = isAtBottom
+                }
                 .onChange(of: viewModel.transcript.last?.id) { _, newId in
                     guard let newId else { return }
+                    isStickyToBottom = true
                     withAnimation {
                         proxy.scrollTo(newId, anchor: .bottom)
+                    }
+                }
+                .onChange(of: lastAssistantReconstructedTextCount(viewModel: viewModel)) { oldCount, newCount in
+                    // STAB-10: the streaming assistant turn reuses one
+                    // `TranscriptItem` id for its whole lifetime, so the
+                    // `.onChange(of: last?.id)` above fires only when the
+                    // bubble first appears. To follow mid-stream content
+                    // growth, also observe the reconstructed-text length of
+                    // the last assistant turn and re-scroll to it per token
+                    // — but only while that turn is still streaming and the
+                    // user is pinned to the bottom.
+                    guard newCount > oldCount else { return }
+                    guard let lastId = viewModel.transcript.last?.id else { return }
+                    guard isStickyToBottom else { return }
+                    guard isLastAssistantTurnStreaming(viewModel: viewModel) else { return }
+                    withAnimation {
+                        proxy.scrollTo(lastId, anchor: .bottom)
                     }
                 }
             }

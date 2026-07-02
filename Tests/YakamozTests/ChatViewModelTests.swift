@@ -431,7 +431,7 @@ struct ChatViewModelTests {
 
         #expect(viewModel.errorMessage == "the provider rejected the request")
         #expect(viewModel.transcript.contains(where: { item in
-            if case let .error(_, message) = item {
+            if case let .error(_, message, _) = item {
                 return message == "the provider rejected the request"
             }
             return false
@@ -487,11 +487,31 @@ struct ChatViewModelTests {
             Issue.record("Expected user item to remain")
             return
         }
-        guard case let .error(_, message) = viewModel.transcript[1] else {
+        guard case let .error(_, message, _) = viewModel.transcript[1] else {
             Issue.record("Expected thrown failure to be shown as an error item")
             return
         }
         #expect(message == "boom")
+    }
+
+    @Test("A thrown PKError surfaces its userFriendlyMessage without the [domain:code] prefix (STAB-4)")
+    func thrownPKErrorSurfacesUserFriendlyMessage() async throws {
+        let thrown = ToolError.missingArgument("query")
+        let runner = ThrowingRunner(error: thrown)
+        let viewModel = ChatViewModel(timelineId: UUID(), runner: runner)
+
+        viewModel.send("this will throw")
+
+        try await waitUntil { !viewModel.isSending }
+
+        let expected = thrown.userFriendlyMessage
+        #expect(viewModel.errorMessage == expected)
+        #expect(!(viewModel.errorMessage ?? "").contains("[\(thrown.errorDomain):\(thrown.errorCode)]"))
+        guard case let .error(_, message, _) = viewModel.transcript[1] else {
+            Issue.record("Expected thrown failure to be shown as an error item")
+            return
+        }
+        #expect(message == expected)
     }
 
     @Test("A chat prompt can be presented and dismissed without becoming a message")
@@ -670,6 +690,74 @@ struct ChatViewModelTests {
 
         #expect(viewModel.canSelectInspectionTurn(7))
         #expect(!viewModel.canSelectInspectionTurn(8))
+    }
+
+    @Test("A failed turn's error row carries the captured prompt and retry resubmits it (STAB-5)")
+    func failedTurnErrorCarriesPromptAndRetryResubmits() async throws {
+        let runner = ScriptedRunner()
+        let viewModel = ChatViewModel(timelineId: UUID(), runner: runner)
+
+        viewModel.send("retry me please")
+        try await Task.sleep(for: .milliseconds(10))
+
+        runner.continuation?.yield(.error("provider returned 500"))
+        try await waitUntil { !viewModel.isSending }
+
+        guard case let .error(errorId, message, retryPrompt) = viewModel.transcript.last else {
+            Issue.record("Expected final transcript item to be .error")
+            return
+        }
+        #expect(message == "provider returned 500")
+        #expect(retryPrompt == "retry me please")
+
+        viewModel.retryFailedTurn(errorId: errorId)
+        try await waitUntil { runner.capturedMessages.count == 2 }
+
+        #expect(runner.capturedMessages == ["retry me please", "retry me please"])
+        #expect(!viewModel.transcript.contains { $0.id == errorId })
+
+        runner.continuation?.yield(.streamCompleted())
+        runner.continuation?.finish()
+        try await waitUntil { !viewModel.isSending }
+    }
+
+    @Test("A thrown runner error captures the prompt for retry (STAB-5)")
+    func thrownErrorCapturesPromptForRetry() async throws {
+        struct BoomError: Error, LocalizedError {
+            var errorDescription: String? { "boom" }
+        }
+        let runner = ThrowingRunner(error: BoomError())
+        let viewModel = ChatViewModel(timelineId: UUID(), runner: runner)
+
+        viewModel.send("will throw")
+
+        try await waitUntil { !viewModel.isSending }
+
+        guard case let .error(_, message, retryPrompt) = viewModel.transcript[1] else {
+            Issue.record("Expected thrown failure to be shown as an error item")
+            return
+        }
+        #expect(message == "boom")
+        #expect(retryPrompt == "will throw")
+    }
+
+    @Test("retryFailedTurn is a no-op while a turn is in flight (STAB-5)")
+    func retryIsNoOpWhileSending() async throws {
+        let runner = ScriptedRunner()
+        let viewModel = ChatViewModel(timelineId: UUID(), runner: runner)
+
+        viewModel.send("in flight")
+        try await waitUntil { runner.continuation != nil }
+
+        let errorId = UUID()
+        viewModel.retryFailedTurn(errorId: errorId)
+
+        #expect(runner.capturedMessages == ["in flight"])
+        #expect(viewModel.isSending)
+
+        runner.continuation?.yield(.streamCompleted())
+        runner.continuation?.finish()
+        try await waitUntil { !viewModel.isSending }
     }
 }
 

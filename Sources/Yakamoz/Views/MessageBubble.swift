@@ -1,3 +1,4 @@
+import MarkdownUI
 import SwiftUI
 import YakamozCore
 
@@ -10,6 +11,7 @@ struct MessageBubble: View {
     let isSelected: Bool
     let onSelectTurn: (Int) -> Void
     let onSelectPromptOption: (UUID, ChatPromptOption) -> Void
+    let onRetry: (UUID) -> Void
 
     var body: some View {
         switch item {
@@ -52,11 +54,19 @@ struct MessageBubble: View {
                 Spacer(minLength: 40)
             }
 
-        case let .error(_, message):
+        case let .error(id, message, retryPrompt):
             HStack {
                 Label(message, systemImage: "exclamationmark.triangle.fill")
                     .font(.callout)
                     .foregroundStyle(.red)
+                if let prompt = retryPrompt, !prompt.isEmpty {
+                    Button("Retry") {
+                        onRetry(id)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityLabel("Retry failed turn")
+                }
                 Spacer(minLength: 40)
             }
             .padding(.vertical, 4)
@@ -112,17 +122,51 @@ private struct ChatPromptRow: View {
 
 private struct AssistantTurnContent: View {
     let turn: ChatTurnState
-    private let markdownRenderer = AssistantMarkdownRenderer()
+    @State private var isThinkingExpanded: Bool = true
+
+    private var thinkingContent: String {
+        turn.response.thinking.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            // Reasoning usually precedes the answer, so render the thinking disclosure
+            // above the assistant text. Bound to `turn.response.thinking` so it
+            // live-updates during streaming and survives reload (STAB-2).
+            if !thinkingContent.isEmpty {
+                DisclosureGroup(isExpanded: $isThinkingExpanded) {
+                    Text(turn.response.thinking)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 2)
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "brain.head.profile")
+                            .foregroundStyle(.secondary)
+                        Text("Thinking")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                        if !turn.isComplete {
+                            ProgressView()
+                                .controlSize(.mini)
+                        }
+                    }
+                }
+                .accessibilityLabel("Reasoning trace")
+            }
+
             if !turn.response.reconstructedText.isEmpty {
-                Text(markdownRenderer.render(turn.response.reconstructedText))
+                // MarkdownUI renders full GFM (tables, nested lists, code blocks, thematic
+                // breaks) as real SwiftUI views — a single `AttributedString`-backed `Text`
+                // cannot express tables and drops block separators.
+                Markdown(turn.response.reconstructedText)
                     .textSelection(.enabled)
             } else if turn.isCancelled {
                 Text("Cancelled")
                     .foregroundStyle(.secondary)
-            } else if !turn.isComplete {
+            } else if !turn.isComplete && thinkingContent.isEmpty {
                 HStack(spacing: 6) {
                     ProgressView()
                         .controlSize(.small)

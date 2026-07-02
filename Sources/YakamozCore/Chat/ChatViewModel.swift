@@ -1,3 +1,4 @@
+import ErrorKit
 import Foundation
 import Logging
 import PKShared
@@ -185,6 +186,19 @@ public final class ChatViewModel {
         transcript.removeAll { $0.id == id }
     }
 
+    /// Retries a failed turn by resubmitting the prompt captured on its `.error`
+    /// transcript row. Removes that error row (clearing the failure from view) and
+    /// starts a fresh turn via `send`. No-ops if a turn is already in flight, the row
+    /// is gone, or it carries no captured prompt (STAB-5).
+    public func retryFailedTurn(errorId: UUID) {
+        guard !isSending else { return }
+        guard let index = transcript.firstIndex(where: { $0.id == errorId }) else { return }
+        guard case let .error(_, _, retryPrompt?) = transcript[index],
+              !retryPrompt.isEmpty else { return }
+        transcript.remove(at: index)
+        send(retryPrompt)
+    }
+
     /// Replaces the tool list in place so the next send uses the latest workspace
     /// attachment state without discarding the transcript or selection state.
     public func updateTools(_ tools: [AnyTool]) {
@@ -236,7 +250,7 @@ public final class ChatViewModel {
                     errorMessage = message
                     state = finalizeFailedTurn(state, assistantItemId: assistantItemId)
                     await publishTimelineStateIfNeeded(state.timelineState)
-                    appendErrorItem(message)
+                    appendErrorItem(message, retryPrompt: text)
                     break eventLoop
                 }
             }
@@ -279,7 +293,7 @@ public final class ChatViewModel {
             updateAssistantItem(id: assistantItemId, turn: state)
             await publishTimelineStateIfNeeded(state.timelineState)
         } catch {
-            let message = error.localizedDescription
+            let message = ErrorKit.userFriendlyMessage(for: error)
             errorMessage = message
             state.errorMessage = message
             Log.chat.error(
@@ -288,7 +302,7 @@ public final class ChatViewModel {
             )
             state = finalizeFailedTurn(state, assistantItemId: assistantItemId)
             await publishTimelineStateIfNeeded(state.timelineState)
-            appendErrorItem(message)
+            appendErrorItem(message, retryPrompt: text)
         }
     }
 
@@ -317,8 +331,8 @@ public final class ChatViewModel {
         }
     }
 
-    private func appendErrorItem(_ message: String) {
-        transcript.append(.error(id: UUID(), message: message))
+    private func appendErrorItem(_ message: String, retryPrompt: String? = nil) {
+        transcript.append(.error(id: UUID(), message: message, retryPrompt: retryPrompt))
     }
 
     private func publishTimelineStateIfNeeded(_ state: ConversationTimelineState) async {
@@ -364,8 +378,9 @@ public final class ChatViewModel {
             }
             return completedState
         } catch {
-            errorMessage = error.localizedDescription
-            appendErrorItem(error.localizedDescription)
+            let message = ErrorKit.userFriendlyMessage(for: error)
+            errorMessage = message
+            appendErrorItem(message)
             return nil
         }
     }
