@@ -397,27 +397,106 @@ public actor YakamozRuntime: ChatRunning {
 
     private func loadTranscript(for timelineId: UUID) async throws -> LoadedTranscript {
         let messages = try await stores.messages.fetchMessages(for: timelineId)
-        return Self.transcriptItems(from: messages)
+        return LoadedTranscript(transcript: Self.transcriptItems(from: messages))
     }
 
-    private static func transcriptItems(from messages: [ConversationMessage]) -> LoadedTranscript {
+    /// Rebuilds the chat transcript from persisted `ConversationMessage` rows.
+    ///
+    /// A single logical assistant turn (one user send) can span several LLM round-trips
+    /// in the tool-resolution loop, each emitting its own assistant `ConversationMessage`
+    /// followed by one `.tool`-role result message per requested call. To match the live
+    /// in-session transcript produced by `ChatEventReducer` — which accumulates one
+    /// `ChatTurnState` across all round-trips of a send — this rebuild groups consecutive
+    /// assistant + `.tool` messages between user messages into a single assistant
+    /// `TranscriptItem`, and reconstructs `tools`/`toolOrder` from:
+    ///
+    /// - each assistant message's `toolCalls` field (the call: id, name, arguments), and
+    /// - the matching `.tool`-role result message keyed by `toolCallId` (the result:
+    ///   `content` becomes `output`, or `error` when the result is an `"Error: …"` payload).
+    ///
+    /// Tool traces are accumulated in first-seen order across all assistant messages in
+    /// the turn group, mirroring `ChatEventReducer.applyToolCallDelta`/`applyToolStatus`.
+    /// The final assistant message in the group supplies `reconstructedText`/`thinking`
+    /// (unchanged from the prior reload behavior).
+    ///
+    /// `internal` so `YakamozTests` can exercise the reconstruction directly with seeded
+    /// `ConversationMessage` values (see `TranscriptReloadToolTraceTests`).
+    internal static func transcriptItems(from messages: [ConversationMessage]) -> [TranscriptItem] {
         var assistantTurnIndex = 0
         var nextInspectionTurnIndex = 0
         var transcript: [TranscriptItem] = []
-        var pendingAssistantMessage: ConversationMessage?
+
+        // Accumulator for the in-flight logical assistant turn: every assistant message
+        // in the group (in arrival order, each carrying its own `toolCalls`) plus the
+        // `.tool`-role result messages matched by `toolCallId`.
+        var pendingLastAssistantMessage: ConversationMessage?
+        var pendingToolCallsByAssistant: [[ToolCall]] = []
+        var pendingToolResults: [String: ConversationMessage] = [:]
 
         func appendPendingAssistantIfNeeded() {
-            guard let message = pendingAssistantMessage else { return }
+            guard let lastMessage = pendingLastAssistantMessage else { return }
 
             var turn = ChatTurnState(turnIndex: assistantTurnIndex)
             turn.inspectionTurnIndex = nextInspectionTurnIndex - 1
-            turn.response.reconstructedText = message.content
-            turn.response.thinking = message.think ?? ""
+            turn.response.reconstructedText = lastMessage.content
+            turn.response.thinking = lastMessage.think ?? ""
             turn.isComplete = true
-            transcript.append(.assistant(id: message.id, turn: turn))
+
+            // Reconstruct tool calls (mirrors `applyToolCallDelta`): one trace per call,
+            // recorded in first-seen order across every assistant message in the group.
+            for toolCalls in pendingToolCallsByAssistant {
+                for call in toolCalls {
+                    if !turn.tools.keys.contains(call.id) {
+                        turn.toolOrder.append(call.id)
+                    }
+                    var trace = turn.tools[call.id] ?? ToolTrace(id: call.id, name: call.name)
+                    trace.name = call.name
+                    if let argumentsJSON = Self.encodeToolCallArguments(call.arguments) {
+                        trace.arguments = argumentsJSON
+                    }
+                    turn.tools[call.id] = trace
+                }
+            }
+
+            // Apply tool results (mirrors `applyToolStatus`'s `.success`/`.failed` cases).
+            // The persisted `.tool`-role message carries the call's `toolCallId` and a
+            // `content` of either the tool's output or `"Error: <message>"` (see
+            // `ToolTurnProjector.projectError`); that prefix distinguishes failed runs.
+            for (callId, resultMessage) in pendingToolResults {
+                let content = resultMessage.content
+                let isFailure = content.hasPrefix(Self.toolErrorPrefix)
+                if var trace = turn.tools[callId] {
+                    if isFailure {
+                        trace.state = .failed
+                        trace.error = String(content.dropFirst(Self.toolErrorPrefix.count))
+                    } else {
+                        trace.state = .succeeded
+                        trace.output = content
+                    }
+                    turn.tools[callId] = trace
+                } else {
+                    // A result without a persisted call: surface it for parity, naming
+                    // the trace by its call id so the UI still renders a badge.
+                    if !turn.toolOrder.contains(callId) {
+                        turn.toolOrder.append(callId)
+                    }
+                    let trace = ToolTrace(
+                        id: callId,
+                        name: callId,
+                        state: isFailure ? .failed : .succeeded,
+                        output: isFailure ? nil : content,
+                        error: isFailure ? String(content.dropFirst(Self.toolErrorPrefix.count)) : nil
+                    )
+                    turn.tools[callId] = trace
+                }
+            }
+
+            transcript.append(.assistant(id: lastMessage.id, turn: turn))
 
             assistantTurnIndex += 1
-            pendingAssistantMessage = nil
+            pendingLastAssistantMessage = nil
+            pendingToolCallsByAssistant = []
+            pendingToolResults = [:]
         }
 
         for message in messages {
@@ -426,17 +505,45 @@ public actor YakamozRuntime: ChatRunning {
                 appendPendingAssistantIfNeeded()
                 transcript.append(.user(id: message.id, text: message.content, timestamp: message.timestamp))
             case .assistant:
-                pendingAssistantMessage = message
+                let toolCalls = Self.decodeToolCalls(message.toolCalls)
+                pendingLastAssistantMessage = message
+                if !toolCalls.isEmpty { pendingToolCallsByAssistant.append(toolCalls) }
                 nextInspectionTurnIndex += 1
-            case .tool, .system, .summary:
+            case .tool:
+                if let callId = message.toolCallId {
+                    pendingToolResults[callId] = message
+                }
+            case .system, .summary:
                 continue
             }
         }
 
         appendPendingAssistantIfNeeded()
 
-        return LoadedTranscript(transcript: transcript)
+        return transcript
     }
+
+    /// Decodes a persisted assistant message's `toolCalls` JSON string into `[ToolCall]`.
+    /// Returns an empty array when the field is missing/`"[]"`/undecodable, mirroring
+    /// `ConversationMessage.toMessage()`'s tolerant decoding.
+    private static func decodeToolCalls(_ toolCallsJSON: String) -> [ToolCall] {
+        guard let data = toolCallsJSON.data(using: .utf8) else { return [] }
+        return (try? JSONDecoder().decode([ToolCall].self, from: data)) ?? []
+    }
+
+    /// Encodes a `ToolCall`'s arguments dictionary to a JSON string for `ToolTrace.arguments`,
+    /// matching the shape the live reducer produces (the final tool-call delta carries the
+    /// full args JSON). Returns `nil` when the dictionary is empty or fails to encode.
+    private static func encodeToolCallArguments(_ arguments: [String: AnyCodable]) -> String? {
+        guard !arguments.isEmpty else { return nil }
+        guard let data = try? JSONEncoder().encode(arguments) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    /// Prefix `ToolTurnProjector` prepends to a tool's persisted `.tool`-role message
+    /// `content` when the tool failed (`"Error: <message>"`). Used to distinguish
+    /// succeeded from failed tool results on reload.
+    private static let toolErrorPrefix = "Error: "
 }
 
 /// A `ChatRunning` adapter that routes each turn through a plugin-augmented kit.
