@@ -1,3 +1,4 @@
+import ErrorKit
 import Foundation
 import Logging
 import PKShared
@@ -279,7 +280,7 @@ public final class ChatViewModel {
             updateAssistantItem(id: assistantItemId, turn: state)
             await publishTimelineStateIfNeeded(state.timelineState)
         } catch {
-            let message = error.localizedDescription
+            let message = ErrorKit.userFriendlyMessage(for: error)
             errorMessage = message
             state.errorMessage = message
             Log.chat.error(
@@ -364,8 +365,9 @@ public final class ChatViewModel {
             }
             return completedState
         } catch {
-            errorMessage = error.localizedDescription
-            appendErrorItem(error.localizedDescription)
+            let message = ErrorKit.userFriendlyMessage(for: error)
+            errorMessage = message
+            appendErrorItem(message)
             return nil
         }
     }

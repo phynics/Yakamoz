@@ -423,6 +423,26 @@ struct ChatViewModelTests {
         #expect(message == "boom")
     }
 
+    @Test("A thrown PKError surfaces its userFriendlyMessage without the [domain:code] prefix (STAB-4)")
+    func thrownPKErrorSurfacesUserFriendlyMessage() async throws {
+        let thrown = ToolError.missingArgument("query")
+        let runner = ThrowingRunner(error: thrown)
+        let viewModel = ChatViewModel(timelineId: UUID(), runner: runner)
+
+        viewModel.send("this will throw")
+
+        try await waitUntil { !viewModel.isSending }
+
+        let expected = thrown.userFriendlyMessage
+        #expect(viewModel.errorMessage == expected)
+        #expect(!(viewModel.errorMessage ?? "").contains("[\(thrown.errorDomain):\(thrown.errorCode)]"))
+        guard case let .error(_, message) = viewModel.transcript[1] else {
+            Issue.record("Expected thrown failure to be shown as an error item")
+            return
+        }
+        #expect(message == expected)
+    }
+
     @Test("A chat prompt can be presented and dismissed without becoming a message")
     func chatPromptCanBePresentedAndDismissed() {
         let runner = ScriptedRunner()
