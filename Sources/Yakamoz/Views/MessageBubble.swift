@@ -113,9 +113,41 @@ private struct ChatPromptRow: View {
 
 private struct AssistantTurnContent: View {
     let turn: ChatTurnState
+    @State private var isThinkingExpanded: Bool = true
+
+    private var thinkingContent: String {
+        turn.response.thinking.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            // Reasoning usually precedes the answer, so render the thinking disclosure
+            // above the assistant text. Bound to `turn.response.thinking` so it
+            // live-updates during streaming and survives reload (STAB-2).
+            if !thinkingContent.isEmpty {
+                DisclosureGroup(isExpanded: $isThinkingExpanded) {
+                    Text(turn.response.thinking)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 2)
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "brain.head.profile")
+                            .foregroundStyle(.secondary)
+                        Text("Thinking")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                        if !turn.isComplete {
+                            ProgressView()
+                                .controlSize(.mini)
+                        }
+                    }
+                }
+                .accessibilityLabel("Reasoning trace")
+            }
+
             if !turn.response.reconstructedText.isEmpty {
                 // MarkdownUI renders full GFM (tables, nested lists, code blocks, thematic
                 // breaks) as real SwiftUI views — a single `AttributedString`-backed `Text`
@@ -125,7 +157,7 @@ private struct AssistantTurnContent: View {
             } else if turn.isCancelled {
                 Text("Cancelled")
                     .foregroundStyle(.secondary)
-            } else if !turn.isComplete {
+            } else if !turn.isComplete && thinkingContent.isEmpty {
                 HStack(spacing: 6) {
                     ProgressView()
                         .controlSize(.small)
