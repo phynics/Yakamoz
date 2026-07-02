@@ -198,6 +198,24 @@ public final class ChatViewModel {
         sendTask?.cancel()
     }
 
+    /// Awaits the in-flight turn's completion, suspending until the internal `sendTask`
+    /// (the `consume` loop) finishes — the exact point at which `isSending` flips to
+    /// `false` in `consume`'s `defer` and the turn's terminal state (`isComplete`,
+    /// `errorMessage`, corrected `selectedInspectionTurnIndex`) is fully settled.
+    /// Returns immediately when no turn is in flight (or the in-flight turn already
+    /// completed).
+    ///
+    /// This is the deterministic completion seam tests await instead of polling
+    /// `isSending` against a wall-clock deadline (YAK-44): such deadline polling could
+    /// miss under CPU contention and flake the `make verify` CI gate. Awaiting the
+    /// task's `value` suspends the caller (releasing the main actor so the spawned
+    /// `consume` Task can make progress) and resumes only once the turn is done — no
+    /// timeout window. The app target does not call this; it is a test-visible seam.
+    public func awaitSendCompletion() async {
+        guard let task = sendTask else { return }
+        await task.value
+    }
+
     @discardableResult
     public func presentPrompt(_ prompt: ChatPrompt) -> UUID {
         let id = UUID()

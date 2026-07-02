@@ -90,10 +90,10 @@ struct InspectableChatIntegrationTests {
         )
 
         viewModel.send("Inspect this")
-        try await waitUntil { !viewModel.isSending && viewModel.transcript.contains { item in
-            if case let .assistant(_, turn) = item { return turn.isComplete }
-            return false
-        } }
+        // Await the turn's real completion signal (YAK-44): the spawned consume Task
+        // finishing, at which point isSending is false and the assistant turn is
+        // isComplete — no wall-clock deadline to flake under load.
+        await viewModel.awaitSendCompletion()
 
         // --- Live assertions -------------------------------------------------------
 
@@ -209,10 +209,9 @@ struct InspectableChatIntegrationTests {
         )
 
         viewModel.send("what is 19273 * 4412?")
-        try await waitUntil { !viewModel.isSending && viewModel.transcript.contains { item in
-            if case let .assistant(_, turn) = item { return turn.isComplete }
-            return false
-        } }
+        // Await the turn's real completion signal instead of polling isSending on a
+        // wall-clock deadline (YAK-44).
+        await viewModel.awaitSendCompletion()
 
         let assistantTurn = try #require(viewModel.transcript.compactMap { item -> ChatTurnState? in
             if case let .assistant(_, turn) = item { return turn }
@@ -283,10 +282,9 @@ struct InspectableChatIntegrationTests {
         let inspectionViewModel = InspectionViewModel(repository: await runtime.inspector)
 
         viewModel.send("Inspect this")
-        try await waitUntil { !viewModel.isSending && viewModel.transcript.contains { item in
-            if case let .assistant(_, turn) = item { return turn.isComplete }
-            return false
-        } }
+        // Await the turn's real completion signal instead of polling isSending on a
+        // wall-clock deadline (YAK-44).
+        await viewModel.awaitSendCompletion()
 
         // Simulate the user's FIRST click on the just-finished bubble — no second turn has
         // been sent. Before the fix, `selectTurn` could resolve a stale `inspectionTurnIndex`
@@ -335,16 +333,20 @@ struct InspectableChatIntegrationTests {
         let viewModel = await runtime.makeChatViewModel(timelineId: timelineId)
 
         viewModel.send("First message")
-        try await waitUntil { !viewModel.isSending && viewModel.transcript.contains { item in
+        // Await the turn's real completion signal (YAK-44). The response text is asserted
+        // explicitly below to preserve the strength of the former combined wait condition.
+        await viewModel.awaitSendCompletion()
+        #expect(viewModel.transcript.contains { item in
             if case let .assistant(_, turn) = item { return turn.response.reconstructedText == "First reply" }
             return false
-        } }
+        })
 
         viewModel.send("Second message")
-        try await waitUntil { !viewModel.isSending && viewModel.transcript.contains { item in
+        await viewModel.awaitSendCompletion()
+        #expect(viewModel.transcript.contains { item in
             if case let .assistant(_, turn) = item { return turn.response.reconstructedText == "Second reply" }
             return false
-        } }
+        })
 
         let inspector = await runtime.inspector
         let firstTurn = try #require(try await inspector.inspection(conversationId: timelineId, turnIndex: 0))
@@ -381,20 +383,3 @@ struct InspectableChatIntegrationTests {
     }
 }
 
-/// Polls a `@MainActor` condition, bounded by a timeout so a real failure fails fast
-/// instead of hanging. Used only to await effects of the view model's internal send Task;
-/// no fixed sleep is baked into the assertions themselves.
-@MainActor
-private func waitUntil(
-    timeout: Duration = .seconds(5),
-    _ condition: @MainActor () -> Bool
-) async throws {
-    let deadline = ContinuousClock.now.advanced(by: timeout)
-    while !condition() {
-        if ContinuousClock.now > deadline {
-            Issue.record("Timed out waiting for condition")
-            return
-        }
-        try await Task.sleep(for: .milliseconds(5))
-    }
-}

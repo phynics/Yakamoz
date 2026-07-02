@@ -396,7 +396,7 @@ struct RuntimeCompositionTests {
         #expect(runner.capturedToolIds[0] == ["calculator", "current_datetime"])
         runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
-        try await waitUntil { !viewModel.isSending }
+        await viewModel.awaitSendCompletion()
 
         let workspaceRoot = try makeTempRoot()
         defer { cleanup(workspaceRoot) }
@@ -414,7 +414,7 @@ struct RuntimeCompositionTests {
         #expect(!runner.capturedToolIds[1].contains("calculator"))
         runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
-        try await waitUntil { !viewModel.isSending }
+        await viewModel.awaitSendCompletion()
 
         viewModel.updateTools(runtime.resolveTools(enabledToolIds: [], workspaceRoot: nil))
 
@@ -424,7 +424,7 @@ struct RuntimeCompositionTests {
         #expect(!runner.capturedToolIds[2].contains { FileSystemWorkspace.toolIds.contains($0) })
         runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
-        try await waitUntil { !viewModel.isSending }
+        await viewModel.awaitSendCompletion()
     }
 
     @Test("healthCheck() delegates to the injected LLM service exactly once")
@@ -471,20 +471,5 @@ struct RuntimeCompositionTests {
         #expect(captured[1].modelName == "gpt-4o-test")
         #expect(captured[2].apiKey == "sk-secret-updated")
         #expect(captured[2].modelName == "updated-model")
-    }
-
-    @MainActor
-    private func waitUntil(
-        timeout: Duration = .seconds(2),
-        _ condition: @MainActor () -> Bool
-    ) async throws {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while !condition() {
-            if ContinuousClock.now > deadline {
-                Issue.record("Timed out waiting for condition")
-                return
-            }
-            try await Task.sleep(for: .milliseconds(5))
-        }
     }
 }

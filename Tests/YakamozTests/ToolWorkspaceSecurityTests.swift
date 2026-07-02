@@ -64,10 +64,11 @@ struct ToolWorkspaceSecurityTests {
         )
 
         viewModel.send("calculate 2+2")
-        try await waitUntil { !viewModel.isSending && viewModel.transcript.contains { item in
-            if case let .assistant(_, turn) = item { return turn.isComplete }
-            return false
-        } }
+        // Await the turn's real completion signal (the spawned consume Task finishing)
+        // instead of polling isSending against a wall-clock deadline, which could flake
+        // under CPU contention (YAK-44). The assistant turn is isComplete by the time
+        // consume's defer flips isSending to false.
+        await viewModel.awaitSendCompletion()
 
         let assistantTurn = try #require(viewModel.transcript.compactMap { item -> ChatTurnState? in
             if case let .assistant(_, turn) = item { return turn }
@@ -81,18 +82,4 @@ struct ToolWorkspaceSecurityTests {
         #expect(toolTrace.state == .succeeded)
         #expect(toolTrace.output == "4")
     }
-}
-
-// MARK: - Test Utilities
-
-@MainActor
-private func waitUntil(
-    timeout: TimeInterval = 5,
-    condition: @escaping @MainActor () -> Bool
-) async throws {
-    let deadline = Date.now.addingTimeInterval(timeout)
-    while !condition(), Date.now < deadline {
-        try await Task.sleep(nanoseconds: 10_000_000) // 10ms poll
-    }
-    #expect(condition(), "Condition not met within \(timeout) seconds")
 }

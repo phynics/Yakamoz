@@ -114,11 +114,9 @@ struct ChatViewModelErrorLoggingTests {
 
             viewModel.send("hello")
 
-            // Wait for the spawned consume Task to hit the catch and finish.
-            let deadline = ContinuousClock.now.advanced(by: .seconds(2))
-            while viewModel.isSending, ContinuousClock.now < deadline {
-                try await Task.sleep(for: .milliseconds(5))
-            }
+            // Await the spawned consume Task's completion (the real completion signal)
+            // instead of polling isSending on a wall-clock deadline (YAK-44).
+            await viewModel.awaitSendCompletion()
             #expect(!viewModel.isSending)
 
             let chatRecords = recorder.records.filter { $0.label == "me.atkn.Yakamoz.chat" }

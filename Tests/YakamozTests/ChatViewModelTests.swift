@@ -155,7 +155,7 @@ struct ChatViewModelTests {
 
         runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
-        try await waitUntil { !viewModel.isSending }
+        await viewModel.awaitSendCompletion()
     }
 
     @Test("Timeline state callback publishes running immediately, then completed")
@@ -175,7 +175,7 @@ struct ChatViewModelTests {
 
         runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
-        try await waitUntil { !viewModel.isSending }
+        await viewModel.awaitSendCompletion()
 
         let recorded = await states.snapshot()
         #expect(recorded == [.running, .completed])
@@ -208,7 +208,7 @@ struct ChatViewModelTests {
 
         runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
-        try await waitUntil { !viewModel.isSending }
+        await viewModel.awaitSendCompletion()
     }
 
     @Test("Typed reply conversations forward the structured output schema to the runner")
@@ -228,7 +228,7 @@ struct ChatViewModelTests {
 
         runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
-        try await waitUntil { !viewModel.isSending }
+        await viewModel.awaitSendCompletion()
     }
 
     @Test("Live delta events update the assistant transcript item incrementally")
@@ -253,7 +253,7 @@ struct ChatViewModelTests {
 
         runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
-        try await waitUntil { !viewModel.isSending }
+        await viewModel.awaitSendCompletion()
 
         guard case let .assistant(_, finalTurn) = viewModel.transcript.last else {
             Issue.record("Expected final transcript item to be .assistant")
@@ -302,7 +302,7 @@ struct ChatViewModelTests {
         runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
 
-        try await waitUntil { !viewModel.isSending }
+        await viewModel.awaitSendCompletion()
 
         let persisted = try await inspector.inspection(conversationId: timelineId, turnIndex: 0)
         let response = try #require(persisted?.response)
@@ -346,7 +346,7 @@ struct ChatViewModelTests {
         // No `.streamCompleted` — just finish the stream, like the real engine.
         runner.continuation?.finish()
 
-        try await waitUntil { !viewModel.isSending }
+        await viewModel.awaitSendCompletion()
 
         guard case let .assistant(_, turn) = viewModel.transcript.last else {
             Issue.record("Expected assistant item")
@@ -373,7 +373,7 @@ struct ChatViewModelTests {
 
         runner.continuation?.finish()
 
-        try await waitUntil { !viewModel.isSending }
+        await viewModel.awaitSendCompletion()
 
         guard case let .assistant(_, turn) = viewModel.transcript.last else {
             Issue.record("Expected assistant item")
@@ -401,7 +401,7 @@ struct ChatViewModelTests {
 
         viewModel.cancel()
 
-        try await waitUntil { !viewModel.isSending }
+        await viewModel.awaitSendCompletion()
 
         guard case let .assistant(_, turn) = viewModel.transcript.last else {
             Issue.record("Expected final transcript item to be .assistant")
@@ -433,7 +433,7 @@ struct ChatViewModelTests {
         viewModel.cancel()
         viewModel.cancel()
 
-        try await waitUntil { !viewModel.isSending }
+        await viewModel.awaitSendCompletion()
 
         guard case let .assistant(_, turn) = viewModel.transcript.last else {
             Issue.record("Expected final transcript item to be .assistant")
@@ -463,7 +463,9 @@ struct ChatViewModelTests {
         await runner.waitUntilContinuationCount(1)
 
         runner.continuation?.yield(.error("the provider rejected the request"))
-        try await waitUntil { viewModel.errorMessage != nil }
+        // Await the turn's real completion signal (YAK-44): consume processes the error
+        // event, sets errorMessage, and finishes — at which point errorMessage is set.
+        await viewModel.awaitSendCompletion()
 
         #expect(viewModel.errorMessage == "the provider rejected the request")
         #expect(viewModel.transcript.contains(where: { item in
@@ -481,7 +483,7 @@ struct ChatViewModelTests {
 
         runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
-        try await waitUntil { !viewModel.isSending }
+        await viewModel.awaitSendCompletion()
         #expect(await states.snapshot().suffix(1).first == .failed)
     }
 
@@ -504,7 +506,11 @@ struct ChatViewModelTests {
         // blocked identity and the timeline state classifies as `.blocked`. A
         // bare-string "denied" message would now (correctly) classify as `.failed`.
         runner.continuation?.yield(.error(ToolError.permissionDenied("rm")))
-        try await waitUntilAsync { await states.snapshot().suffix(1).first == .blocked }
+        // Await the turn's real completion signal (YAK-44): consume processes the
+        // structured error, publishes .blocked, and finishes — so .blocked is in the
+        // log by the time we resume.
+        await viewModel.awaitSendCompletion()
+        #expect(await states.snapshot().suffix(1).first == .blocked)
     }
 
     @Test("A thrown error from the runner surfaces as errorMessage and marks the turn errored")
@@ -519,7 +525,7 @@ struct ChatViewModelTests {
 
         viewModel.send("this will throw")
 
-        try await waitUntil { !viewModel.isSending }
+        await viewModel.awaitSendCompletion()
         #expect(viewModel.errorMessage == "boom")
         #expect(viewModel.transcript.count == 2)
         guard case .user = viewModel.transcript[0] else {
@@ -541,7 +547,7 @@ struct ChatViewModelTests {
 
         viewModel.send("this will throw")
 
-        try await waitUntil { !viewModel.isSending }
+        await viewModel.awaitSendCompletion()
 
         let expected = thrown.userFriendlyMessage
         #expect(viewModel.errorMessage == expected)
@@ -568,7 +574,8 @@ struct ChatViewModelTests {
 
         viewModel.send("this will throw a blocked error")
 
-        try await waitUntilAsync { await states.snapshot().suffix(1).first == .blocked }
+        await viewModel.awaitSendCompletion()
+        #expect(await states.snapshot().suffix(1).first == .blocked)
         #expect(viewModel.errorMessage == thrown.userFriendlyMessage)
     }
 
@@ -625,7 +632,7 @@ struct ChatViewModelTests {
 
         runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
-        try await waitUntil { !viewModel.isSending }
+        await viewModel.awaitSendCompletion()
     }
 
     @Test("Turn selection tracks the most recently started turn")
@@ -639,7 +646,7 @@ struct ChatViewModelTests {
 
         runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
-        try await waitUntil { !viewModel.isSending }
+        await viewModel.awaitSendCompletion()
 
         viewModel.send("second turn")
         await runner.waitUntilRunCount(2)
@@ -647,7 +654,7 @@ struct ChatViewModelTests {
 
         runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
-        try await waitUntil { !viewModel.isSending }
+        await viewModel.awaitSendCompletion()
     }
 
     @Test("Bubble selection can target a distinct persisted inspection row")
@@ -756,10 +763,10 @@ struct ChatViewModelTests {
         let viewModel = ChatViewModel(timelineId: UUID(), runner: runner)
 
         viewModel.send("retry me please")
-        try await Task.sleep(for: .milliseconds(10))
+        await runner.waitUntilContinuationCount(1)
 
         runner.continuation?.yield(.error("provider returned 500"))
-        try await waitUntil { !viewModel.isSending }
+        await viewModel.awaitSendCompletion()
 
         guard case let .error(errorId, message, retryPrompt) = viewModel.transcript.last else {
             Issue.record("Expected final transcript item to be .error")
@@ -769,14 +776,14 @@ struct ChatViewModelTests {
         #expect(retryPrompt == "retry me please")
 
         viewModel.retryFailedTurn(errorId: errorId)
-        try await waitUntil { runner.capturedMessages.count == 2 }
+        await runner.waitUntilRunCount(2)
 
         #expect(runner.capturedMessages == ["retry me please", "retry me please"])
         #expect(!viewModel.transcript.contains { $0.id == errorId })
 
         runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
-        try await waitUntil { !viewModel.isSending }
+        await viewModel.awaitSendCompletion()
     }
 
     @Test("A thrown runner error captures the prompt for retry (STAB-5)")
@@ -789,7 +796,7 @@ struct ChatViewModelTests {
 
         viewModel.send("will throw")
 
-        try await waitUntil { !viewModel.isSending }
+        await viewModel.awaitSendCompletion()
 
         guard case let .error(_, message, retryPrompt) = viewModel.transcript[1] else {
             Issue.record("Expected thrown failure to be shown as an error item")
@@ -805,7 +812,7 @@ struct ChatViewModelTests {
         let viewModel = ChatViewModel(timelineId: UUID(), runner: runner)
 
         viewModel.send("in flight")
-        try await waitUntil { runner.continuation != nil }
+        await runner.waitUntilContinuationCount(1)
 
         let errorId = UUID()
         viewModel.retryFailedTurn(errorId: errorId)
@@ -815,7 +822,7 @@ struct ChatViewModelTests {
 
         runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
-        try await waitUntil { !viewModel.isSending }
+        await viewModel.awaitSendCompletion()
     }
 
     @Test("Streamed deltas update the correct assistant item in a pre-populated transcript (STAB-9)")
@@ -846,7 +853,11 @@ struct ChatViewModelTests {
         )
 
         viewModel.send("stream me")
-        try await waitUntil { viewModel.transcript.count == 6 }
+        // consume appends the assistant placeholder (and records its index) before
+        // calling runner.run, so the continuation-count signal guarantees the
+        // placeholder is in place — event-driven, no deadline poll (YAK-44).
+        await runner.waitUntilContinuationCount(1)
+        #expect(viewModel.transcript.count == 6)
 
         // The new assistant item is at index 5 (user send at 4, assistant at 5); the
         // recorded index should point there, not at the earlier assistant at index 1.
@@ -885,7 +896,7 @@ struct ChatViewModelTests {
 
         runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
-        try await waitUntil { !viewModel.isSending }
+        await viewModel.awaitSendCompletion()
 
         // On turn completion the recorded index is cleared so it is never trusted
         // across turns.
@@ -964,7 +975,7 @@ struct ChatViewModelTests {
         let viewModel = ChatViewModel(timelineId: UUID(), runner: runner)
 
         viewModel.send("do something")
-        try await waitUntil { runner.continuation != nil }
+        await runner.waitUntilContinuationCount(1)
 
         // Stream visible content first so the assistant item has
         // `hasVisibleTranscriptContent`, which makes `finalizeFailedTurn` keep it
@@ -980,7 +991,7 @@ struct ChatViewModelTests {
         // by appending an `.error` row — the recorded index must remain valid across
         // that mutation so the right item is finalized.
         runner.continuation?.yield(.error("the provider failed"))
-        try await waitUntil { !viewModel.isSending }
+        await viewModel.awaitSendCompletion()
 
         // transcript: [user(0), assistant(1), error(2)]
         #expect(viewModel.transcript.count == 3)
@@ -1041,11 +1052,17 @@ private struct ThrowingRunner: ChatRunning {
     }
 }
 
-/// Polls a `@MainActor` condition without a fixed sleep duration baked into the
-/// test itself; used only to await effects of a `Task` the view model spawned
-/// internally (there is no other synchronization point to hook since `send` is
-/// fire-and-forget by design). Each poll step is a minimal `Task.yield`-scale
-/// sleep, bounded by an overall timeout so a real bug fails fast instead of hanging.
+/// Bounded poll for a `@MainActor` condition. This is a **last-resort backstop**
+/// (YAK-44): it is used ONLY to observe transient mid-stream state for which no
+/// turn-completion signal exists — specifically, assistant text deltas yielded by
+/// the scripted stream BEFORE the test finishes it (e.g. `reconstructedText ==
+/// "Hello "` after a `.generation` yield). Awaiting `viewModel.awaitSendCompletion()`
+/// would be wrong here: the turn is intentionally still in flight (the stream is not
+/// finished), so awaiting completion would deadlock. Turn-completion waits MUST use
+/// `awaitSendCompletion()`; run/continuation arrival MUST use the runner's
+/// `waitUntilRunCount`/`waitUntilContinuationCount`. Each poll step is a minimal
+/// `Task.yield`-scale sleep; the overall timeout only exists so a real bug fails fast
+/// instead of hanging.
 @MainActor
 private func waitUntil(
     timeout: Duration = .seconds(2),
@@ -1061,6 +1078,12 @@ private func waitUntil(
     }
 }
 
+/// Bounded poll for an async `@MainActor` condition. Same last-resort rationale as
+/// `waitUntil` (YAK-44): used only to observe a transient mid-flight timeline state
+/// (e.g. `.running` published before the stream is finished) where awaiting
+/// `viewModel.awaitSendCompletion()` would deadlock because the test has not yet
+/// ended the stream. Turn-completion and terminal-state (`blocked`/`cancelled`/
+/// `failed`) waits use `awaitSendCompletion()` instead.
 @MainActor
 private func waitUntilAsync(
     timeout: Duration = .seconds(2),
