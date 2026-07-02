@@ -186,6 +186,14 @@ public final class ChatViewModel {
     /// Cancels the in-flight turn, if any. The underlying stream observes task
     /// cancellation; `consume` records `isCancelled` on the in-progress turn state
     /// when the loop is interrupted this way.
+    ///
+    /// STAB-11: idempotent — `sendTask?.cancel()` is a no-op when no turn is in flight
+    /// and when the task is already cancelled/completed — so it is safe to invoke from
+    /// multiple view-lifecycle hooks that may overlap. `ChatView` calls this both when
+    /// `buildViewModelIfNeeded` is about to replace this view model (conversation switch,
+    /// persona/typed-reply/follow-up toggle, workspace attach/detach) and from
+    /// `.onDisappear` (window close / navigating away to no selection), ensuring a stream
+    /// mid-turn is never left running invisibly after the view model is orphaned.
     public func cancel() {
         sendTask?.cancel()
     }

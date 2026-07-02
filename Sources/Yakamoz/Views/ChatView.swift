@@ -171,6 +171,17 @@ struct ChatView: View {
         .onChange(of: coordinator.focusComposerToken) { _, _ in
             composerFocusToken += 1
         }
+        // STAB-11: window close / navigating to no selection removes this `ChatView`
+        // from the tree. That path doesn't go through `buildViewModelIfNeeded`, so the
+        // replacement-site cancel there doesn't cover it; without this hook an in-flight
+        // `sendTask` would keep running (retained by the runtime) until the stream ends
+        // on its own. `cancel()` is idempotent, so overlapping with the rebuild path is
+        // a harmless no-op. In a `NavigationSplitView` detail this view keeps its identity
+        // across conversation switches (no recreate), so `onDisappear` only fires on
+        // actual removal — not on switching between conversations.
+        .onDisappear {
+            viewModel?.cancel()
+        }
     }
 
     /// A composite key over the settings that influence how the `ChatViewModel` is built.
@@ -332,6 +343,17 @@ struct ChatView: View {
 
     private func buildViewModelIfNeeded() async {
         guard let runtime else { return }
+        // STAB-11: this rebuild replaces `viewModel` with a fresh instance (loaded from
+        // the persisted transcript) on conversation switch, persona/typed-reply/follow-up
+        // toggle, and workspace attach/detach. None of those previously cancelled the
+        // outgoing view model's in-flight `sendTask`, so a stream mid-turn kept running
+        // invisibly — retained by the concurrency runtime (and by `consume`'s strong-`self`
+        // dispatch) even after `viewModel = chat` dropped the only `@State` reference —
+        // continuing to consume the ChatEngine pipeline and persist via the inspector.
+        // Cancel the outgoing model first so its turn finalizes as cancelled and the
+        // task can release it. `cancel()` is idempotent, so this is safe when nothing is
+        // in flight and safe to run again from `.onDisappear` on window close.
+        viewModel?.cancel()
         workspacePromptId = nil
         // Idempotent backfill: move legacy single-workspace attachment into the array on rebuild.
         WorkspaceAttachmentSupport.backfillLegacyAttachment(conversation)

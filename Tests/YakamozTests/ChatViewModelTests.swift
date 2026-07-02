@@ -411,6 +411,42 @@ struct ChatViewModelTests {
         #expect(await states.snapshot().suffix(1).first == .cancelled)
     }
 
+    @Test("cancel() is idempotent — extra calls around finalization are no-ops (STAB-11)")
+    func cancelIsIdempotentAcrossLifecycleHooks() async throws {
+        // `ChatView` now invokes `cancel()` from several view-lifecycle hooks that may
+        // overlap (the `buildViewModelIfNeeded` replacement site plus `.onDisappear` on
+        // window close). That is only safe because `cancel()` is idempotent: a nil or
+        // already-cancelled/completed `sendTask` makes `sendTask?.cancel()` a no-op.
+        let runner = ScriptedRunner()
+        let viewModel = ChatViewModel(timelineId: UUID(), runner: runner)
+
+        // No turn in flight: cancel is a no-op and leaves the view model untouched.
+        viewModel.cancel()
+        #expect(!viewModel.isSending)
+        #expect(viewModel.transcript.isEmpty)
+
+        viewModel.send("streaming turn")
+        await runner.waitUntilContinuationCount(1)
+
+        // Multiple hooks may fire before/during finalization; each extra cancel is a no-op.
+        viewModel.cancel()
+        viewModel.cancel()
+        viewModel.cancel()
+
+        try await waitUntil { !viewModel.isSending }
+
+        guard case let .assistant(_, turn) = viewModel.transcript.last else {
+            Issue.record("Expected final transcript item to be .assistant")
+            return
+        }
+        #expect(turn.isCancelled)
+
+        // After finalization the sendTask reference is completed; further cancels (e.g. a
+        // late `.onDisappear`) remain no-ops and do not mutate state or throw.
+        viewModel.cancel()
+        #expect(!viewModel.isSending)
+    }
+
     @Test("A surfaced .error(message:) event sets errorMessage on the view model")
     func errorEventSurfacesMessage() async throws {
         let runner = ScriptedRunner()
