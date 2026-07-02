@@ -296,6 +296,11 @@ public final class ChatViewModel {
             let message = ErrorKit.userFriendlyMessage(for: error)
             errorMessage = message
             state.errorMessage = message
+            // Carry the structured error identity (STAB-6) so `timelineState`
+            // classifies blocked/approval errors via domain+code rather than the
+            // message string; non-PKError errors leave `errorIdentity == nil`
+            // and are intentionally treated as a plain failure.
+            state.errorIdentity = ChatEvent.ErrorIdentity.extracting(from: error)
             Log.chat.error(
                 "turn execution failed",
                 metadata: ["conversationID": "\(timelineId)", "turnIndex": "\(state.turnIndex)"]

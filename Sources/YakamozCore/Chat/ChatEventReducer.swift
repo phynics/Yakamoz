@@ -82,6 +82,12 @@ public struct ChatTurnState: Sendable, Equatable {
     public var isComplete = false
     public var isCancelled = false
     public var errorMessage: String?
+    /// Structured identity of the error that set `errorMessage`, carried so the
+    /// timeline state can be classified by `PKError` domain+code rather than by
+    /// sniffing `errorMessage` substrings (STAB-6). `nil` for bare-string
+    /// `.error` events and non-`PKError` thrown errors, in which case the turn is
+    /// intentionally classified as a plain failure rather than blocked.
+    public var errorIdentity: ChatEvent.ErrorIdentity?
 
     public init(turnIndex: Int) {
         self.turnIndex = turnIndex
@@ -105,8 +111,17 @@ public struct ChatTurnState: Sendable, Equatable {
         if isCancelled {
             return .cancelled
         }
-        if let errorMessage {
-            return isBlockedError(errorMessage) ? .blocked : .failed
+        if errorMessage != nil {
+            // Classify by structured error identity (STAB-6) rather than message
+            // substrings: a `.blocked` state requires a blocked `errorIdentity`.
+            // A bare-string `.error` event or a non-`PKError` thrown error leaves
+            // `errorIdentity == nil`, which intentionally falls back to `.failed`
+            // — this is safer than the old keyword sniffing, which misclassified
+            // provider failures containing words like "denied" as blocked.
+            if let errorIdentity, errorIdentity.isBlocked {
+                return .blocked
+            }
+            return .failed
         }
         if isComplete {
             return .completed
@@ -207,15 +222,6 @@ public struct ChatTurnState: Sendable, Equatable {
             outputTokens: response.outputTokens
         )
     }
-
-    private func isBlockedError(_ message: String) -> Bool {
-        let normalized = message.lowercased()
-        return normalized.contains("denied")
-            || normalized.contains("not approved")
-            || normalized.contains("approval")
-            || normalized.contains("disallowed")
-            || normalized.contains("outside the allowed")
-    }
 }
 
 /// A single entry in the chat transcript shown to the user: either a persisted
@@ -308,8 +314,9 @@ public enum ChatEventReducer {
         case .error(event: .generationCancelled):
             state.isCancelled = true
 
-        case let .error(event: .error(message: message)):
+        case let .error(event: .error(message: message, identity: identity)):
             state.errorMessage = message
+            state.errorIdentity = identity
 
         case .completion(event: .streamCompleted):
             state.isComplete = true

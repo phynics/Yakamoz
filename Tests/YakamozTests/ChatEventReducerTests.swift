@@ -235,13 +235,61 @@ struct ChatEventReducerTests {
         #expect(state.timelineState == .failed)
     }
 
-    @Test("approval-style errors map to blocked timeline state")
+    @Test("approval-style errors map to blocked timeline state by error identity (STAB-6)")
     func approvalErrorMapsToBlockedState() {
         var state = ChatTurnState(turnIndex: 0)
         let now = clock.now
 
-        ChatEventReducer.reduce(.error("Command denied by user."), into: &state, now: now)
+        ChatEventReducer.reduce(.error(ToolError.permissionDenied("rm")), into: &state, now: now)
 
+        #expect(state.errorIdentity == ChatEvent.ErrorIdentity(domain: PKErrorDomain.tool, code: 210))
+        #expect(state.timelineState == .blocked)
+    }
+
+    @Test("A non-blocked PKError identity maps to failed (not blocked)")
+    func nonBlockedIdentityMapsToFailed() {
+        var state = ChatTurnState(turnIndex: 0)
+        let now = clock.now
+
+        // executionFailed carries tool domain code 203 — not in the blocked set.
+        ChatEventReducer.reduce(.error(ToolError.executionFailed("timeout")), into: &state, now: now)
+
+        #expect(state.errorIdentity == ChatEvent.ErrorIdentity(domain: PKErrorDomain.tool, code: 203))
+        #expect(state.errorMessage?.contains("Failed to execute") == true)
+        #expect(state.timelineState == .failed)
+    }
+
+    @Test("An error message containing 'denied' but with a nil identity maps to failed (STAB-6 regression)")
+    func deniedInMessageButNilIdentityMapsToFailed() {
+        var state = ChatTurnState(turnIndex: 0)
+        let now = clock.now
+
+        // The exact regression the ticket describes: a provider error body that
+        // happens to contain the word "denied" must NOT be classified as blocked.
+        // A bare-string `.error` carries identity == nil, which falls back to .failed.
+        ChatEventReducer.reduce(
+            .error("The provider denied the request: HTTP 429 rate limited."),
+            into: &state,
+            now: now
+        )
+
+        #expect(state.errorIdentity == nil)
+        #expect(state.errorMessage?.contains("denied") == true)
+        #expect(state.timelineState == .failed)
+    }
+
+    @Test("A disallowed-tools identity also classifies as blocked")
+    func disallowedToolsIdentityMapsToBlocked() {
+        var state = ChatTurnState(turnIndex: 0)
+        let now = clock.now
+
+        ChatEventReducer.reduce(
+            .error(ToolError.attachedToolsDisallowedOnPrivateTimeline),
+            into: &state,
+            now: now
+        )
+
+        #expect(state.errorIdentity == ChatEvent.ErrorIdentity(domain: PKErrorDomain.tool, code: 207))
         #expect(state.timelineState == .blocked)
     }
 

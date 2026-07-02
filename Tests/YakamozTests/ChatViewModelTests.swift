@@ -378,7 +378,7 @@ struct ChatViewModelTests {
         #expect(await states.snapshot().suffix(1).first == .failed)
     }
 
-    @Test("Approval-style errors publish blocked timeline state")
+    @Test("Approval-style errors publish blocked timeline state by structured identity (STAB-6)")
     func approvalErrorPublishesBlockedState() async throws {
         let runner = ScriptedRunner()
         let states = LockedStateLog()
@@ -393,7 +393,10 @@ struct ChatViewModelTests {
         viewModel.send("run blocked command")
         try await Task.sleep(for: .milliseconds(10))
 
-        runner.continuation?.yield(.error("Command denied by user."))
+        // Yield a structured PKError (permission denied) so the reducer carries the
+        // blocked identity and the timeline state classifies as `.blocked`. A
+        // bare-string "denied" message would now (correctly) classify as `.failed`.
+        runner.continuation?.yield(.error(ToolError.permissionDenied("rm")))
         try await waitUntilAsync { await states.snapshot().suffix(1).first == .blocked }
     }
 
@@ -441,6 +444,25 @@ struct ChatViewModelTests {
             return
         }
         #expect(message == expected)
+    }
+
+    @Test("A thrown blocked PKError publishes a blocked timeline state (STAB-6)")
+    func thrownBlockedPKErrorPublishesBlockedState() async throws {
+        let thrown = ToolError.permissionDenied("rm")
+        let runner = ThrowingRunner(error: thrown)
+        let states = LockedStateLog()
+        let viewModel = ChatViewModel(
+            timelineId: UUID(),
+            runner: runner,
+            onTimelineStateChange: { state in
+                await states.append(state)
+            }
+        )
+
+        viewModel.send("this will throw a blocked error")
+
+        try await waitUntilAsync { await states.snapshot().suffix(1).first == .blocked }
+        #expect(viewModel.errorMessage == thrown.userFriendlyMessage)
     }
 
     @Test("A chat prompt can be presented and dismissed without becoming a message")
