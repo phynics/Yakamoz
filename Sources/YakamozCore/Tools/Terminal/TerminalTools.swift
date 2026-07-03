@@ -460,7 +460,10 @@ public struct TerminalReadOutputTool: Tool, Sendable {
         }
 
         guard let commandId = UUID(uuidString: commandIdStr) else {
-            return .failure("Invalid command_id UUID format.")
+            return .failure(
+                "Invalid command_id: '\(commandIdStr)' is not a UUID. Pass the `command_id` returned " +
+                    "by a prior `terminal_run` call (e.g. \"1E3C…\"), not the command text."
+            )
         }
 
         let offset = params.optional("offset", as: Int.self) ?? 0
