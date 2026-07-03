@@ -421,7 +421,7 @@ public actor YakamozRuntime: ChatRunning {
     ///
     /// `internal` so `YakamozTests` can exercise the reconstruction directly with seeded
     /// `ConversationMessage` values (see `TranscriptReloadToolTraceTests`).
-    internal static func transcriptItems(from messages: [ConversationMessage]) -> [TranscriptItem] {
+    static func transcriptItems(from messages: [ConversationMessage]) -> [TranscriptItem] {
         var assistantTurnIndex = 0
         var nextInspectionTurnIndex = 0
         var transcript: [TranscriptItem] = []
@@ -462,33 +462,53 @@ public actor YakamozRuntime: ChatRunning {
             // The persisted `.tool`-role message carries the call's `toolCallId` and a
             // `content` of either the tool's output or `"Error: <message>"` (see
             // `ToolTurnProjector.projectError`); that prefix distinguishes failed runs.
-            for (callId, resultMessage) in pendingToolResults {
+            //
+            // Dictionary iteration order is not guaranteed, so results are processed in a
+            // deterministic order: matched results first (in `toolOrder`'s existing order,
+            // driven by the persisted calls), then orphaned results (no matching persisted
+            // call) sorted by timestamp ascending, `id` as tiebreaker, before being
+            // appended to `toolOrder`.
+            let orderedOrphanResults = pendingToolResults
+                .filter { !turn.tools.keys.contains($0.key) }
+                .sorted { lhs, rhs in
+                    if lhs.value.timestamp != rhs.value.timestamp {
+                        return lhs.value.timestamp < rhs.value.timestamp
+                    }
+                    return lhs.value.id.uuidString < rhs.value.id.uuidString
+                }
+                .map(\.key)
+
+            for callId in turn.toolOrder {
+                guard var trace = turn.tools[callId], let resultMessage = pendingToolResults[callId] else { continue }
                 let content = resultMessage.content
                 let isFailure = content.hasPrefix(Self.toolErrorPrefix)
-                if var trace = turn.tools[callId] {
-                    if isFailure {
-                        trace.state = .failed
-                        trace.error = String(content.dropFirst(Self.toolErrorPrefix.count))
-                    } else {
-                        trace.state = .succeeded
-                        trace.output = content
-                    }
-                    turn.tools[callId] = trace
+                if isFailure {
+                    trace.state = .failed
+                    trace.error = String(content.dropFirst(Self.toolErrorPrefix.count))
                 } else {
-                    // A result without a persisted call: surface it for parity, naming
-                    // the trace by its call id so the UI still renders a badge.
-                    if !turn.toolOrder.contains(callId) {
-                        turn.toolOrder.append(callId)
-                    }
-                    let trace = ToolTrace(
-                        id: callId,
-                        name: callId,
-                        state: isFailure ? .failed : .succeeded,
-                        output: isFailure ? nil : content,
-                        error: isFailure ? String(content.dropFirst(Self.toolErrorPrefix.count)) : nil
-                    )
-                    turn.tools[callId] = trace
+                    trace.state = .succeeded
+                    trace.output = content
                 }
+                turn.tools[callId] = trace
+            }
+
+            for callId in orderedOrphanResults {
+                guard let resultMessage = pendingToolResults[callId] else { continue }
+                let content = resultMessage.content
+                let isFailure = content.hasPrefix(Self.toolErrorPrefix)
+                // A result without a persisted call: surface it for parity, naming
+                // the trace by its call id so the UI still renders a badge.
+                if !turn.toolOrder.contains(callId) {
+                    turn.toolOrder.append(callId)
+                }
+                let trace = ToolTrace(
+                    id: callId,
+                    name: callId,
+                    state: isFailure ? .failed : .succeeded,
+                    output: isFailure ? nil : content,
+                    error: isFailure ? String(content.dropFirst(Self.toolErrorPrefix.count)) : nil
+                )
+                turn.tools[callId] = trace
             }
 
             transcript.append(.assistant(id: lastMessage.id, turn: turn))

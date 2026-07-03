@@ -7,65 +7,6 @@ import SwiftData
 import Testing
 @testable import YakamozCore
 
-private final class AsyncCounter: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value = 0
-    private var waiters: [(target: Int, continuation: CheckedContinuation<Void, Never>)] = []
-
-    func increment() {
-        let ready: [CheckedContinuation<Void, Never>]
-        lock.lock()
-        value += 1
-        var pending: [(target: Int, continuation: CheckedContinuation<Void, Never>)] = []
-        var matched: [CheckedContinuation<Void, Never>] = []
-        for waiter in waiters {
-            if value >= waiter.target {
-                matched.append(waiter.continuation)
-            } else {
-                pending.append(waiter)
-            }
-        }
-        waiters = pending
-        ready = matched
-        lock.unlock()
-
-        for continuation in ready {
-            continuation.resume()
-        }
-    }
-
-    func wait(until target: Int) async {
-        if hasReached(target) {
-            return
-        }
-
-        await withCheckedContinuation { continuation in
-            enqueue(continuation, until: target)
-        }
-    }
-
-    private func hasReached(_ target: Int) -> Bool {
-        lock.lock()
-        if value >= target {
-            lock.unlock()
-            return true
-        }
-        lock.unlock()
-        return false
-    }
-
-    private func enqueue(_ continuation: CheckedContinuation<Void, Never>, until target: Int) {
-        lock.lock()
-        if value >= target {
-            lock.unlock()
-            continuation.resume()
-        } else {
-            waiters.append((target, continuation))
-            lock.unlock()
-        }
-    }
-}
-
 /// A scripted `ChatRunning` fake: the test drives a hand-built `AsyncThrowingStream`
 /// via its continuation, so `ChatViewModel` tests are deterministic and network-free.
 /// No real `ChatEngine`/`PositronicKit` instance is constructed.
@@ -132,7 +73,7 @@ struct ChatViewModelTests {
     }
 
     @Test("Sending a message immediately inserts a user transcript item and sets isSending")
-    func sendInsertsUserItemAndSetsIsSending() async throws {
+    func sendInsertsUserItemAndSetsIsSending() async {
         let runner = ScriptedRunner()
         let viewModel = ChatViewModel(timelineId: UUID(), runner: runner)
 
@@ -193,7 +134,7 @@ struct ChatViewModelTests {
     }
 
     @Test("Sending while already sending is a no-op")
-    func sendWhileSendingIsNoOp() async throws {
+    func sendWhileSendingIsNoOp() async {
         let runner = ScriptedRunner()
         let viewModel = ChatViewModel(timelineId: UUID(), runner: runner)
 
@@ -212,7 +153,7 @@ struct ChatViewModelTests {
     }
 
     @Test("Typed reply conversations forward the structured output schema to the runner")
-    func typedReplyConversationsForwardStructuredOutputSchema() async throws {
+    func typedReplyConversationsForwardStructuredOutputSchema() async {
         let runner = ScriptedRunner()
         let viewModel = ChatViewModel(
             timelineId: UUID(),
@@ -360,7 +301,7 @@ struct ChatViewModelTests {
     }
 
     @Test("A clean empty stream surfaces an explicit empty-response notice")
-    func emptyStreamSurfacesNotice() async throws {
+    func emptyStreamSurfacesNotice() async {
         let runner = ScriptedRunner()
         let viewModel = ChatViewModel(
             timelineId: UUID(),
@@ -385,7 +326,7 @@ struct ChatViewModelTests {
     }
 
     @Test("Cancelling marks the in-flight turn as cancelled and stops sending")
-    func cancelMarksTurnCancelled() async throws {
+    func cancelMarksTurnCancelled() async {
         let runner = ScriptedRunner()
         let states = LockedStateLog()
         let viewModel = ChatViewModel(
@@ -412,7 +353,7 @@ struct ChatViewModelTests {
     }
 
     @Test("cancel() is idempotent — extra calls around finalization are no-ops (STAB-11)")
-    func cancelIsIdempotentAcrossLifecycleHooks() async throws {
+    func cancelIsIdempotentAcrossLifecycleHooks() async {
         // `ChatView` now invokes `cancel()` from several view-lifecycle hooks that may
         // overlap (the `buildViewModelIfNeeded` replacement site plus `.onDisappear` on
         // window close). That is only safe because `cancel()` is idempotent: a nil or
@@ -448,7 +389,7 @@ struct ChatViewModelTests {
     }
 
     @Test("A surfaced .error(message:) event sets errorMessage on the view model")
-    func errorEventSurfacesMessage() async throws {
+    func errorEventSurfacesMessage() async {
         let runner = ScriptedRunner()
         let states = LockedStateLog()
         let viewModel = ChatViewModel(
@@ -488,7 +429,7 @@ struct ChatViewModelTests {
     }
 
     @Test("Approval-style errors publish blocked timeline state by structured identity (STAB-6)")
-    func approvalErrorPublishesBlockedState() async throws {
+    func approvalErrorPublishesBlockedState() async {
         let runner = ScriptedRunner()
         let states = LockedStateLog()
         let viewModel = ChatViewModel(
@@ -514,7 +455,7 @@ struct ChatViewModelTests {
     }
 
     @Test("A thrown error from the runner surfaces as errorMessage and marks the turn errored")
-    func thrownErrorSurfacesMessage() async throws {
+    func thrownErrorSurfacesMessage() async {
         struct BoomError: Error, LocalizedError {
             var errorDescription: String? {
                 "boom"
@@ -540,7 +481,7 @@ struct ChatViewModelTests {
     }
 
     @Test("A thrown PKError surfaces its userFriendlyMessage without the [domain:code] prefix (STAB-4)")
-    func thrownPKErrorSurfacesUserFriendlyMessage() async throws {
+    func thrownPKErrorSurfacesUserFriendlyMessage() async {
         let thrown = ToolError.missingArgument("query")
         let runner = ThrowingRunner(error: thrown)
         let viewModel = ChatViewModel(timelineId: UUID(), runner: runner)
@@ -560,7 +501,7 @@ struct ChatViewModelTests {
     }
 
     @Test("A thrown blocked PKError publishes a blocked timeline state (STAB-6)")
-    func thrownBlockedPKErrorPublishesBlockedState() async throws {
+    func thrownBlockedPKErrorPublishesBlockedState() async {
         let thrown = ToolError.permissionDenied("rm")
         let runner = ThrowingRunner(error: thrown)
         let states = LockedStateLog()
@@ -608,7 +549,7 @@ struct ChatViewModelTests {
     }
 
     @Test("Prompt rows do not affect the next assistant turn index")
-    func promptRowsDoNotAffectTurnIndexing() async throws {
+    func promptRowsDoNotAffectTurnIndexing() async {
         let runner = ScriptedRunner()
         let viewModel = ChatViewModel(
             timelineId: UUID(),
@@ -636,7 +577,7 @@ struct ChatViewModelTests {
     }
 
     @Test("Turn selection tracks the most recently started turn")
-    func turnSelectionTracksLatestTurn() async throws {
+    func turnSelectionTracksLatestTurn() async {
         let runner = ScriptedRunner()
         let viewModel = ChatViewModel(timelineId: UUID(), runner: runner)
 
@@ -758,7 +699,7 @@ struct ChatViewModelTests {
     }
 
     @Test("A failed turn's error row carries the captured prompt and retry resubmits it (STAB-5)")
-    func failedTurnErrorCarriesPromptAndRetryResubmits() async throws {
+    func failedTurnErrorCarriesPromptAndRetryResubmits() async {
         let runner = ScriptedRunner()
         let viewModel = ChatViewModel(timelineId: UUID(), runner: runner)
 
@@ -787,9 +728,11 @@ struct ChatViewModelTests {
     }
 
     @Test("A thrown runner error captures the prompt for retry (STAB-5)")
-    func thrownErrorCapturesPromptForRetry() async throws {
+    func thrownErrorCapturesPromptForRetry() async {
         struct BoomError: Error, LocalizedError {
-            var errorDescription: String? { "boom" }
+            var errorDescription: String? {
+                "boom"
+            }
         }
         let runner = ThrowingRunner(error: BoomError())
         let viewModel = ChatViewModel(timelineId: UUID(), runner: runner)
@@ -807,7 +750,7 @@ struct ChatViewModelTests {
     }
 
     @Test("retryFailedTurn is a no-op while a turn is in flight (STAB-5)")
-    func retryIsNoOpWhileSending() async throws {
+    func retryIsNoOpWhileSending() async {
         let runner = ScriptedRunner()
         let viewModel = ChatViewModel(timelineId: UUID(), runner: runner)
 
@@ -915,7 +858,7 @@ struct ChatViewModelTests {
             initialTranscript: [
                 .user(id: UUID(), text: "q", timestamp: Date()),
                 .assistant(id: UUID(), turn: ChatTurnState(turnIndex: 3)),
-                .assistant(id: assistantId, turn: initialTurn),  // index 2
+                .assistant(id: assistantId, turn: initialTurn), // index 2
             ]
         )
 

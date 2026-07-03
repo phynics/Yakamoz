@@ -21,7 +21,7 @@ struct TranscriptReloadToolTraceTests {
         )
         let assistantCallId = "call_abc"
         let toolCallsJSON = try Self.encodeJSON([
-            ToolCall(id: assistantCallId, name: "calculator", arguments: ["expression": AnyCodable("2+2")])
+            ToolCall(id: assistantCallId, name: "calculator", arguments: ["expression": AnyCodable("2+2")]),
         ])
         let assistantToolMsg = ConversationMessage(
             timelineId: timelineId, role: .assistant, content: "", toolCalls: toolCallsJSON
@@ -69,7 +69,7 @@ struct TranscriptReloadToolTraceTests {
         let timelineId = UUID()
         let assistantCallId = "call_fail"
         let toolCallsJSON = try Self.encodeJSON([
-            ToolCall(id: assistantCallId, name: "read_file", arguments: ["path": AnyCodable("/secret")])
+            ToolCall(id: assistantCallId, name: "read_file", arguments: ["path": AnyCodable("/secret")]),
         ])
         let assistantToolMsg = ConversationMessage(
             timelineId: timelineId, role: .assistant, content: "", toolCalls: toolCallsJSON
@@ -103,10 +103,10 @@ struct TranscriptReloadToolTraceTests {
         let firstCallId = "call_1"
         let secondCallId = "call_2"
         let firstToolCalls = try Self.encodeJSON([
-            ToolCall(id: firstCallId, name: "ls", arguments: ["path": AnyCodable("/")])
+            ToolCall(id: firstCallId, name: "ls", arguments: ["path": AnyCodable("/")]),
         ])
         let secondToolCalls = try Self.encodeJSON([
-            ToolCall(id: secondCallId, name: "read_file", arguments: ["path": AnyCodable("/tmp/a")])
+            ToolCall(id: secondCallId, name: "read_file", arguments: ["path": AnyCodable("/tmp/a")]),
         ])
 
         let messages: [ConversationMessage] = [
@@ -148,11 +148,11 @@ struct TranscriptReloadToolTraceTests {
         let callA = "call_a"
         let callB = "call_b"
 
-        let messages: [ConversationMessage] = [
+        let messages: [ConversationMessage] = try [
             ConversationMessage(timelineId: timelineId, role: .user, content: "turn 1"),
             ConversationMessage(
                 timelineId: timelineId, role: .assistant, content: "",
-                toolCalls: try Self.encodeJSON([ToolCall(id: callA, name: "calcul", arguments: ["e": AnyCodable("1+1")])])
+                toolCalls: Self.encodeJSON([ToolCall(id: callA, name: "calcul", arguments: ["e": AnyCodable("1+1")])])
             ),
             ConversationMessage(timelineId: timelineId, role: .tool, content: "2", toolCallId: callA),
             ConversationMessage(timelineId: timelineId, role: .assistant, content: "It's 2."),
@@ -160,7 +160,7 @@ struct TranscriptReloadToolTraceTests {
             ConversationMessage(timelineId: timelineId, role: .user, content: "turn 2"),
             ConversationMessage(
                 timelineId: timelineId, role: .assistant, content: "",
-                toolCalls: try Self.encodeJSON([ToolCall(id: callB, name: "calcul", arguments: ["e": AnyCodable("3+3")])])
+                toolCalls: Self.encodeJSON([ToolCall(id: callB, name: "calcul", arguments: ["e": AnyCodable("3+3")])])
             ),
             ConversationMessage(timelineId: timelineId, role: .tool, content: "6", toolCallId: callB),
             ConversationMessage(timelineId: timelineId, role: .assistant, content: "It's 6."),
@@ -203,6 +203,99 @@ struct TranscriptReloadToolTraceTests {
         #expect(turn.tools.isEmpty)
         #expect(turn.response.reconstructedText == "hello!")
         #expect(turn.response.thinking == "greeting")
+    }
+
+    /// Orphaned `.tool`-role results (no matching persisted call — malformed persisted
+    /// state) must sort deterministically by timestamp ascending, not by dictionary
+    /// iteration order, when populating `toolOrder`/`tools` (STAB-14).
+    @Test("orphaned tool results sort by timestamp, not dictionary iteration order")
+    func orphanedToolResultsSortByTimestamp() {
+        let timelineId = UUID()
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+
+        // Deliberately construct orphan ids/timestamps so that neither insertion order
+        // nor natural string/dictionary order of the call ids matches the expected
+        // (timestamp-ascending) order — this would fail under nondeterministic dictionary
+        // iteration if the fix regresses.
+        let orphanZ = ConversationMessage(
+            timelineId: timelineId, role: .tool, content: "third",
+            toolCallId: "call_zzz_last"
+        )
+        let orphanA = ConversationMessage(
+            timelineId: timelineId, role: .tool, content: "first",
+            toolCallId: "call_aaa_first"
+        )
+        let orphanM = ConversationMessage(
+            timelineId: timelineId, role: .tool, content: "second",
+            toolCallId: "call_mmm_middle"
+        )
+
+        // Assign timestamps out of both insertion and alphabetical order: A is latest,
+        // Z is earliest, M is in between — so expected order (Z, M, A) matches neither.
+        var earliest = orphanZ
+        earliest.timestamp = base
+        var middle = orphanM
+        middle.timestamp = base.addingTimeInterval(1)
+        var latest = orphanA
+        latest.timestamp = base.addingTimeInterval(2)
+
+        let assistantFinalMsg = ConversationMessage(
+            timelineId: timelineId, role: .assistant, content: "done"
+        )
+
+        // Insertion order into the reconstruction is A, M, Z (reverse of expected
+        // timestamp order) so a naive dictionary-iteration-order bug would very likely
+        // diverge from the timestamp-sorted expectation.
+        let transcript = YakamozRuntime.transcriptItems(from: [
+            latest, middle, earliest, assistantFinalMsg,
+        ])
+
+        guard case let .assistant(_, turn) = transcript.first(where: { Self.isAssistant($0) }) else {
+            Issue.record("expected an assistant item")
+            return
+        }
+
+        #expect(turn.toolOrder == ["call_zzz_last", "call_mmm_middle", "call_aaa_first"])
+        #expect(turn.tools.count == 3)
+        #expect(turn.tools["call_zzz_last"]?.output == "third")
+        #expect(turn.tools["call_mmm_middle"]?.output == "second")
+        #expect(turn.tools["call_aaa_first"]?.output == "first")
+    }
+
+    /// Orphaned results with identical timestamps break the tie by `id` (UUID string
+    /// ordering) so the order is still deterministic across runs (STAB-14).
+    @Test("orphaned tool results with equal timestamps tie-break by id")
+    func orphanedToolResultsTieBreakById() throws {
+        let timelineId = UUID()
+        let sameTimestamp = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let idLow = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
+        let idHigh = try #require(UUID(uuidString: "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF"))
+
+        let orphanHigh = ConversationMessage(
+            id: idHigh, timelineId: timelineId, role: .tool, content: "high",
+            timestamp: sameTimestamp, toolCallId: "call_high"
+        )
+        let orphanLow = ConversationMessage(
+            id: idLow, timelineId: timelineId, role: .tool, content: "low",
+            timestamp: sameTimestamp, toolCallId: "call_low"
+        )
+        let assistantFinalMsg = ConversationMessage(
+            timelineId: timelineId, role: .assistant, content: "done"
+        )
+
+        // Insert the higher-id orphan first so a bug that preserves insertion order
+        // instead of tie-breaking by id would produce the opposite order.
+        let transcript = YakamozRuntime.transcriptItems(from: [
+            orphanHigh, orphanLow, assistantFinalMsg,
+        ])
+
+        guard case let .assistant(_, turn) = transcript.first(where: { Self.isAssistant($0) }) else {
+            Issue.record("expected an assistant item")
+            return
+        }
+
+        #expect(turn.toolOrder == ["call_low", "call_high"])
     }
 
     // MARK: - Helpers
