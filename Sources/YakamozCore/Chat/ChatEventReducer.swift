@@ -321,6 +321,13 @@ public enum ChatEventReducer {
         case .completion(event: .streamCompleted):
             state.isComplete = true
 
+        // Sidecar-directive events (structured output piggy-backed onto the turn) are
+        // surfaced by `PositronicKit` but not yet consumed by Yakamoz's turn state —
+        // drop them here rather than leaving the switch non-exhaustive. When sidecar
+        // results need to drive UI, route them through `ChatTurnState` here.
+        case .delta(event: .sidecar), .completion(event: .sidecarsCompleted):
+            break
+
         case .delta(event: .thinking), .delta(event: .generation):
             break
         }
