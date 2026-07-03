@@ -13,6 +13,16 @@ struct JournalInspectorView: View {
         inspection.journal
     }
 
+    /// Precomputed volatile-section filtering, extracted to `YakamozCore` so the YAK-16
+    /// regression surface ("everything marked volatile") is unit-testable.
+    private var projection: JournalInspectorProjection {
+        JournalInspectorProjection(inspection: inspection)
+    }
+
+    private var navigation: TurnNavigationBounds {
+        TurnNavigationBounds(currentTurnIndex: inspection.turnIndex)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             navigationBar
@@ -42,11 +52,11 @@ struct JournalInspectorView: View {
     private var navigationBar: some View {
         HStack {
             Button {
-                onSelectTurn(inspection.turnIndex - 1)
+                onSelectTurn(navigation.previousTurnIndex)
             } label: {
                 Image(systemName: "chevron.left")
             }
-            .disabled(!canSelectTurn(inspection.turnIndex - 1))
+            .disabled(!navigation.canSelectPrevious(canSelectTurn))
             .accessibilityLabel("Previous turn")
 
             Text("Turn \(inspection.turnIndex)")
@@ -54,11 +64,11 @@ struct JournalInspectorView: View {
                 .frame(maxWidth: .infinity)
 
             Button {
-                onSelectTurn(inspection.turnIndex + 1)
+                onSelectTurn(navigation.nextTurnIndex)
             } label: {
                 Image(systemName: "chevron.right")
             }
-            .disabled(!canSelectTurn(inspection.turnIndex + 1))
+            .disabled(!navigation.canSelectNext(canSelectTurn))
             .accessibilityLabel("Next turn")
         }
         .buttonStyle(.borderless)
@@ -89,8 +99,7 @@ struct JournalInspectorView: View {
     /// Sections whose semi-stable IDs changed or were added this turn — i.e. the
     /// "volatile" portion of the prompt that re-rendered, as opposed to the stable prefix.
     private var volatileSections: some View {
-        let volatileIDs = Set(journal.changedSemiStableIDs + journal.addedSemiStableIDs)
-        let matches = flatSections().filter { volatileIDs.contains($0.id) }
+        let matches = projection.volatileSections
         return VStack(alignment: .leading, spacing: 4) {
             Text("Volatile sections (\(matches.count))")
                 .font(.caption.weight(.semibold))
@@ -108,19 +117,6 @@ struct JournalInspectorView: View {
                 }
             }
         }
-    }
-
-    /// Flattens the section tree back to a depth-first list so volatile IDs can be matched.
-    private func flatSections() -> [InspectionSectionDTO] {
-        var out: [InspectionSectionDTO] = []
-        func walk(_ nodes: [InspectionSectionNode]) {
-            for node in nodes {
-                out.append(node.section)
-                walk(node.children)
-            }
-        }
-        walk(inspection.sectionTree)
-        return out
     }
 }
 
