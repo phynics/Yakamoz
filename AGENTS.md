@@ -37,6 +37,10 @@ line and (problem / affected `file:line` / before-after code / tests / acceptanc
 Numeric `YAK-N` for the backlog; a lettered batch (e.g. `YAK-TF*`) for a cohesive review set.
 **Update the index** [`../workflow/Yakamoz/tickets/README.md`](../workflow/Yakamoz/tickets/README.md) in the same change
 (table row + Open/Delayed summary; tag titles `[BUG]`/`[SECURITY]`).
+**Archive on close:** move `Done`/`Discarded` ticket files to `../workflow/Yakamoz/tickets/archive/`
+and condense their index rows into the batch's closed-summary line — the tickets directory
+holds only the live backlog (Open/Delayed). Full lifecycle rules: root `../CLAUDE.md`
+("Ticketing system").
 
 ### Executing a ticket
 
