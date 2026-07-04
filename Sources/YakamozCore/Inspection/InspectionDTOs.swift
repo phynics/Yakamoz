@@ -308,6 +308,8 @@ public struct InspectionProjection {
 
         model = TurnInspectionModel(
             conversationId: inspection.timelineId,
+            sendId: inspection.identity.sendId,
+            roundTrip: inspection.identity.roundTrip,
             turnIndex: inspection.turnIndex,
             model: inspection.model,
             sectionsData: sectionsData,
@@ -326,6 +328,7 @@ public struct InspectionProjection {
 /// `Data` inside the actor and return this immutable value instead.
 public struct PersistedTurnInspection: Sendable, Equatable {
     public let conversationId: UUID
+    public let identity: TurnIdentity
     public let turnIndex: Int
     public let model: String
     public let createdAt: Date
@@ -337,6 +340,7 @@ public struct PersistedTurnInspection: Sendable, Equatable {
 
     public init(
         conversationId: UUID,
+        identity: TurnIdentity,
         turnIndex: Int,
         model: String,
         createdAt: Date,
@@ -347,6 +351,7 @@ public struct PersistedTurnInspection: Sendable, Equatable {
         response: ResponseDTO?
     ) {
         self.conversationId = conversationId
+        self.identity = identity
         self.turnIndex = turnIndex
         self.model = model
         self.createdAt = createdAt
@@ -361,6 +366,7 @@ public struct PersistedTurnInspection: Sendable, Equatable {
     public init(model: TurnInspectionModel) throws {
         try self.init(
             conversationId: model.conversationId,
+            identity: TurnIdentity(sendId: model.sendId, roundTrip: model.roundTrip),
             turnIndex: model.turnIndex,
             model: model.model,
             createdAt: model.createdAt,

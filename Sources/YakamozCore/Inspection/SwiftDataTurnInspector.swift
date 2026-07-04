@@ -54,6 +54,20 @@ public actor SwiftDataTurnInspector: TurnInspecting {
         return try PersistedTurnInspection(model: model)
     }
 
+    /// Fetches the persisted projection for a given conversation/send round-trip pair, if any.
+    public func inspection(conversationId: UUID, turnIdentity: TurnIdentity) throws -> PersistedTurnInspection? {
+        var descriptor = FetchDescriptor<TurnInspectionModel>(
+            predicate: #Predicate {
+                $0.conversationId == conversationId
+                    && $0.sendId == turnIdentity.sendId
+                    && $0.roundTrip == turnIdentity.roundTrip
+            }
+        )
+        descriptor.fetchLimit = 1
+        guard let model = try modelContext.fetch(descriptor).first else { return nil }
+        return try PersistedTurnInspection(model: model)
+    }
+
     /// Enriches an already-persisted `TurnInspectionModel` with response metadata
     /// captured after the turn completes (reconstructed text/thinking, model,
     /// finish reason, token usage).
@@ -66,6 +80,21 @@ public actor SwiftDataTurnInspector: TurnInspecting {
     public func updateResponse(conversationId: UUID, turnIndex: Int, response: ResponseDTO) throws {
         let key = "\(conversationId.uuidString):\(turnIndex)"
         var descriptor = FetchDescriptor<TurnInspectionModel>(predicate: #Predicate { $0.id == key })
+        descriptor.fetchLimit = 1
+        guard let model = try modelContext.fetch(descriptor).first else { return }
+        model.responseData = try JSONEncoder().encode(response)
+        try modelContext.save()
+    }
+
+    /// Enriches a send-local round-trip row identified by `TurnIdentity`.
+    public func updateResponse(conversationId: UUID, turnIdentity: TurnIdentity, response: ResponseDTO) throws {
+        var descriptor = FetchDescriptor<TurnInspectionModel>(
+            predicate: #Predicate {
+                $0.conversationId == conversationId
+                    && $0.sendId == turnIdentity.sendId
+                    && $0.roundTrip == turnIdentity.roundTrip
+            }
+        )
         descriptor.fetchLimit = 1
         guard let model = try modelContext.fetch(descriptor).first else { return }
         model.responseData = try JSONEncoder().encode(response)
@@ -85,6 +114,31 @@ public actor SwiftDataTurnInspector: TurnInspecting {
         )
         descriptor.fetchLimit = 1
         return try modelContext.fetch(descriptor).first?.turnIndex
+    }
+
+    /// The highest persisted engine turn index for a single logical send, or `nil` if absent.
+    public func latestTurnIndex(conversationId: UUID, sendId: UUID) throws -> Int? {
+        var descriptor = FetchDescriptor<TurnInspectionModel>(
+            predicate: #Predicate {
+                $0.conversationId == conversationId && $0.sendId == sendId
+            },
+            sortBy: [SortDescriptor(\.roundTrip, order: .reverse)]
+        )
+        descriptor.fetchLimit = 1
+        return try modelContext.fetch(descriptor).first?.turnIndex
+    }
+
+    /// The terminal send-local turn identity for a completed logical send, if any row exists.
+    public func terminalTurnIdentity(conversationId: UUID, sendId: UUID) throws -> TurnIdentity? {
+        var descriptor = FetchDescriptor<TurnInspectionModel>(
+            predicate: #Predicate {
+                $0.conversationId == conversationId && $0.sendId == sendId
+            },
+            sortBy: [SortDescriptor(\.roundTrip, order: .reverse)]
+        )
+        descriptor.fetchLimit = 1
+        guard let model = try modelContext.fetch(descriptor).first else { return nil }
+        return TurnIdentity(sendId: model.sendId, roundTrip: model.roundTrip)
     }
 
     /// Enriches the conversation's most recent inspection row with response metadata.

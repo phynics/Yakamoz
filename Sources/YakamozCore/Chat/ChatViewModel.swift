@@ -6,22 +6,11 @@ import PositronicKit
 
 /// The seam between `ChatViewModel` and `PositronicKit.run`.
 ///
-/// Mirrors the facade's `run(...)` signature exactly so the runtime can pass a
+/// Mirrors the facade's `run(_:)` signature exactly so the runtime can pass a
 /// concrete `ChatRunning` implementation through the same seam that tests replace
 /// with a scripted fake — no network, no real `ChatEngine`, no sleeps.
 public protocol ChatRunning: Sendable {
-    func run(
-        timelineId: UUID,
-        message: String,
-        tools: [AnyTool],
-        toolOutputs: [ToolOutputSubmission]?,
-        systemInstructions: String?,
-        agentInstanceId: UUID?,
-        maxTurns: Int,
-        generationParameters: GenerationParameters?,
-        structuredOutput: StructuredOutputRequest?,
-        promptAssemblyLogger: Logging.Logger?
-    ) async throws -> AsyncThrowingStream<ChatEvent, Error>
+    func run(_ request: ChatRunRequest) async throws -> AsyncThrowingStream<ChatEvent, Error>
 }
 
 /// Main-actor, `@Observable` view model that drives a single chat conversation:
@@ -42,6 +31,7 @@ public final class ChatViewModel {
     public private(set) var isSending = false
     public var selectedTurnIndex: Int?
     public private(set) var selectedInspectionTurnIndex: Int?
+    public private(set) var selectedInspectionIdentity: TurnIdentity?
     public var errorMessage: String?
 
     /// The `ChatTurnState` for `selectedTurnIndex`, if that turn is an assistant turn
@@ -79,6 +69,7 @@ public final class ChatViewModel {
     private let clock: ContinuousClock
     private var nextTurnIndex = 0
     private var nextInspectionTurnIndex = 0
+    private var currentSendId: UUID?
     private var lastPublishedTimelineState: ConversationTimelineState?
 
     /// STAB-9: the index in `transcript` of the assistant item for the
@@ -136,6 +127,9 @@ public final class ChatViewModel {
     public func selectTurn(_ turnIndex: Int?) {
         selectedTurnIndex = turnIndex
         selectedInspectionTurnIndex = inspectionTurnIndex(forTranscriptTurnIndex: turnIndex)
+        if turnIndex == nil {
+            selectedInspectionIdentity = nil
+        }
     }
 
     /// Selects a persisted inspection row directly. Used by the journal navigation buttons,
@@ -144,6 +138,7 @@ public final class ChatViewModel {
         guard let turnIndex else {
             selectedTurnIndex = nil
             selectedInspectionTurnIndex = nil
+            selectedInspectionIdentity = nil
             return
         }
         if let matchingBubble = transcript.first(where: { item in
@@ -171,6 +166,8 @@ public final class ChatViewModel {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !isSending else { return }
 
+        let sendId = UUID()
+        currentSendId = sendId
         let userItem = TranscriptItem.user(id: UUID(), text: trimmed, timestamp: Date())
         transcript.append(userItem)
 
@@ -179,7 +176,7 @@ public final class ChatViewModel {
 
         sendTask = Task { [weak self] in
             await self?.onBeginUserSend?()
-            await self?.consume(trimmed)
+            await self?.consume(trimmed, sendId: sendId)
         }
     }
 
@@ -246,7 +243,7 @@ public final class ChatViewModel {
         self.tools = tools
     }
 
-    private func consume(_ text: String) async {
+    private func consume(_ text: String, sendId: UUID) async {
         let turnIndex = nextTurnIndex
         nextTurnIndex += 1
 
@@ -267,20 +264,22 @@ public final class ChatViewModel {
             // STAB-9: the turn has reached its terminal state; drop the recorded index
             // so it is never trusted across turns.
             activeAssistantItemIndex = nil
+            currentSendId = nil
         }
 
         do {
             let stream = try await runner.run(
-                timelineId: timelineId,
-                message: text,
-                tools: tools,
-                toolOutputs: nil,
-                systemInstructions: systemInstructions,
-                agentInstanceId: agentInstanceId,
-                maxTurns: maxTurns,
-                generationParameters: generationParameters,
-                structuredOutput: structuredOutput,
-                promptAssemblyLogger: nil
+                ChatRunRequest(
+                    timelineId: timelineId,
+                    sendId: sendId,
+                    message: text,
+                    tools: tools,
+                    systemInstructions: systemInstructions,
+                    agentInstanceId: agentInstanceId,
+                    maxTurns: maxTurns,
+                    generationParameters: generationParameters,
+                    structuredOutput: structuredOutput
+                )
             )
 
             eventLoop: for try await event in stream {
@@ -331,7 +330,7 @@ public final class ChatViewModel {
                     state.response.reconstructedText = emptyModelResponseNotice(advertisedTools: !tools.isEmpty)
                 }
                 state.isComplete = true
-                if let persisted = await persistResponse(turnIndex: turnIndex, state: state) {
+                if let persisted = await persistResponse(turnIndex: turnIndex, sendId: sendId, state: state) {
                     state = persisted
                 }
                 updateAssistantItem(id: assistantItemId, turn: state)
@@ -393,6 +392,7 @@ public final class ChatViewModel {
         if selectedTurnIndex == turnIndex {
             selectedTurnIndex = nil
             selectedInspectionTurnIndex = nil
+            selectedInspectionIdentity = nil
         }
     }
 
@@ -420,24 +420,34 @@ public final class ChatViewModel {
     /// `inspectionTurnIndex` still points at the pre-tool-loop guess (see YAK-15).
     /// Returns `nil` if there is no inspector wired, or the index lookup failed, in which
     /// case the caller keeps its already-current `state`.
-    private func persistResponse(turnIndex _: Int, state: ChatTurnState) async -> ChatTurnState? {
+    private func persistResponse(turnIndex _: Int, sendId: UUID, state: ChatTurnState) async -> ChatTurnState? {
         guard let inspector else { return nil }
         do {
             // A single user send can drive several engine LLM round-trips (one per tool
-            // loop), each creating its own inspection row; the final assistant text and
-            // tool traces belong to the *last* of those rows. Target it via the inspector's
-            // latest-turn lookup rather than the view model's single logical turn counter,
-            // so a reloaded conversation reads the response off the engine's final turn.
-            try await inspector.updateLatestResponse(
+            // loop), each creating its own inspection row. Target the terminal round-trip by
+            // the send's stable identity rather than by a conversation-wide latest-row lookup,
+            // so a reloaded conversation reads the response off the correct send-local row.
+            guard let terminalIdentity = try await inspector.terminalTurnIdentity(
                 conversationId: timelineId,
+                sendId: sendId
+            ) else {
+                return nil
+            }
+            try await inspector.updateResponse(
+                conversationId: timelineId,
+                turnIdentity: terminalIdentity,
                 response: enrichedResponseDTO(from: state)
             )
-            guard let latestTurnIndex = try await inspector.latestTurnIndex(conversationId: timelineId) else {
+            guard let latestTurnIndex = try await inspector.latestTurnIndex(
+                conversationId: timelineId,
+                sendId: sendId
+            ) else {
                 return nil
             }
             nextInspectionTurnIndex = latestTurnIndex + 1
             var completedState = state
             completedState.inspectionTurnIndex = latestTurnIndex
+            selectedInspectionIdentity = terminalIdentity
             if selectedTurnIndex == state.turnIndex {
                 selectedInspectionTurnIndex = latestTurnIndex
             }

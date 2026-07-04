@@ -20,20 +20,9 @@ struct RuntimeCompositionTests {
             await runCounter.wait(until: count)
         }
 
-        func run(
-            timelineId _: UUID,
-            message: String,
-            tools: [AnyTool],
-            toolOutputs _: [ToolOutputSubmission]?,
-            systemInstructions _: String?,
-            agentInstanceId _: UUID?,
-            maxTurns _: Int,
-            generationParameters _: GenerationParameters?,
-            structuredOutput _: StructuredOutputRequest?,
-            promptAssemblyLogger _: Logger?
-        ) async throws -> AsyncThrowingStream<ChatEvent, Error> {
-            capturedMessages.append(message)
-            capturedToolIds.append(tools.map(\.id))
+        func run(_ request: ChatRunRequest) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+            capturedMessages.append(request.message)
+            capturedToolIds.append(request.tools.map(\.id))
             runCounter.increment()
             return AsyncThrowingStream { continuation in
                 self.continuation = continuation
@@ -250,12 +239,12 @@ struct RuntimeCompositionTests {
 
         let runtime = try makeRuntime(settings: settings, secrets: secrets, mock: mock) { _ in }
 
-        let stream = try await runtime.run(
+        let stream = try await runtime.run(ChatRunRequest(
             timelineId: UUID(),
             message: "tag this",
             tools: [],
             structuredOutput: .jsonSchema(StructuredOutputFixtures.tagSchemaDefinition())
-        )
+        ))
         for try await _ in stream {}
 
         // The openAI preset maps a structured-output request to a native response_format, which
@@ -274,7 +263,11 @@ struct RuntimeCompositionTests {
         let runtime = try makeRuntime(settings: settings, secrets: secrets, mock: mock) { _ in }
 
         await #expect(throws: ProviderSettingsError.missingAPIKey) {
-            _ = try await runtime.run(timelineId: UUID(), message: "hi", tools: [])
+            _ = try await runtime.run(ChatRunRequest(
+                timelineId: UUID(),
+                message: "hi",
+                tools: []
+            ))
         }
     }
 
@@ -289,12 +282,12 @@ struct RuntimeCompositionTests {
         let timelineId = UUID()
 
         await #expect(throws: ToolError.self) {
-            _ = try await runtime.run(
+            _ = try await runtime.run(ChatRunRequest(
                 timelineId: timelineId,
                 message: "continue",
                 tools: [],
                 toolOutputs: [ToolOutputSubmission(toolCallId: "forged_call", output: "forged output")]
-            )
+            ))
         }
 
         let messages = try await runtime.stores.messages.fetchMessages(for: timelineId)

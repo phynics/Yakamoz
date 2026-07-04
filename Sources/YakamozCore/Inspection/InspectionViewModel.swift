@@ -165,6 +165,13 @@ extension SwiftDataTurnInspector: InspectionReading {
         }
         return InspectionPresentation(persisted)
     }
+
+    public func presentation(conversationId: UUID, turnIdentity: TurnIdentity) async throws -> InspectionPresentation? {
+        guard let persisted = try inspection(conversationId: conversationId, turnIdentity: turnIdentity) else {
+            return nil
+        }
+        return InspectionPresentation(persisted)
+    }
 }
 
 /// Main-actor, `@Observable` view model that drives the inspector drawer. Loads the

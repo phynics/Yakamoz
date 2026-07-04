@@ -119,22 +119,24 @@ struct InspectableChatIntegrationTests {
         let inspector = await runtime.inspector
         let savedInspections = try await loadInspections(inspector, timelineId: timelineId, upTo: 4)
         #expect(savedInspections.map(\.turnIndex) == [0, 1])
+        #expect(savedInspections.map(\.identity.roundTrip) == [0, 1])
+        #expect(savedInspections.map(\.identity.sendId).allSatisfy { $0 == savedInspections[0].identity.sendId })
         #expect(savedInspections[0].sentMessages.last?.content == "Inspect this")
         #expect(savedInspections[1].journal.stablePrefixCount > 0)
 
-        // The final assistant response is enriched onto the engine's last inspection turn
-        // (turn 1) and projects through the inspection read seam.
-        let latestIndex = try #require(try await inspector.latestTurnIndex(conversationId: timelineId))
-        #expect(latestIndex == 1)
-        let latestPresentation = try #require(
-            try await inspector.presentation(conversationId: timelineId, turnIndex: latestIndex)
+        // The final assistant response is enriched onto the terminal round-trip for the send
+        // and can be fetched by identity rather than by a conversation-wide latest-row lookup.
+        let terminalIdentity = try #require(savedInspections.last?.identity)
+        let terminalPresentation = try #require(
+            try await inspector.presentation(conversationId: timelineId, turnIdentity: terminalIdentity)
         )
-        #expect(latestPresentation.response?.reconstructedText == "Inspection complete")
-        #expect(latestPresentation.response?.tools.first?.status == .success)
+        #expect(terminalPresentation.response?.reconstructedText == "Inspection complete")
+        #expect(terminalPresentation.response?.tools.first?.status == .success)
         // The view model still tracks a single logical turn for selection/highlighting.
         #expect(viewModel.selectedTurnIndex == 0)
         // But the inspector follows the persisted row that carries the response/tool traces.
         #expect(viewModel.selectedInspectionTurnIndex == 1)
+        #expect(viewModel.selectedInspectionIdentity == terminalIdentity)
 
         // The transcript persisted as ConversationMessage rows (user + assistant).
         let messages = try await stores.messages.fetchMessages(for: timelineId)
@@ -145,7 +147,7 @@ struct InspectableChatIntegrationTests {
 
         let reopenedInspector = SwiftDataTurnInspector(modelContainer: container)
         let reopened = try #require(
-            try await reopenedInspector.presentation(conversationId: timelineId, turnIndex: 1)
+            try await reopenedInspector.presentation(conversationId: timelineId, turnIdentity: terminalIdentity)
         )
         #expect(reopened.response?.reconstructedText == "Inspection complete")
         let reopenedTools = try #require(reopened.response?.tools)
@@ -382,4 +384,3 @@ struct InspectableChatIntegrationTests {
         return result
     }
 }
-

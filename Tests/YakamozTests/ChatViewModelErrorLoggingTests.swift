@@ -86,18 +86,7 @@ struct ChatViewModelErrorLoggingTests {
 
     /// A `ChatRunning` mock that throws on `run`, driving the turn-failure path.
     private final class ThrowingRunner: ChatRunning, @unchecked Sendable {
-        func run(
-            timelineId _: UUID,
-            message _: String,
-            tools _: [AnyTool],
-            toolOutputs _: [ToolOutputSubmission]?,
-            systemInstructions _: String?,
-            agentInstanceId _: UUID?,
-            maxTurns _: Int,
-            generationParameters _: GenerationParameters?,
-            structuredOutput _: StructuredOutputRequest?,
-            promptAssemblyLogger _: Logger?
-        ) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+        func run(_ request: ChatRunRequest) async throws -> AsyncThrowingStream<ChatEvent, Error> {
             throw NSError(
                 domain: "test",
                 code: -1,

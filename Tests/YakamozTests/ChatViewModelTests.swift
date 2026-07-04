@@ -26,21 +26,10 @@ private final class ScriptedRunner: ChatRunning, @unchecked Sendable {
         await continuationCounter.wait(until: count)
     }
 
-    func run(
-        timelineId _: UUID,
-        message: String,
-        tools _: [AnyTool],
-        toolOutputs _: [ToolOutputSubmission]?,
-        systemInstructions _: String?,
-        agentInstanceId _: UUID?,
-        maxTurns _: Int,
-        generationParameters _: GenerationParameters?,
-        structuredOutput: StructuredOutputRequest?,
-        promptAssemblyLogger _: Logger?
-    ) async throws -> AsyncThrowingStream<ChatEvent, Error> {
-        capturedMessages.append(message)
-        lastStructuredOutput = structuredOutput
-        onRun?(message)
+    func run(_ request: ChatRunRequest) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+        capturedMessages.append(request.message)
+        lastStructuredOutput = request.structuredOutput
+        onRun?(request.message)
         runCounter.increment()
         return AsyncThrowingStream { continuation in
             self.continuation = continuation
@@ -979,18 +968,7 @@ private actor LockedStateLog {
 private struct ThrowingRunner: ChatRunning {
     let error: any Error
 
-    func run(
-        timelineId _: UUID,
-        message _: String,
-        tools _: [AnyTool],
-        toolOutputs _: [ToolOutputSubmission]?,
-        systemInstructions _: String?,
-        agentInstanceId _: UUID?,
-        maxTurns _: Int,
-        generationParameters _: GenerationParameters?,
-        structuredOutput _: StructuredOutputRequest?,
-        promptAssemblyLogger _: Logger?
-    ) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+    func run(_ request: ChatRunRequest) async throws -> AsyncThrowingStream<ChatEvent, Error> {
         throw error
     }
 }

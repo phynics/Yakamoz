@@ -175,6 +175,8 @@ public final class MessageModel {
 public final class TurnInspectionModel {
     @Attribute(.unique) public var id: String
     public var conversationId: UUID
+    public var sendId: UUID
+    public var roundTrip: Int
     public var turnIndex: Int
     public var model: String
     public var createdAt: Date
@@ -186,6 +188,8 @@ public final class TurnInspectionModel {
 
     public init(
         conversationId: UUID,
+        sendId: UUID,
+        roundTrip: Int,
         turnIndex: Int,
         model: String,
         createdAt: Date = .now,
@@ -197,6 +201,8 @@ public final class TurnInspectionModel {
     ) {
         id = "\(conversationId.uuidString):\(turnIndex)"
         self.conversationId = conversationId
+        self.sendId = sendId
+        self.roundTrip = roundTrip
         self.turnIndex = turnIndex
         self.model = model
         self.createdAt = createdAt

@@ -63,7 +63,7 @@ public actor YakamozRuntime: ChatRunning {
     /// Per-timeline prompt-history/journal-diff state (YAK-16), held once for this runtime's
     /// lifetime and injected into every `PositronicKit` instance `makeConfiguredKit()` builds.
     ///
-    /// `run(...)` resolves fresh provider settings/API key on every send, so it calls
+    /// `run(_:)` resolves fresh provider settings/API key on every send, so it calls
     /// `makeConfiguredKit()` which constructs a brand-new `PositronicKit` value per send. If
     /// each of those got `PositronicKit`'s default fresh registry, the inspection-turn-index
     /// counter and prompt-diff baseline would reset every send — the first round-trip of every
@@ -267,7 +267,7 @@ public actor YakamozRuntime: ChatRunning {
 
     /// Builds the per-turn kit with the autonomous-follow-up `plugin` attached. Used by
     /// `FollowUpRunner` so a follow-up-enabled conversation gets the plugin without changing
-    /// the shared `run(...)` path that every other conversation uses.
+    /// the shared `run(_:)` path that every other conversation uses.
     func makeConfiguredKit(addingPlugin plugin: any ChatTurnPlugin) async throws -> PositronicKit {
         try await makeConfiguredKit().addPlugin(plugin)
     }
@@ -297,32 +297,10 @@ public actor YakamozRuntime: ChatRunning {
     }
 
     /// ChatRunning conformance that resolves the latest settings and API key on each turn.
-    public func run(
-        timelineId: UUID,
-        message: String,
-        tools: [AnyTool],
-        toolOutputs: [ToolOutputSubmission]? = nil,
-        systemInstructions: String? = nil,
-        agentInstanceId: UUID? = nil,
-        maxTurns: Int = 5,
-        generationParameters: GenerationParameters? = nil,
-        structuredOutput: StructuredOutputRequest? = nil,
-        promptAssemblyLogger: Logger? = nil
-    ) async throws -> AsyncThrowingStream<ChatEvent, Error> {
-        try Self.rejectExternalToolOutputs(toolOutputs)
+    public func run(_ request: ChatRunRequest) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+        try Self.rejectExternalToolOutputs(request.toolOutputs)
         let kit = try await makeConfiguredKit()
-        return try await kit.run(
-            timelineId: timelineId,
-            message: message,
-            tools: tools,
-            toolOutputs: toolOutputs,
-            systemInstructions: systemInstructions,
-            agentInstanceId: agentInstanceId,
-            maxTurns: maxTurns,
-            generationParameters: generationParameters,
-            structuredOutput: structuredOutput,
-            promptAssemblyLogger: promptAssemblyLogger
-        )
+        return try await kit.run(request)
     }
 
     private static func rejectExternalToolOutputs(_ toolOutputs: [ToolOutputSubmission]?) throws {
@@ -568,7 +546,7 @@ public actor YakamozRuntime: ChatRunning {
 
 /// A `ChatRunning` adapter that routes each turn through a plugin-augmented kit.
 ///
-/// `YakamozRuntime.run(...)` deliberately never attaches `ChatTurnPlugin`s (every
+/// `YakamozRuntime.run(_:)` deliberately never attaches `ChatTurnPlugin`s (every
 /// conversation shares the same runtime). Conversations that opt into autonomous follow-up
 /// run through this adapter instead, which rebuilds the per-turn kit with the conversation's
 /// own `AutonomousFollowUpPlugin` attached. The runtime stays the single composition root;
@@ -577,33 +555,13 @@ struct FollowUpRunner: ChatRunning {
     let runtime: YakamozRuntime
     let plugin: AutonomousFollowUpPlugin
 
-    func run(
-        timelineId: UUID,
-        message: String,
-        tools: [AnyTool],
-        toolOutputs: [ToolOutputSubmission]?,
-        systemInstructions: String?,
-        agentInstanceId: UUID?,
-        maxTurns: Int,
-        generationParameters: GenerationParameters?,
-        structuredOutput: StructuredOutputRequest?,
-        promptAssemblyLogger: Logger?
-    ) async throws -> AsyncThrowingStream<ChatEvent, Error> {
-        guard toolOutputs?.isEmpty != false else {
+    func run(_ request: ChatRunRequest) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+        guard request.toolOutputs?.isEmpty != false else {
             throw ToolError.executionFailed("Yakamoz does not accept external tool output submissions.")
         }
         let kit = try await runtime.makeConfiguredKit(addingPlugin: plugin)
         return try await kit.run(
-            timelineId: timelineId,
-            message: message,
-            tools: tools,
-            toolOutputs: toolOutputs,
-            systemInstructions: systemInstructions,
-            agentInstanceId: agentInstanceId,
-            maxTurns: maxTurns,
-            generationParameters: generationParameters,
-            structuredOutput: structuredOutput,
-            promptAssemblyLogger: promptAssemblyLogger
+            request
         )
     }
 }
