@@ -263,17 +263,23 @@ struct ChatView: View {
         }
     }
 
-    /// The reconstructed-text character count of the last assistant transcript
-    /// item, or `nil` if the transcript is empty / ends in a non-assistant item.
+    /// A single combined growth metric for the last assistant transcript item — UIX-8
+    /// broadens this beyond plain reconstructed-text length (`ScrollFollowPresentation
+    /// .streamingGrowthMetric`) so the mid-stream follow keeps re-triggering during
+    /// thinking-only or tool-only stretches, where text length alone would stall.
     ///
-    /// This value already mutates per streamed token — `ChatViewModel.consume`
-    /// appends a `.assistant(id:turn:)` item once per turn and then mutates that
-    /// same `ChatTurnState.response.reconstructedText` in place via
-    /// `updateAssistantItem` (rewriting the transcript element in place), so the
-    /// count grows monotonically as tokens arrive without ever touching its id.
-    private func lastAssistantReconstructedTextCount(viewModel: ChatViewModel) -> Int {
+    /// This still mutates monotonically per streamed token/thinking-delta/segment —
+    /// `ChatViewModel.consume` appends a `.assistant(id:turn:)` item once per turn and
+    /// then mutates that same `ChatTurnState` in place via `updateAssistantItem`
+    /// (rewriting the transcript element in place), so the metric grows without ever
+    /// touching the item's id.
+    private func lastAssistantStreamingGrowthMetric(viewModel: ChatViewModel) -> Int {
         guard case let .assistant(_, turn) = viewModel.transcript.last else { return 0 }
-        return turn.response.reconstructedText.count
+        return ScrollFollowPresentation.streamingGrowthMetric(
+            reconstructedTextCount: turn.response.reconstructedText.count,
+            thinkingCount: turn.response.thinking.count,
+            segmentCount: turn.turnSegments.count
+        )
     }
 
     /// `true` when the last transcript item is an assistant turn that has not
@@ -311,29 +317,53 @@ struct ChatView: View {
                     isStickyToBottom = isAtBottom
                 }
                 .onChange(of: viewModel.transcript.last?.id) { _, newId in
+                    // UIX-8: a new transcript item (new assistant turn, error row,
+                    // prompt row) never force-pins — it only autoscrolls when the
+                    // user is already pinned to the bottom. Explicit re-pinning
+                    // happens only from the user's own send action (see `send(
+                    // viewModel:)` below), not from arbitrary content growth.
                     guard let newId else { return }
-                    isStickyToBottom = true
+                    guard ScrollFollowPresentation.shouldFollowNewItem(isPinnedToBottom: isStickyToBottom) else { return }
                     withAnimation {
                         proxy.scrollTo(newId, anchor: .bottom)
                     }
                 }
-                .onChange(of: lastAssistantReconstructedTextCount(viewModel: viewModel)) { oldCount, newCount in
+                .onChange(of: lastAssistantStreamingGrowthMetric(viewModel: viewModel)) { oldMetric, newMetric in
                     // STAB-10: the streaming assistant turn reuses one
                     // `TranscriptItem` id for its whole lifetime, so the
                     // `.onChange(of: last?.id)` above fires only when the
                     // bubble first appears. To follow mid-stream content
-                    // growth, also observe the reconstructed-text length of
-                    // the last assistant turn and re-scroll to it per token
+                    // growth, also observe a combined growth metric (UIX-8:
+                    // reconstructed text + thinking + segment count, so
+                    // thinking-only/tool-only stretches still register) for
+                    // the last assistant turn and re-scroll to it per change
                     // — but only while that turn is still streaming and the
                     // user is pinned to the bottom.
-                    guard newCount > oldCount else { return }
+                    guard newMetric > oldMetric else { return }
                     guard let lastId = viewModel.transcript.last?.id else { return }
-                    guard isStickyToBottom else { return }
-                    guard isLastAssistantTurnStreaming(viewModel: viewModel) else { return }
+                    guard ScrollFollowPresentation.shouldFollowStreamingGrowth(
+                        isPinnedToBottom: isStickyToBottom,
+                        isLastTurnStreaming: isLastAssistantTurnStreaming(viewModel: viewModel)
+                    ) else { return }
                     withAnimation {
                         proxy.scrollTo(lastId, anchor: .bottom)
                     }
                 }
+                .overlay(alignment: .bottomTrailing) {
+                    if ScrollFollowPresentation.shouldShowJumpToBottomButton(isPinnedToBottom: isStickyToBottom) {
+                        JumpToBottomButton {
+                            isStickyToBottom = true
+                            if let lastId = viewModel.transcript.last?.id {
+                                withAnimation {
+                                    proxy.scrollTo(lastId, anchor: .bottom)
+                                }
+                            }
+                        }
+                        .padding(16)
+                        .transition(.opacity.combined(with: .scale(scale: 0.85)))
+                    }
+                }
+                .animation(.easeInOut(duration: 0.15), value: isStickyToBottom)
             }
         }
     }
@@ -346,6 +376,12 @@ struct ChatView: View {
     private func send(viewModel: ChatViewModel) {
         let text = draft
         draft = ""
+        // UIX-8: sending is the one deliberate exception to "content events never
+        // force-pin" — the user's own action implies intent to follow the reply, so
+        // explicitly re-pin here. The new user-message transcript item that `send`
+        // appends then trips `.onChange(of: transcript.last?.id)` in
+        // `conversationStack`, which now sees `isStickyToBottom == true` and scrolls.
+        isStickyToBottom = true
         viewModel.send(text)
         // Return keyboard focus to the composer so the user can keep typing without
         // reaching for the mouse.
@@ -532,5 +568,27 @@ struct ChatView: View {
                 "toolID": id,
             ])
         }
+    }
+}
+
+/// UIX-8: floating affordance shown over the transcript when the user has scrolled up
+/// (unpinned from the bottom) — tapping it jumps to the latest content and re-enables
+/// following. Hidden while pinned (`ScrollFollowPresentation.shouldShowJumpToBottomButton`
+/// drives visibility from the call site).
+private struct JumpToBottomButton: View {
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            Image(systemName: "arrow.down")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 32, height: 32)
+                .background(.regularMaterial, in: Circle())
+                .overlay(Circle().stroke(Color(nsColor: .separatorColor), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .shadow(radius: 3, y: 1)
+        .accessibilityLabel("Jump to bottom")
     }
 }
