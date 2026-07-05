@@ -59,6 +59,14 @@ extension EnvironmentValues {
 ///
 /// Shortcuts: Command-N (new chat), Command-I (toggle inspector), Command-1…5 (inspector
 /// tabs). The five tab titles mirror `InspectorTab.allCases` order.
+///
+/// **UIX-3 note:** Command-1…5 only make sense once a turn is selected (Inspect mode) —
+/// Compose mode has no tabs. `Commands` live in the `Scene` and can't reach into
+/// `ChatView`'s `@State` to know whether a turn is selected (see `UICoordinator`'s doc
+/// comment above), so these menu items can't be conditionally `.disabled(...)` here.
+/// Instead `ChatView`'s `.onChange(of: coordinator.inspectorTabRequest.token)` guards on
+/// `viewModel?.selectedInspectionTurnIndex != nil` before applying the request, so pressing
+/// Command-1…5 in Compose mode is a deliberate, documented no-op rather than a silent one.
 struct YakamozCommands: Commands {
     let coordinator: UICoordinator
 

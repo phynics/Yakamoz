@@ -17,6 +17,12 @@ import YakamozCore
 /// `WorkspaceProtocol`/`PositronicKit` directly. `touchedFiles` (from the selected turn's
 /// `ChatTurnState.workspaceFiles`) is the one piece of genuinely turn-scoped data and is
 /// passed in separately.
+///
+/// **UIX-3 note:** this view now only renders in Compose mode (no turn is selected), which
+/// hard-codes `touchedFiles: []` — there is no "selected turn" in Compose mode. The
+/// per-turn touched-files list is surfaced instead in Inspect mode's `ToolsInspectorView`
+/// (see its `touchedFiles` property), which is the view actually shown once a turn is
+/// selected.
 struct WorkspaceInspectorView: View {
     let presentation: WorkspacePresentation?
     let touchedFiles: [String]

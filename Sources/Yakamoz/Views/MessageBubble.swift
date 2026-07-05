@@ -136,6 +136,11 @@ private struct ChatPromptRow: View {
     }
 }
 
+/// UIX-3 decision: tapping a tool row opens its detail popover only — it deliberately does
+/// NOT call `onSelectTurn`/select the owning turn, unlike the assistant bubble button above
+/// it. Selection is the Compose/Inspect mode driver (`RightPanePresentation.mode`), so
+/// making a tool-row tap also select the turn would force-switch the inspector into Inspect
+/// mode as a side effect of what's meant to be a lightweight, transient detail lookup.
 private struct ToolTranscriptRow: View {
     let trace: ToolTrace
     @State private var isShowingDetail = false
@@ -162,8 +167,14 @@ private struct ToolTranscriptRow: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Tool call \(presentation.notation)")
         .popover(isPresented: $isShowingDetail) {
+            // UIX-2 review fix #6: was hard-coded to `.frame(width: 520, height: 360)`
+            // regardless of content, so a one-line result got a mostly-empty 360pt-tall
+            // popover. Size to content instead — `minWidth` keeps short content from looking
+            // cramped, `maxWidth`/`maxHeight` cap it (long content still scrolls inside the
+            // popover's own `ScrollView`).
             ToolTranscriptDetailPopover(presentation: presentation)
-                .frame(width: 520, height: 360)
+                .frame(minWidth: 280, idealWidth: 520, maxWidth: 520, maxHeight: 360)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

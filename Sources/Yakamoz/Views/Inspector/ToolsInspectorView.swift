@@ -23,11 +23,39 @@ struct ToolsInspectorView: View {
         return liveTurn?.toolTraceDTOs ?? []
     }
 
+    /// UIX-3 review fix #1: the selected turn's touched files (from the live,
+    /// in-memory `ChatTurnState.workspaceFiles`) were unreachable after the Compose/Inspect
+    /// split hard-coded `WorkspaceInspectorView(touchedFiles: [])` in Compose mode. Surface
+    /// them here instead — this is Inspect mode's per-turn Tools tab, so it's the natural
+    /// home for turn-scoped tool/file activity. Only the live turn carries this (it isn't
+    /// persisted on `ToolTraceDTO`/`ResponseDTO`), so a reloaded historical turn shows none.
+    private var touchedFiles: [String] {
+        liveTurn?.workspaceFiles ?? []
+    }
+
     var body: some View {
         ScrollView {
-            traceSection
+            VStack(alignment: .leading, spacing: 10) {
+                if !touchedFiles.isEmpty {
+                    touchedFilesSection
+                }
+                traceSection
+            }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var touchedFilesSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Files Touched This Turn")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            ForEach(touchedFiles, id: \.self) { file in
+                Text(file)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+            }
         }
     }
 }

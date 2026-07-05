@@ -135,11 +135,10 @@ struct ChatView: View {
                 TypedReplyControls(conversation: conversation)
             }
 
-            if let providerStatus, let settings = providerSettings {
-                ToolbarItem(placement: .automatic) {
-                    ProviderControlMenu(status: providerStatus, settings: settings)
-                }
-            }
+            // UIX-3 review fix #2: `ProviderControlMenu` used to live in the toolbar, but
+            // Compose mode (InspectorDrawer's default, no-turn-selected pane) now owns
+            // next-turn controls including the provider menu — rendering it here too was a
+            // duplicate control. Compose mode is the single place it renders now.
         }
         .task(id: conversation.id) {
             await buildViewModelIfNeeded()
@@ -160,6 +159,11 @@ struct ChatView: View {
             withAnimation(.snappy) { isInspectorOpen.toggle() }
         }
         .onChange(of: coordinator.inspectorTabRequest.token) { _, _ in
+            // UIX-3 review fix #3: Command-1…5 select a per-turn Inspect tab, but Compose
+            // mode (no turn selected) has no tabs to select — applying the request there
+            // silently did nothing. Only act on the request when a turn is actually
+            // selected, so the shortcut is a deliberate no-op rather than a silent one.
+            guard viewModel?.selectedInspectionTurnIndex != nil else { return }
             let tabs = ["prompt", "sent", "journal", "response", "tools"]
             let index = coordinator.inspectorTabRequest.index
             guard tabs.indices.contains(index) else { return }
