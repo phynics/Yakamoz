@@ -209,9 +209,19 @@ private struct ThinkingSegmentRow: View {
     /// streaming block never auto-reopens. Modeled as `Bool?` rather than a plain `Bool`
     /// precisely so "unset" is representable and distinct from either explicit state.
     @State private var manualExpansion: Bool?
+    /// UIX-11: whether the full-text popover is currently shown. Mirrors the tool-row
+    /// popover pattern (UIX-3): tapping the preview to open the popover must not toggle
+    /// the disclosure or select the turn.
+    @State private var isShowingDetail = false
 
     private var isExpanded: Bool {
         manualExpansion ?? isStreaming
+    }
+
+    /// UIX-11: presentation projecting `thought` into a capped inline preview (tail while
+    /// streaming, head once complete) plus the popover-affordance decision.
+    private var presentation: ThinkingSegmentPresentation {
+        ThinkingSegmentPresentation(thought: thought, isStreaming: isStreaming)
     }
 
     var body: some View {
@@ -224,12 +234,37 @@ private struct ThinkingSegmentRow: View {
                 get: { isExpanded },
                 set: { manualExpansion = $0 }
             )) {
-                Text(thought)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 2)
+                // UIX-11: the inline expanded view never renders more than
+                // `presentation.inlinePreview` (capped to `ThinkingSegmentPresentation
+                // .defaultThreshold` characters) — the live tail while streaming, the head
+                // once complete. Reaching the full text (when it exceeds the cap) is only
+                // available via the popover below.
+                let preview = presentation.inlinePreview
+                VStack(alignment: .leading, spacing: 4) {
+                    if presentation.needsPopover {
+                        Button {
+                            isShowingDetail = true
+                        } label: {
+                            Text(preview)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.plain)
+                        .popover(isPresented: $isShowingDetail) {
+                            ThinkingDetailPopover(fullText: presentation.fullText)
+                                .frame(minWidth: 280, idealWidth: 520, maxWidth: 520, maxHeight: 360)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    } else {
+                        Text(preview)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding(.top, 2)
             } label: {
                 HStack(spacing: 4) {
                     Text("Thinking")
@@ -272,26 +307,18 @@ private struct ToolTranscriptRow: View {
             isShowingDetail = true
         } label: {
             TranscriptRowFrame(presentation: TranscriptRowPresentation(role: .tool, isSelected: false)) {
-                // TEX-2: the model-authored `explanation` argument renders as a secondary
-                // caption above the fx-notation one-liner — visible live, while the call is
-                // still `.attempting` (arrives with the call's streamed arguments), not only
-                // once a result is available. Absent explanation renders exactly as before
-                // (no placeholder line).
-                VStack(alignment: .leading, spacing: 2) {
-                    if let explanation = presentation.explanationText {
-                        Text(explanation)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    HStack(spacing: 8) {
-                        statusIcon
-                        Text(presentation.notation)
-                            .font(.system(.callout, design: .monospaced))
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                        Spacer(minLength: 0)
-                    }
+                // UIX-10: the chat row carries only the human framing — status glyph +
+                // `rowTitle` (the TEX-2 explanation, or the bare tool name when no
+                // explanation is available). The mechanical fx notation
+                // (`name(args) -> result`) no longer renders inline; it moved into the
+                // popover below, alongside the existing Parameters/Response blocks.
+                HStack(spacing: 8) {
+                    statusIcon
+                    Text(presentation.rowTitle)
+                        .font(presentation.rowTitleIsFallbackName ? .system(.callout, design: .monospaced) : .caption)
+                        .foregroundStyle(presentation.rowTitleIsFallbackName ? .primary : .secondary)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
                 }
             }
         }
@@ -325,10 +352,12 @@ private struct ToolTranscriptRow: View {
     }
 
     private var accessibilityLabel: String {
-        if let explanation = presentation.explanationText {
-            return "\(explanation). Tool call \(presentation.notation)"
+        // UIX-10: meaningful label built from `rowTitle` (explanation or name), never the
+        // raw fx notation/arguments.
+        if presentation.rowTitleIsFallbackName {
+            return "Tool call \(presentation.rowTitle)"
         }
-        return "Tool call \(presentation.notation)"
+        return "\(presentation.rowTitle). Tool call"
     }
 }
 
@@ -347,6 +376,14 @@ private struct ToolTranscriptDetailPopover: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
+                    // UIX-10: the fx notation one-liner (`name(args) -> result`) now lives
+                    // only here — it was removed from the inline chat row, which shows just
+                    // the status glyph + explanation/name.
+                    Text(presentation.notation)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.primary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     if !presentation.fullParameters.isEmpty {
                         labeledBlock("Parameters", text: presentation.fullParameters)
                     }
@@ -371,6 +408,35 @@ private struct ToolTranscriptDetailPopover: View {
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+}
+
+/// UIX-11: popover reached only when a thinking segment's text exceeds
+/// `ThinkingSegmentPresentation.defaultThreshold` — mirrors `ToolTranscriptDetailPopover`'s
+/// sizing/scrolling/copy pattern (monospaced, scrollable, `.textSelection(.enabled)`,
+/// sized-to-content with caps) so the two popover surfaces feel like one system.
+private struct ThinkingDetailPopover: View {
+    let fullText: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "brain.head.profile")
+                    .foregroundStyle(.secondary)
+                Text("Thinking")
+                    .font(.headline)
+                Spacer()
+            }
+
+            ScrollView {
+                Text(fullText)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.primary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(14)
     }
 }
 

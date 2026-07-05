@@ -100,6 +100,56 @@ struct ToolTranscriptPresentationTests {
 
         #expect(presentation.notation == "terminal_run(command: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...) -> bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb...")
     }
+
+    // MARK: - UIX-10: chat row title (explanation-or-name fallback)
+
+    @Test("UIX-10: rowTitle is the explanation when present")
+    func rowTitleUsesExplanationWhenPresent() {
+        let trace = ToolTrace(
+            id: "call_7",
+            name: "calculator",
+            state: .succeeded,
+            arguments: #"{"expression":"2 + 2","explanation":"Adding two numbers."}"#,
+            output: "4"
+        )
+
+        let presentation = ToolTranscriptPresentation(trace: trace)
+
+        #expect(presentation.rowTitle == "Adding two numbers.")
+        #expect(presentation.rowTitleIsFallbackName == false)
+    }
+
+    @Test("UIX-10: rowTitle falls back to the bare tool name when explanation is absent")
+    func rowTitleFallsBackToNameWhenExplanationAbsent() {
+        let trace = ToolTrace(
+            id: "call_8",
+            name: "cat",
+            state: .succeeded,
+            arguments: #"{"path":"/tmp/foo"}"#,
+            output: "contents"
+        )
+
+        let presentation = ToolTranscriptPresentation(trace: trace)
+
+        #expect(presentation.rowTitle == "cat")
+        #expect(presentation.rowTitleIsFallbackName == true)
+    }
+
+    @Test("UIX-10: rowTitle falls back to the bare tool name when explanation is blank")
+    func rowTitleFallsBackToNameWhenExplanationBlank() {
+        let trace = ToolTrace(
+            id: "call_9",
+            name: "cat",
+            state: .succeeded,
+            arguments: #"{"path":"/tmp/foo","explanation":"   "}"#,
+            output: "contents"
+        )
+
+        let presentation = ToolTranscriptPresentation(trace: trace)
+
+        #expect(presentation.rowTitle == "cat")
+        #expect(presentation.rowTitleIsFallbackName == true)
+    }
 }
 
 @Suite("TurnTranscriptProjection")

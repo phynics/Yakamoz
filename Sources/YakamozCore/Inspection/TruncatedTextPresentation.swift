@@ -38,6 +38,15 @@ public struct TruncatedTextPresentation: Equatable, Sendable {
         return String(fullText.prefix(threshold))
     }
 
+    /// The text to render when collapsed in "tail" mode: the full text if it's short
+    /// enough, otherwise the *last* `threshold` characters (UIX-11). Used for streaming
+    /// content — e.g. a live reasoning trace — where the most recently produced text is
+    /// more informative than the start of a now-stale prefix.
+    public var collapsedTailText: String {
+        guard isTruncatable else { return fullText }
+        return String(fullText.suffix(threshold))
+    }
+
     /// Text to render given the current expansion state: `fullText` when expanded (or
     /// when not truncatable), `collapsedText` otherwise.
     public func displayedText(isExpanded: Bool) -> String {

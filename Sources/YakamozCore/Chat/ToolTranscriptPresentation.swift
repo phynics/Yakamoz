@@ -84,6 +84,21 @@ public struct ToolTranscriptPresentation: Equatable, Sendable {
         ToolCallExplanation.explanationText(fromArguments: trace.arguments)
     }
 
+    /// UIX-10: the title the chat row shows — the human-authored `explanation` when
+    /// present, otherwise the bare tool name so the row is never empty. The row
+    /// deliberately never shows raw arguments/results inline; those move into the
+    /// popover (`notation`, `fullParameters`, `fullResponse`).
+    public var rowTitle: String {
+        explanationText ?? trace.name
+    }
+
+    /// Whether `rowTitle` is the bare-name fallback (no usable explanation) rather than
+    /// the model-authored explanation — lets the view style/format the two cases
+    /// differently (e.g. monospaced tool name vs. plain caption).
+    public var rowTitleIsFallbackName: Bool {
+        explanationText == nil
+    }
+
     public var fullParameters: String {
         ToolCallExplanation.displayArguments(fromArguments: trace.arguments) ?? ""
     }

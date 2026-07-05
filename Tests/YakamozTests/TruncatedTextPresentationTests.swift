@@ -71,4 +71,21 @@ struct TruncatedTextPresentationTests {
         #expect(presentation.collapsedText.isEmpty)
         #expect(presentation.characterCount == 0)
     }
+
+    // MARK: - UIX-11: tail mode (for streaming content, e.g. live reasoning traces)
+
+    @Test func collapsedTailTextReturnsFullTextWhenNotTruncatable() {
+        let text = "hello world"
+        let presentation = TruncatedTextPresentation(fullText: text, threshold: 2000)
+
+        #expect(presentation.collapsedTailText == text)
+    }
+
+    @Test func collapsedTailTextReturnsLastThresholdCharactersWhenTruncatable() {
+        let text = String(repeating: "a", count: 200) + String(repeating: "b", count: 200)
+        let presentation = TruncatedTextPresentation(fullText: text, threshold: 200)
+
+        #expect(presentation.collapsedTailText == String(repeating: "b", count: 200))
+        #expect(presentation.collapsedTailText.count == 200)
+    }
 }
