@@ -13,6 +13,7 @@ import Testing
 private final class ScriptedRunner: ChatRunning, @unchecked Sendable {
     private(set) var capturedMessages: [String] = []
     private(set) var lastStructuredOutput: StructuredOutputRequest?
+    private(set) var lastSendId: UUID?
     var continuation: AsyncThrowingStream<ChatEvent, Error>.Continuation?
     var onRun: (@Sendable (String) -> Void)?
     private let runCounter = AsyncCounter()
@@ -29,6 +30,7 @@ private final class ScriptedRunner: ChatRunning, @unchecked Sendable {
     func run(_ request: ChatRunRequest) async throws -> AsyncThrowingStream<ChatEvent, Error> {
         capturedMessages.append(request.message)
         lastStructuredOutput = request.structuredOutput
+        lastSendId = request.sendId
         onRun?(request.message)
         runCounter.increment()
         return AsyncThrowingStream { continuation in
@@ -200,12 +202,20 @@ struct ChatViewModelTests {
         let timelineId = UUID()
         let viewModel = ChatViewModel(timelineId: timelineId, runner: runner, inspector: inspector)
 
+        viewModel.send("hi")
+        await runner.waitUntilContinuationCount(1)
+
         // Seed a TurnInspectionModel row for turn 0 the way `didComposeTurn` would,
-        // so `updateResponse` has a row to enrich (Task 3 + Task 6 wiring).
+        // so `updateResponse` has a row to enrich (Task 3 + Task 6 wiring). The row's
+        // identity must match the sendId ChatViewModel generated for this send (visible
+        // only once the runner has captured the request), since `persistResponse` looks
+        // up the terminal round-trip by sendId, not by a conversation-wide latest row.
+        let sendId = try #require(runner.lastSendId)
         let prompt = AnyPrompt.build { SystemPrompt("You are helpful") }
         let assembled = try prompt.assemblePrompt()
         let rendered = await assembled.render()
         let seedInspection = TurnInspection(
+            identity: TurnIdentity(sendId: sendId, roundTrip: 0),
             timelineId: timelineId,
             agentInstanceId: nil,
             turnIndex: 0,
@@ -220,9 +230,6 @@ struct ChatViewModelTests {
             estimatedTokens: rendered.estimatedTokens
         )
         await inspector.didComposeTurn(seedInspection)
-
-        viewModel.send("hi")
-        await runner.waitUntilContinuationCount(1)
 
         runner.continuation?.yield(.generation("hello back"))
         runner.continuation?.yield(.generationCompleted(
@@ -251,10 +258,17 @@ struct ChatViewModelTests {
         let timelineId = UUID()
         let viewModel = ChatViewModel(timelineId: timelineId, runner: runner, inspector: inspector)
 
+        viewModel.send("hi")
+        await runner.waitUntilContinuationCount(1)
+
+        // Seed after the run starts so the row's identity matches the sendId
+        // ChatViewModel generated for this send (see completionPersistsResponseViaInspector).
+        let sendId = try #require(runner.lastSendId)
         let prompt = AnyPrompt.build { SystemPrompt("You are helpful") }
         let assembled = try prompt.assemblePrompt()
         let rendered = await assembled.render()
         await inspector.didComposeTurn(TurnInspection(
+            identity: TurnIdentity(sendId: sendId, roundTrip: 0),
             timelineId: timelineId,
             agentInstanceId: nil,
             turnIndex: 0,
@@ -268,9 +282,6 @@ struct ChatViewModelTests {
             ),
             estimatedTokens: rendered.estimatedTokens
         ))
-
-        viewModel.send("hi")
-        await runner.waitUntilContinuationCount(1)
 
         runner.continuation?.yield(.generation("final answer"))
         // No `.streamCompleted` — just finish the stream, like the real engine.
@@ -968,7 +979,7 @@ private actor LockedStateLog {
 private struct ThrowingRunner: ChatRunning {
     let error: any Error
 
-    func run(_ request: ChatRunRequest) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+    func run(_: ChatRunRequest) async throws -> AsyncThrowingStream<ChatEvent, Error> {
         throw error
     }
 }

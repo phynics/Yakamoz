@@ -56,11 +56,13 @@ public actor SwiftDataTurnInspector: TurnInspecting {
 
     /// Fetches the persisted projection for a given conversation/send round-trip pair, if any.
     public func inspection(conversationId: UUID, turnIdentity: TurnIdentity) throws -> PersistedTurnInspection? {
+        let sendId = turnIdentity.sendId
+        let roundTrip = turnIdentity.roundTrip
         var descriptor = FetchDescriptor<TurnInspectionModel>(
             predicate: #Predicate {
                 $0.conversationId == conversationId
-                    && $0.sendId == turnIdentity.sendId
-                    && $0.roundTrip == turnIdentity.roundTrip
+                    && $0.sendId == sendId
+                    && $0.roundTrip == roundTrip
             }
         )
         descriptor.fetchLimit = 1
@@ -88,11 +90,13 @@ public actor SwiftDataTurnInspector: TurnInspecting {
 
     /// Enriches a send-local round-trip row identified by `TurnIdentity`.
     public func updateResponse(conversationId: UUID, turnIdentity: TurnIdentity, response: ResponseDTO) throws {
+        let sendId = turnIdentity.sendId
+        let roundTrip = turnIdentity.roundTrip
         var descriptor = FetchDescriptor<TurnInspectionModel>(
             predicate: #Predicate {
                 $0.conversationId == conversationId
-                    && $0.sendId == turnIdentity.sendId
-                    && $0.roundTrip == turnIdentity.roundTrip
+                    && $0.sendId == sendId
+                    && $0.roundTrip == roundTrip
             }
         )
         descriptor.fetchLimit = 1

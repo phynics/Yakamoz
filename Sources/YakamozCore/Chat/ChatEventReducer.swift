@@ -91,7 +91,7 @@ public struct ChatTurnState: Sendable, Equatable {
 
     public init(turnIndex: Int) {
         self.turnIndex = turnIndex
-        self.inspectionTurnIndex = nil
+        inspectionTurnIndex = nil
     }
 
     /// Tool traces in the order they were first observed.
@@ -210,6 +210,14 @@ public struct ChatTurnState: Sendable, Equatable {
         response.outputTokens = metadata.completionTokens
     }
 
+    /// Records the finish reason from a `completedEmpty` event (a successful stream with
+    /// no reconstructed assistant text). `isEmptyModelResponse` already derives the empty
+    /// state from `response.reconstructedText`, so there is nothing else to apply here.
+    public mutating func apply(completedEmptyFinishReason finishReason: String?) {
+        guard !isComplete else { return }
+        response.finishReason = finishReason
+    }
+
     /// Converts the accumulated state into the `ResponseDTO` shape persisted by the
     /// turn inspector (Task 3's `SwiftDataTurnInspector.updateResponse`).
     public var responseDTO: ResponseDTO {
@@ -299,6 +307,9 @@ public enum ChatEventReducer {
 
         case let .completion(event: .generationCompleted(message: _, metadata: metadata)):
             state.apply(metadata)
+
+        case let .completion(event: .completedEmpty(finishReason: finishReason)):
+            state.apply(completedEmptyFinishReason: finishReason)
 
         case let .error(event: .toolCallError(toolCallId: id, name: name, error: error)):
             var trace = state.tools[id] ?? ToolTrace(id: id, name: name)
