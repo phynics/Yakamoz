@@ -153,9 +153,10 @@ public actor YakamozRuntime: ChatRunning {
             ])
         }
 
+        let explained = available.map { $0.withExplanationParameter() }
         let enabled = Set(enabledToolIds)
-        guard !enabled.isEmpty else { return available }
-        return available.filter { enabled.contains($0.id) }
+        guard !enabled.isEmpty else { return explained }
+        return explained.filter { enabled.contains($0.id) }
     }
 
     /// Builds a `WorkspacePresentation` for the given folder-backed `WorkspaceModel`, for

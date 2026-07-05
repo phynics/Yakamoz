@@ -47,7 +47,13 @@ struct InspectableChatIntegrationTests {
         let mock = MockLLMService()
         mock.mockClient.nextResponses = ["", "Inspection complete"]
         mock.mockClient.nextToolCalls = [
-            [MockToolCall(id: "call_calc", name: "calculator", arguments: "{\"expression\": \"2 + 2\"}")],
+            [
+                MockToolCall(
+                    id: "call_calc",
+                    name: "calculator",
+                    arguments: #"{"expression":"2 + 2","explanation":"Checking the arithmetic before answering."}"#
+                ),
+            ],
         ]
 
         let runtime = try YakamozRuntime(
@@ -109,6 +115,7 @@ struct InspectableChatIntegrationTests {
         #expect(liveTrace.name.localizedCaseInsensitiveContains("calc"))
         #expect(liveTrace.state == .succeeded)
         #expect(liveTrace.output == "4")
+        #expect(liveTrace.arguments?.contains(#""explanation":"Checking the arithmetic before answering.""#) == true)
 
         // The provider saw the calculator tool definition and our user message.
         let sentTools = try #require(mock.mockClient.lastTools)
@@ -153,6 +160,7 @@ struct InspectableChatIntegrationTests {
         let reopenedTools = try #require(reopened.response?.tools)
         #expect(reopenedTools.first?.status == .success)
         #expect(reopenedTools.first?.output == "4")
+        #expect(reopenedTools.first?.arguments?.contains(#""explanation":"Checking the arithmetic before answering.""#) == true)
 
         // And the runtime rebuilds the transcript from disk for a fresh view model.
         let reloaded = await runtime.makeChatViewModel(timelineId: timelineId)
@@ -166,6 +174,10 @@ struct InspectableChatIntegrationTests {
         #expect(reloaded.transcript.contains { item in
             if case let .assistant(_, turn) = item { return turn.response.reconstructedText == "Inspection complete" }
             return false
+        })
+        #expect(reloaded.transcript.contains { item in
+            guard case let .assistant(_, turn) = item else { return false }
+            return turn.orderedTools.first?.arguments?.contains(#""explanation":"Checking the arithmetic before answering.""#) == true
         })
     }
 
