@@ -23,16 +23,22 @@ struct MessageBubble: View {
 
         case let .assistant(_, turn):
             let presentation = TranscriptRowPresentation(role: .assistant, isSelected: isSelected)
-            Button {
-                onSelectTurn(turn.turnIndex)
-            } label: {
-                TranscriptRowFrame(presentation: presentation) {
-                    AssistantTurnContent(turn: turn)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 6) {
+                Button {
+                    onSelectTurn(turn.turnIndex)
+                } label: {
+                    TranscriptRowFrame(presentation: presentation) {
+                        AssistantTurnContent(turn: turn)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Assistant turn \(turn.turnIndex + 1)")
+
+                ForEach(turn.orderedTools) { trace in
+                    ToolTranscriptRow(trace: trace)
                 }
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Assistant turn \(turn.turnIndex + 1)")
 
         case let .error(id, message, retryPrompt):
             TranscriptRowFrame(presentation: TranscriptRowPresentation(role: .error, isSelected: false)) {
@@ -130,6 +136,95 @@ private struct ChatPromptRow: View {
     }
 }
 
+private struct ToolTranscriptRow: View {
+    let trace: ToolTrace
+    @State private var isShowingDetail = false
+
+    private var presentation: ToolTranscriptPresentation {
+        ToolTranscriptPresentation(trace: trace)
+    }
+
+    var body: some View {
+        Button {
+            isShowingDetail = true
+        } label: {
+            TranscriptRowFrame(presentation: TranscriptRowPresentation(role: .tool, isSelected: false)) {
+                HStack(spacing: 8) {
+                    statusIcon
+                    Text(presentation.notation)
+                        .font(.system(.callout, design: .monospaced))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Tool call \(presentation.notation)")
+        .popover(isPresented: $isShowingDetail) {
+            ToolTranscriptDetailPopover(presentation: presentation)
+                .frame(width: 520, height: 360)
+        }
+    }
+
+    @ViewBuilder
+    private var statusIcon: some View {
+        switch presentation.status {
+        case .attempting:
+            ProgressView()
+                .controlSize(.mini)
+        case .success:
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+        case .failure:
+            Image(systemName: "xmark.circle.fill")
+                .foregroundStyle(.red)
+        }
+    }
+}
+
+private struct ToolTranscriptDetailPopover: View {
+    let presentation: ToolTranscriptPresentation
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "function")
+                    .foregroundStyle(.secondary)
+                Text(presentation.detailTitle)
+                    .font(.headline)
+                Spacer()
+            }
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    if !presentation.fullParameters.isEmpty {
+                        labeledBlock("Parameters", text: presentation.fullParameters)
+                    }
+                    if !presentation.fullResponse.isEmpty {
+                        labeledBlock("Response", text: presentation.fullResponse, isError: presentation.status == .failure)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(14)
+    }
+
+    private func labeledBlock(_ title: String, text: String, isError: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text(text)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(isError ? .red : .primary)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
 private extension TranscriptRowPresentation {
     var gutterColor: Color {
         switch gutterAccent {
@@ -139,6 +234,8 @@ private extension TranscriptRowPresentation {
             Color.indigo.opacity(0.58)
         case .selectedMoon:
             Color.accentColor
+        case .tool:
+            Color.orange.opacity(0.72)
         case .error:
             Color.red.opacity(0.82)
         case .neutral:
@@ -152,6 +249,8 @@ private extension TranscriptRowPresentation {
             Color.cyan.opacity(0.85)
         case .assistant:
             isSelected ? Color.accentColor : Color.indigo.opacity(0.75)
+        case .tool:
+            Color.orange.opacity(0.82)
         case .error:
             Color.red
         case .prompt:
@@ -246,10 +345,6 @@ private struct AssistantTurnContent: View {
                         .foregroundStyle(.secondary)
                 }
             }
-
-            ForEach(turn.orderedTools) { trace in
-                ToolTraceRow(trace: trace)
-            }
         }
         .onChange(of: turn.response.reconstructedText) { _, newText in
             // STAB-9: coalesce Markdown re-parses during streaming. `lastMarkdownRenderAt`
@@ -264,60 +359,5 @@ private struct AssistantTurnContent: View {
                 lastMarkdownRenderAt = now
             }
         }
-    }
-}
-
-private struct ToolTraceRow: View {
-    let trace: ToolTrace
-
-    var body: some View {
-        HStack(spacing: 6) {
-            switch trace.state {
-            case .attempting:
-                ProgressView()
-                    .controlSize(.mini)
-            case .succeeded:
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-            case .failed:
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.red)
-            }
-            Text(trace.name)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            if let arguments = trace.arguments, !arguments.isEmpty {
-                Text("(\(Self.snippet(arguments, limit: 80)))")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            if let result = trace.resultSummary {
-                Text("-> \(Self.snippet(result, limit: 100))")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(trace.state == .failed ? .red : .secondary)
-                    .lineLimit(1)
-            }
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    private static func snippet(_ text: String, limit: Int) -> String {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count > limit else { return trimmed }
-        let end = trimmed.index(trimmed.startIndex, offsetBy: limit)
-        return String(trimmed[..<end]) + "..."
-    }
-}
-
-private extension ToolTrace {
-    var resultSummary: String? {
-        if let error, !error.isEmpty {
-            return error
-        }
-        if let output, !output.isEmpty {
-            return output
-        }
-        return nil
     }
 }

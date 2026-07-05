@@ -1,6 +1,7 @@
 public enum TranscriptRowRole: Equatable, Sendable {
     case user
     case assistant
+    case tool
     case error
     case prompt
 }
@@ -13,6 +14,7 @@ public enum TranscriptGutterAccent: Equatable, Sendable {
     case sea
     case moon
     case selectedMoon
+    case tool
     case error
     case neutral
 }
@@ -40,6 +42,8 @@ public struct TranscriptRowPresentation: Equatable, Sendable {
             "person.crop.circle"
         case .assistant:
             "moon.stars"
+        case .tool:
+            "function"
         case .error:
             "exclamationmark.triangle.fill"
         case .prompt:
@@ -53,6 +57,8 @@ public struct TranscriptRowPresentation: Equatable, Sendable {
             .sea
         case .assistant:
             isSelected ? .selectedMoon : .moon
+        case .tool:
+            .tool
         case .error:
             .error
         case .prompt:
