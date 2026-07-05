@@ -53,6 +53,74 @@ struct ChatEventReducerTests {
         #expect(state.response.reconstructedText.isEmpty)
     }
 
+    @Test("UIX-5: id-less continuation chunks accumulate onto the same index's tool call")
+    func toolCallDeltaIdLessContinuationsAccumulateByIndex() {
+        var state = ChatTurnState(turnIndex: 0)
+        let now = clock.now
+
+        // First chunk carries the id (and possibly empty/partial args); OpenAI-style
+        // continuations only carry an index + argument fragment, with a nil id.
+        ChatEventReducer.reduce(
+            .toolCall(ToolCallDelta(index: 0, id: "call-1", name: "cat", arguments: "{\"path")),
+            into: &state, now: now
+        )
+        ChatEventReducer.reduce(
+            .toolCall(ToolCallDelta(index: 0, id: nil, name: nil, arguments: "\":\"/tmp/")),
+            into: &state, now: now
+        )
+        ChatEventReducer.reduce(
+            .toolCall(ToolCallDelta(index: 0, id: nil, name: nil, arguments: "a.txt\"}")),
+            into: &state, now: now
+        )
+
+        let trace = state.tools["call-1"]
+        #expect(trace?.arguments == "{\"path\":\"/tmp/a.txt\"}")
+        #expect(state.orderedTools.map(\.id) == ["call-1"])
+    }
+
+    @Test("UIX-5: interleaved parallel tool calls route id-less continuations by index, not just most-recent id")
+    func toolCallDeltaInterleavedParallelCallsRouteByIndex() {
+        var state = ChatTurnState(turnIndex: 0)
+        let now = clock.now
+
+        // Two parallel tool calls interleaved: each gets its id on the first chunk,
+        // then continuations arrive interleaved by index with nil ids.
+        ChatEventReducer.reduce(
+            .toolCall(ToolCallDelta(index: 0, id: "call-1", name: "cat", arguments: "{\"path\":")),
+            into: &state, now: now
+        )
+        ChatEventReducer.reduce(
+            .toolCall(ToolCallDelta(index: 1, id: "call-2", name: "ls", arguments: "{\"dir\":")),
+            into: &state, now: now
+        )
+        ChatEventReducer.reduce(
+            .toolCall(ToolCallDelta(index: 0, id: nil, name: nil, arguments: "\"/a.txt\"}")),
+            into: &state, now: now
+        )
+        ChatEventReducer.reduce(
+            .toolCall(ToolCallDelta(index: 1, id: nil, name: nil, arguments: "\"/tmp\"}")),
+            into: &state, now: now
+        )
+
+        #expect(state.tools["call-1"]?.arguments == "{\"path\":\"/a.txt\"}")
+        #expect(state.tools["call-2"]?.arguments == "{\"dir\":\"/tmp\"}")
+        #expect(state.orderedTools.map(\.id) == ["call-1", "call-2"])
+    }
+
+    @Test("UIX-5: an id-less delta for an index never seen before is dropped (no id to key on yet)")
+    func toolCallDeltaIdLessWithUnknownIndexIsDropped() {
+        var state = ChatTurnState(turnIndex: 0)
+        let now = clock.now
+
+        ChatEventReducer.reduce(
+            .toolCall(ToolCallDelta(index: 0, id: nil, name: nil, arguments: "{\"path\":\"/a.txt\"}")),
+            into: &state, now: now
+        )
+
+        #expect(state.tools.isEmpty)
+        #expect(state.orderedTools.isEmpty)
+    }
+
     @Test("TEX-2: explanation in the streamed tool-call delta surfaces live, before any result")
     func toolCallDeltaExplanationSurfacesLiveWhileAttempting() throws {
         var state = ChatTurnState(turnIndex: 0)
@@ -525,6 +593,73 @@ struct ChatEventReducerTests {
         )
 
         #expect(state.turnSegments == [.text("Trying a tool call."), .tool(id: "call-2")])
+    }
+
+    @Test("UIX-7: thinking -> text -> tool -> thinking -> text yields segments in true arrival order")
+    func thinkingTextToolThinkingTextYieldsOrderedSegments() {
+        var state = ChatTurnState(turnIndex: 0)
+        let now = clock.now
+
+        ChatEventReducer.reduce(.thinking("Let me check that."), into: &state, now: now)
+        ChatEventReducer.reduce(.generation("Checking now."), into: &state, now: now)
+        ChatEventReducer.reduce(
+            .toolProgress(toolCallId: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
+            into: &state,
+            now: now
+        )
+        ChatEventReducer.reduce(.thinking("Now let me consider the result."), into: &state, now: now)
+        ChatEventReducer.reduce(.generation("Here's the answer."), into: &state, now: now)
+
+        #expect(state.turnSegments == [
+            .thinking("Let me check that."),
+            .text("Checking now."),
+            .tool(id: "call-1"),
+            .thinking("Now let me consider the result."),
+            .text("Here's the answer."),
+        ])
+    }
+
+    @Test("UIX-7: consecutive thinking deltas coalesce into a single thinking segment")
+    func consecutiveThinkingDeltasCoalesce() {
+        var state = ChatTurnState(turnIndex: 0)
+        let now = clock.now
+
+        ChatEventReducer.reduce(.thinking("Let me "), into: &state, now: now)
+        ChatEventReducer.reduce(.thinking("think "), into: &state, now: now)
+        ChatEventReducer.reduce(.thinking("about this."), into: &state, now: now)
+        ChatEventReducer.reduce(
+            .toolProgress(toolCallId: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
+            into: &state,
+            now: now
+        )
+
+        #expect(state.turnSegments == [
+            .thinking("Let me think about this."),
+            .tool(id: "call-1"),
+        ])
+    }
+
+    @Test("UIX-7: response.thinking still accumulates the full flat string unchanged, independent of segments")
+    func responseThinkingAccumulatesFlatStringAlongsideSegments() {
+        var state = ChatTurnState(turnIndex: 0)
+        let now = clock.now
+
+        ChatEventReducer.reduce(.thinking("First thought. "), into: &state, now: now)
+        ChatEventReducer.reduce(.generation("Some text."), into: &state, now: now)
+        ChatEventReducer.reduce(
+            .toolProgress(toolCallId: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
+            into: &state,
+            now: now
+        )
+        ChatEventReducer.reduce(.thinking("Second thought."), into: &state, now: now)
+
+        #expect(state.response.thinking == "First thought. Second thought.")
+        #expect(state.turnSegments == [
+            .thinking("First thought. "),
+            .text("Some text."),
+            .tool(id: "call-1"),
+            .thinking("Second thought."),
+        ])
     }
 
     @Test("responseDTO reflects accumulated text, thinking, and metadata")

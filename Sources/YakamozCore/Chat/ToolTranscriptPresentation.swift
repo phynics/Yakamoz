@@ -8,6 +8,14 @@ import Foundation
 public enum TranscriptRowSegment: Equatable, Sendable {
     case text(String)
     case tool(ToolTrace)
+    /// A chronologically-positioned reasoning/thinking chunk (UIX-7). Rendered as its own
+    /// collapsible disclosure at its position in segment order, rather than only ever
+    /// appearing once at the top of the turn. `isStreaming` (UIX-9) is true exactly when
+    /// this segment is still actively receiving deltas — it is the turn's trailing segment
+    /// and the turn hasn't completed — so the view can auto-expand it while live and
+    /// auto-collapse it once content follows (a text/tool segment appears after it, or the
+    /// turn completes), unless the user has manually overridden that segment's expansion.
+    case thinking(String, isStreaming: Bool)
 }
 
 public enum TurnTranscriptProjection {
@@ -18,13 +26,23 @@ public enum TurnTranscriptProjection {
     public static func segments(for turn: ChatTurnState) -> [TranscriptRowSegment]? {
         guard !turn.turnSegments.isEmpty else { return nil }
 
-        return turn.turnSegments.compactMap { segment in
+        let lastIndex = turn.turnSegments.count - 1
+        return turn.turnSegments.enumerated().compactMap { index, segment in
             switch segment {
             case let .text(text):
                 return text.isEmpty ? nil : .text(text)
             case let .tool(id):
                 guard let trace = turn.tools[id] else { return nil }
                 return .tool(trace)
+            case let .thinking(thought):
+                guard !thought.isEmpty else { return nil }
+                // UIX-9: a thinking segment is still "live" only while it is the turn's
+                // trailing segment (nothing has started after it yet) and the turn hasn't
+                // reached its terminal state. Any earlier thinking segment — one that a
+                // later text/tool/thinking segment already follows — is never streaming,
+                // even if the turn overall is still in progress.
+                let isStreaming = index == lastIndex && !turn.isComplete
+                return .thinking(thought, isStreaming: isStreaming)
             }
         }
     }

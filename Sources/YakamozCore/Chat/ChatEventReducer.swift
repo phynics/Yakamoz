@@ -60,6 +60,11 @@ public struct ToolTrace: Sendable, Equatable, Identifiable {
 public enum TurnSegment: Sendable, Equatable {
     case text(String)
     case tool(id: String)
+    /// A chronologically-positioned chunk of reasoning/thinking text (UIX-7). Coalesces
+    /// consecutive thinking deltas the same way `.text` does, so a `thinking → text →
+    /// tool → thinking → text` turn produces distinct `.thinking` segments before and
+    /// after the tool row rather than merging into a single leading disclosure.
+    case thinking(String)
 }
 
 /// The accumulated, reducer-owned state of a single in-flight (or completed) assistant
@@ -90,6 +95,12 @@ public struct ChatTurnState: Sendable, Equatable {
     /// Tool traces in first-seen order, keyed by `toolCallId`.
     public var toolOrder: [String] = []
     public var tools: [String: ToolTrace] = [:]
+    /// Maps a streamed tool-call's `index` (OpenAI-style parallel-call slot) to the
+    /// `toolCallId` first seen at that index. OpenAI-style providers emit the id only
+    /// on a tool call's first chunk; continuation chunks carry the same `index` with a
+    /// nil `id` (UIX-5). This lets `applyToolCallDelta` route id-less continuations to
+    /// the correct trace instead of dropping them.
+    var toolCallIdByIndex: [Int: String] = [:]
     /// True chronology of text/tool segments observed by the reducer (UIX-4), additive
     /// alongside `reconstructedText`/`toolOrder`. Consecutive text deltas coalesce into a
     /// single `.text` segment; a `.tool` segment is appended the first time a given
@@ -125,6 +136,20 @@ public struct ChatTurnState: Sendable, Equatable {
             turnSegments[turnSegments.count - 1] = .text(existing + text)
         } else {
             turnSegments.append(.text(text))
+        }
+    }
+
+    /// Appends a thinking delta to `turnSegments`, coalescing onto the trailing
+    /// `.thinking` segment when one is already last (UIX-7; mirrors `appendTextSegment`).
+    /// Does not touch `response.thinking` — that flat accumulation is handled separately
+    /// by the reducer so it keeps serving persistence/inspection consumers and the
+    /// no-`turnSegments` reload fallback unchanged.
+    mutating func appendThinkingSegment(_ thought: String) {
+        guard !thought.isEmpty else { return }
+        if case let .thinking(existing) = turnSegments.last {
+            turnSegments[turnSegments.count - 1] = .thinking(existing + thought)
+        } else {
+            turnSegments.append(.thinking(thought))
         }
     }
 
@@ -172,10 +197,28 @@ public struct ChatTurnState: Sendable, Equatable {
     }
 
     /// Records a streamed tool-call delta so the UI can show the model's requested
-    /// parameters before and after execution. Anonymous partial deltas are ignored here;
-    /// the engine later emits an ID-bearing final delta before executing tools.
+    /// parameters before and after execution.
+    ///
+    /// OpenAI-style streaming emits the tool-call `id` only on the first chunk for a
+    /// given `index`; subsequent argument-only continuation chunks carry the same
+    /// `index` but a nil `id` (UIX-5: PositronicKit's `LLMStreamingStage.handleToolCallDeltas`,
+    /// `Sources/PositronicKit/Services/Chat/Stages/LLMStreamingStage.swift:232-253`, forwards
+    /// the provider's per-chunk `id` verbatim and never backfills it — there is no later,
+    /// ID-bearing "final" delta guaranteed). Route id-less deltas by `index` to the id
+    /// first observed at that index; if no id has been seen yet for that index, the
+    /// delta is dropped (there's nothing to key a trace on).
     public mutating func applyToolCallDelta(_ delta: ToolCallDelta) {
-        guard !isComplete, let id = delta.id else { return }
+        guard !isComplete else { return }
+
+        let id: String
+        if let deltaId = delta.id {
+            id = deltaId
+            toolCallIdByIndex[delta.index] = deltaId
+        } else if let mappedId = toolCallIdByIndex[delta.index] {
+            id = mappedId
+        } else {
+            return
+        }
 
         if !tools.keys.contains(id) {
             toolOrder.append(id)
@@ -328,6 +371,7 @@ public enum ChatEventReducer {
         }
         if let thought = event.thinkingContent {
             state.response.thinking += thought
+            state.appendThinkingSegment(thought)
         }
 
         switch event {

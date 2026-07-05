@@ -139,4 +139,79 @@ struct TurnTranscriptProjectionTests {
 
         #expect(segments == [.text("Hi")])
     }
+
+    @Test("UIX-7: projects thinking segments in chronological order alongside text and tool segments")
+    func projectsThinkingSegmentsInOrder() {
+        var turn = ChatTurnState(turnIndex: 0)
+        turn.turnSegments = [
+            .thinking("Let me think."),
+            .text("Checking now."),
+            .tool(id: "call-1"),
+            .thinking("Considering the result."),
+            .text("Here's the answer."),
+        ]
+        turn.toolOrder = ["call-1"]
+        turn.tools = ["call-1": ToolTrace(id: "call-1", name: "search", state: .succeeded, output: "3 results")]
+
+        let segments = TurnTranscriptProjection.segments(for: turn)
+
+        #expect(segments == [
+            .thinking("Let me think.", isStreaming: false),
+            .text("Checking now."),
+            .tool(ToolTrace(id: "call-1", name: "search", state: .succeeded, output: "3 results")),
+            .thinking("Considering the result.", isStreaming: false),
+            .text("Here's the answer."),
+        ])
+    }
+
+    @Test("UIX-7: drops an empty thinking segment")
+    func dropsEmptyThinkingSegment() {
+        var turn = ChatTurnState(turnIndex: 0)
+        turn.turnSegments = [.thinking(""), .text("Hi")]
+
+        let segments = TurnTranscriptProjection.segments(for: turn)
+
+        #expect(segments == [.text("Hi")])
+    }
+
+    @Test("UIX-9: a trailing thinking segment on an incomplete turn is streaming")
+    func trailingThinkingSegmentOnIncompleteTurnIsStreaming() {
+        var turn = ChatTurnState(turnIndex: 0)
+        turn.turnSegments = [.text("Checking now."), .thinking("Considering...")]
+        turn.isComplete = false
+
+        let segments = TurnTranscriptProjection.segments(for: turn)
+
+        #expect(segments == [.text("Checking now."), .thinking("Considering...", isStreaming: true)])
+    }
+
+    @Test("UIX-9: a trailing thinking segment on a completed turn is not streaming")
+    func trailingThinkingSegmentOnCompletedTurnIsNotStreaming() {
+        var turn = ChatTurnState(turnIndex: 0)
+        turn.turnSegments = [.text("Checking now."), .thinking("Considering...")]
+        turn.isComplete = true
+
+        let segments = TurnTranscriptProjection.segments(for: turn)
+
+        #expect(segments == [.text("Checking now."), .thinking("Considering...", isStreaming: false)])
+    }
+
+    @Test("UIX-9: an earlier thinking segment is not streaming even while the turn is still in progress, once content follows it")
+    func earlierThinkingSegmentIsNotStreamingOnceFollowedByContent() {
+        var turn = ChatTurnState(turnIndex: 0)
+        turn.turnSegments = [
+            .thinking("First thought."),
+            .text("Some text."),
+            .thinking("Second thought, still streaming."),
+        ]
+        turn.isComplete = false
+
+        let segments = TurnTranscriptProjection.segments(for: turn)
+
+        #expect(segments == [
+            .thinking("First thought.", isStreaming: false),
+            .text("Some text."),
+            .thinking("Second thought, still streaming.", isStreaming: true),
+        ])
+    }
 }

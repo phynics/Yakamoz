@@ -35,6 +35,12 @@ struct MessageBubble: View {
                 // `turnSegments`, so `TurnTranscriptProjection` returns `nil` and this
                 // falls back to the legacy whole-text-then-all-tools rendering.
                 if let segments = TurnTranscriptProjection.segments(for: turn) {
+                    // UIX-7: thinking segments render as their own disclosure at their
+                    // chronological position (not folded into AssistantTurnContent), so
+                    // `isFirstTextSegment`/`isLastTextSegment` below are computed over the
+                    // *text*-only subsequence — thinking segments don't participate in the
+                    // streaming-markdown-placeholder bookkeeping AssistantTurnContent does.
+                    let textIndices: [Int] = segments.indices.filter { if case .text = segments[$0] { true } else { false } }
                     ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
                         switch segment {
                         case let .text(text):
@@ -45,8 +51,8 @@ struct MessageBubble: View {
                                     AssistantTurnContent(
                                         turn: turn,
                                         segmentText: text,
-                                        isFirstSegment: index == 0,
-                                        isLastSegment: index == segments.count - 1
+                                        isFirstSegment: index == textIndices.first,
+                                        isLastSegment: index == textIndices.last
                                     )
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                 }
@@ -56,8 +62,21 @@ struct MessageBubble: View {
 
                         case let .tool(trace):
                             ToolTranscriptRow(trace: trace)
+
+                        case let .thinking(thought, isStreaming):
+                            // UIX-9: `isStreaming` already reflects "is this the turn's
+                            // trailing segment and the turn incomplete" per-segment, computed
+                            // by `TurnTranscriptProjection` from `turn.turnSegments` position +
+                            // `turn.isComplete` — an earlier thinking segment reports `false`
+                            // once anything follows it, even mid-turn.
+                            ThinkingSegmentRow(thought: thought, isStreaming: isStreaming)
                         }
                     }
+                    // A turn that is still streaming its very first thinking tokens has no
+                    // segments yet at all (the first delta is what creates one) — but the
+                    // legacy fallback below only applies when `turnSegments` is entirely
+                    // empty, which is exactly that case too, so no separate placeholder is
+                    // needed here.
                 } else {
                     Button {
                         onSelectTurn(turn.turnIndex)
@@ -169,6 +188,67 @@ private struct ChatPromptRow: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
         )
+    }
+}
+
+/// UIX-7: renders one chronologically-positioned thinking segment as its own collapsible
+/// disclosure — the segment-mode replacement for the old single first-segment-only
+/// thinking block in `AssistantTurnContent`. Not wrapped in the turn-select button (mirrors
+/// tool rows, UIX-3): a thinking disclosure toggle shouldn't also select the turn.
+private struct ThinkingSegmentRow: View {
+    let thought: String
+    /// Whether this is the currently-growing trailing segment of an in-progress turn —
+    /// only then does the row show the streaming spinner, matching the pre-UIX-7
+    /// first-segment-only placeholder behavior. Also drives the UIX-9 auto-expand/
+    /// auto-collapse default (see `isExpanded`) as long as the user hasn't manually
+    /// overridden it.
+    let isStreaming: Bool
+    /// UIX-9: `nil` means "follow the automatic behavior" (expanded while `isStreaming`,
+    /// collapsed once it isn't); a non-nil value is a manual override that wins in both
+    /// directions — a user-expanded block never auto-collapses, and a user-collapsed
+    /// streaming block never auto-reopens. Modeled as `Bool?` rather than a plain `Bool`
+    /// precisely so "unset" is representable and distinct from either explicit state.
+    @State private var manualExpansion: Bool?
+
+    private var isExpanded: Bool {
+        manualExpansion ?? isStreaming
+    }
+
+    var body: some View {
+        DisclosureGroup(isExpanded: Binding(
+            get: { isExpanded },
+            set: { manualExpansion = $0 }
+        )) {
+            Text(thought)
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 2)
+                .padding(.leading, 26)
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "brain.head.profile")
+                    .foregroundStyle(.secondary)
+                Text("Thinking")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                if isStreaming {
+                    ProgressView()
+                        .controlSize(.mini)
+                }
+            }
+            .padding(.leading, 21)
+        }
+        // UIX-9/UIX-8 interaction: an auto-collapse always coincides with new content
+        // arriving after this segment (a following text/tool segment appears, or the
+        // turn completes) — exactly the events that already bump
+        // `ScrollFollowPresentation.streamingGrowthMetric`'s `segmentCount` term and
+        // retrigger `ChatView`'s pinned mid-stream follow. No separate height
+        // compensation is needed here: the same content-arrival event that causes the
+        // collapse also re-triggers the scroll-to-bottom while pinned.
+        .animation(.easeInOut(duration: 0.2), value: isExpanded)
+        .accessibilityLabel("Reasoning trace")
     }
 }
 
@@ -345,7 +425,11 @@ private struct AssistantTurnContent: View {
     /// segment can still be actively streaming into, so only it applies the STAB-9
     /// throttled re-parse behavior below.
     let isLastSegment: Bool
-    @State private var isThinkingExpanded: Bool = true
+    /// UIX-9: this disclosure only renders on the legacy fallback path (`segmentText ==
+    /// nil` — no `turnSegments` recorded, e.g. a turn reloaded from persistence per
+    /// STAB-3). Reloaded turns are records, not live streams, so they default collapsed
+    /// rather than the previous always-expanded default; the user can still expand.
+    @State private var isThinkingExpanded: Bool = false
 
     /// STAB-9: MarkdownUI re-parses the *entire* accumulated response on every body
     /// re-evaluation. During streaming the body re-renders per token (the view model
@@ -390,10 +474,13 @@ private struct AssistantTurnContent: View {
         VStack(alignment: .leading, spacing: 6) {
             // Reasoning usually precedes the answer, so render the thinking disclosure
             // above the assistant text. Bound to `turn.response.thinking` so it
-            // live-updates during streaming and survives reload (STAB-2). Only the
-            // first segment shows this — later segments are additional text chunks
-            // within the same turn.
-            if isFirstSegment, !thinkingContent.isEmpty {
+            // live-updates during streaming and survives reload (STAB-2). Only in the
+            // legacy fallback path (`segmentText == nil`, no `turnSegments` recorded —
+            // e.g. a reloaded turn, STAB-3): once a turn has `turnSegments`, each
+            // `.thinking` segment renders its own disclosure at its chronological
+            // position via `ThinkingSegmentRow` (UIX-7) instead of this single
+            // first-segment-only block, so it isn't duplicated here.
+            if segmentText == nil, isFirstSegment, !thinkingContent.isEmpty {
                 DisclosureGroup(isExpanded: $isThinkingExpanded) {
                     Text(turn.response.thinking)
                         .font(.caption.monospaced())
@@ -428,7 +515,7 @@ private struct AssistantTurnContent: View {
             } else if isFirstSegment, turn.isCancelled {
                 Text("Cancelled")
                     .foregroundStyle(.secondary)
-            } else if isFirstSegment, !turn.isComplete, thinkingContent.isEmpty {
+            } else if segmentText == nil, isFirstSegment, !turn.isComplete, thinkingContent.isEmpty {
                 HStack(spacing: 6) {
                     ProgressView()
                         .controlSize(.small)
