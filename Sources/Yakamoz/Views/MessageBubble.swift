@@ -2,10 +2,9 @@ import MarkdownUI
 import SwiftUI
 import YakamozCore
 
-/// Renders a single `TranscriptItem`. User/assistant/error roles are styled distinctly;
-/// assistant bubbles are tappable (`.buttonStyle(.plain)`) to drive `selectedTurnIndex`
-/// on the owning `ChatViewModel`, so the inspector (Task 8) can show detail for the
-/// tapped turn.
+/// Renders a single `TranscriptItem` as a full-width transcript row. Assistant rows
+/// remain tappable (`.buttonStyle(.plain)`) to drive `selectedTurnIndex` on the
+/// owning `ChatViewModel`, so the inspector can show detail for the tapped turn.
 struct MessageBubble: View {
     let item: TranscriptItem
     let isSelected: Bool
@@ -16,69 +15,80 @@ struct MessageBubble: View {
     var body: some View {
         switch item {
         case let .user(_, text, _):
-            HStack {
-                Spacer(minLength: 40)
+            TranscriptRowFrame(presentation: TranscriptRowPresentation(role: .user, isSelected: false)) {
                 Text(text)
                     .textSelection(.enabled)
-                    .padding(10)
-                    .background(.tint, in: RoundedRectangle(cornerRadius: 12))
-                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
         case let .assistant(_, turn):
-            HStack {
-                Button {
-                    onSelectTurn(turn.turnIndex)
-                } label: {
+            let presentation = TranscriptRowPresentation(role: .assistant, isSelected: isSelected)
+            Button {
+                onSelectTurn(turn.turnIndex)
+            } label: {
+                TranscriptRowFrame(presentation: presentation) {
                     AssistantTurnContent(turn: turn)
-                        .padding(10)
-                        .background(
-                            isSelected ? Color.accentColor.opacity(0.06) : Color(nsColor: .controlBackgroundColor),
-                            in: RoundedRectangle(cornerRadius: 12)
-                        )
-                        .overlay(alignment: .leading) {
-                            // A thin leading accent bar reads as "selected" without the heavy
-                            // fill/outline overpowering the message text (YAK-20).
-                            if isSelected {
-                                RoundedRectangle(cornerRadius: 1.5)
-                                    .fill(Color.accentColor)
-                                    .frame(width: 3)
-                                    .padding(.vertical, 6)
-                                    .padding(.leading, 2)
-                            }
-                        }
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Assistant turn \(turn.turnIndex + 1)")
-                Spacer(minLength: 40)
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Assistant turn \(turn.turnIndex + 1)")
 
         case let .error(id, message, retryPrompt):
-            HStack {
-                Label(message, systemImage: "exclamationmark.triangle.fill")
-                    .font(.callout)
-                    .foregroundStyle(.red)
-                if let prompt = retryPrompt, !prompt.isEmpty {
-                    Button("Retry") {
-                        onRetry(id)
+            TranscriptRowFrame(presentation: TranscriptRowPresentation(role: .error, isSelected: false)) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Label(message, systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout)
+                        .foregroundStyle(.red)
+                    if let prompt = retryPrompt, !prompt.isEmpty {
+                        Button("Retry") {
+                            onRetry(id)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .accessibilityLabel("Retry failed turn")
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .accessibilityLabel("Retry failed turn")
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 40)
             }
-            .padding(.vertical, 4)
 
         case let .prompt(id, prompt):
-            HStack {
+            TranscriptRowFrame(presentation: TranscriptRowPresentation(role: .prompt, isSelected: false)) {
                 ChatPromptRow(prompt: prompt) { option in
                     onSelectPromptOption(id, option)
                 }
-                Spacer(minLength: 40)
             }
         }
+    }
+}
+
+private struct TranscriptRowFrame<Content: View>: View {
+    let presentation: TranscriptRowPresentation
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            RoundedRectangle(cornerRadius: 1.5)
+                .fill(presentation.gutterColor)
+                .frame(width: 3)
+                .padding(.vertical, 2)
+
+            Image(systemName: presentation.iconSystemName)
+                .font(.system(size: 14, weight: .medium))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(presentation.iconColor)
+                .frame(width: 18)
+                .accessibilityHidden(true)
+
+            content
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 9)
+        .padding(.horizontal, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(presentation.selectionColor)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .contain)
     }
 }
 
@@ -117,6 +127,40 @@ private struct ChatPromptRow: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
         )
+    }
+}
+
+private extension TranscriptRowPresentation {
+    var gutterColor: Color {
+        switch gutterAccent {
+        case .sea:
+            Color.cyan.opacity(0.72)
+        case .moon:
+            Color.indigo.opacity(0.58)
+        case .selectedMoon:
+            Color.accentColor
+        case .error:
+            Color.red.opacity(0.82)
+        case .neutral:
+            Color(nsColor: .separatorColor)
+        }
+    }
+
+    var iconColor: Color {
+        switch role {
+        case .user:
+            Color.cyan.opacity(0.85)
+        case .assistant:
+            isSelected ? Color.accentColor : Color.indigo.opacity(0.75)
+        case .error:
+            Color.red
+        case .prompt:
+            Color.secondary.opacity(0.85)
+        }
+    }
+
+    var selectionColor: Color {
+        selectionTreatment == .subtleTint ? Color.accentColor.opacity(0.055) : Color.clear
     }
 }
 
