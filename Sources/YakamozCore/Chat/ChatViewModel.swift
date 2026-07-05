@@ -56,6 +56,11 @@ public final class ChatViewModel {
     private let timelineId: UUID
     private let agentInstanceId: UUID?
     private var tools: [AnyTool]
+    /// TEX-2: the caller-supplied base instructions, unmodified. `effectiveSystemInstructions`
+    /// (composed with `ToolCallExplanation.promptGuidance` when `tools` is non-empty) is what
+    /// actually goes out on each send — computed from the *current* `tools`, not a value
+    /// snapshotted at init, so a later `updateTools(_:)` (e.g. attaching a workspace) is
+    /// reflected on the next send without re-creating the view model.
     private let systemInstructions: String?
     private let maxTurns: Int
     private let generationParameters: GenerationParameters?
@@ -85,7 +90,7 @@ public final class ChatViewModel {
     /// cleared (`nil`) when `consume` exits (its `defer`) so a stale index is never
     /// trusted across turns. `internal private(set)` so tests can assert the O(1) path
     /// via `@testable import`; invisible to the app target (module-internal).
-    internal private(set) var activeAssistantItemIndex: Int?
+    private(set) var activeAssistantItemIndex: Int?
 
     public init(
         timelineId: UUID,
@@ -243,6 +248,14 @@ public final class ChatViewModel {
         self.tools = tools
     }
 
+    /// TEX-2: `systemInstructions` composed with `ToolCallExplanation.promptGuidance`
+    /// when tools are currently offered, computed from the live `tools` list (not a
+    /// value snapshotted at init) so a later `updateTools(_:)` is honored on the next
+    /// send. Unchanged (including `nil`) when no tools are offered.
+    private var effectiveSystemInstructions: String? {
+        ToolCallExplanation.composeSystemInstructions(base: systemInstructions, hasTools: !tools.isEmpty)
+    }
+
     private func consume(_ text: String, sendId: UUID) async {
         let turnIndex = nextTurnIndex
         nextTurnIndex += 1
@@ -274,7 +287,7 @@ public final class ChatViewModel {
                     sendId: sendId,
                     message: text,
                     tools: tools,
-                    systemInstructions: systemInstructions,
+                    systemInstructions: effectiveSystemInstructions,
                     agentInstanceId: agentInstanceId,
                     maxTurns: maxTurns,
                     generationParameters: generationParameters,
@@ -371,14 +384,15 @@ public final class ChatViewModel {
         return failedState
     }
 
-    internal func updateAssistantItem(id: UUID, turn: ChatTurnState) {
+    func updateAssistantItem(id: UUID, turn: ChatTurnState) {
         // STAB-9: prefer the recorded O(1) index; validate it still points at `id`
         // (the transcript may have been mutated mid-turn — e.g. an `.error` item
         // appended by `appendErrorItem`, or the item removed by `finalizeFailedTurn`).
         // On mismatch, fall back to a full scan and re-record the corrected index.
         if let index = activeAssistantItemIndex,
            transcript.indices.contains(index),
-           transcript[index].id == id {
+           transcript[index].id == id
+        {
             transcript[index] = .assistant(id: id, turn: turn)
             return
         }

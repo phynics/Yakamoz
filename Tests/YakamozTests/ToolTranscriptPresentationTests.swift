@@ -37,6 +37,55 @@ struct ToolTranscriptPresentationTests {
         #expect(presentation.fullResponse == "permission denied")
     }
 
+    @Test("Excludes explanation from the fx-notation argument list and full parameters, exposing it as a caption")
+    func excludesExplanationFromNotationAndParameters() {
+        let trace = ToolTrace(
+            id: "call_4",
+            name: "calculator",
+            state: .succeeded,
+            arguments: #"{"expression":"2 + 2","explanation":"Adding two numbers to answer the question."}"#,
+            output: "4"
+        )
+
+        let presentation = ToolTranscriptPresentation(trace: trace)
+
+        #expect(presentation.notation == "calculator(expression: 2 + 2) -> 4")
+        #expect(presentation.explanationText == "Adding two numbers to answer the question.")
+        #expect(!presentation.fullParameters.contains("explanation"))
+        #expect(presentation.fullParameters.contains("expression"))
+    }
+
+    @Test("explanationText is nil when the call has no explanation argument")
+    func explanationTextNilWhenAbsent() {
+        let trace = ToolTrace(
+            id: "call_5",
+            name: "calculator",
+            state: .succeeded,
+            arguments: #"{"expression":"2 + 2"}"#,
+            output: "4"
+        )
+
+        let presentation = ToolTranscriptPresentation(trace: trace)
+
+        #expect(presentation.explanationText == nil)
+        #expect(presentation.notation == "calculator(expression: 2 + 2) -> 4")
+    }
+
+    @Test("explanationText surfaces live while the trace is still attempting")
+    func explanationTextSurfacesLiveWhileAttempting() {
+        let trace = ToolTrace(
+            id: "call_6",
+            name: "search",
+            state: .attempting,
+            arguments: #"{"query":"moon","explanation":"Looking up moon facts."}"#
+        )
+
+        let presentation = ToolTranscriptPresentation(trace: trace)
+
+        #expect(presentation.status == .attempting)
+        #expect(presentation.explanationText == "Looking up moon facts.")
+    }
+
     @Test("Truncates long parameter values and result summaries in the collapsed row")
     func truncatesCollapsedValues() {
         let trace = ToolTrace(

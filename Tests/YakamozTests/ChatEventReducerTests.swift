@@ -53,6 +53,28 @@ struct ChatEventReducerTests {
         #expect(state.response.reconstructedText.isEmpty)
     }
 
+    @Test("TEX-2: explanation in the streamed tool-call delta surfaces live, before any result")
+    func toolCallDeltaExplanationSurfacesLiveWhileAttempting() throws {
+        var state = ChatTurnState(turnIndex: 0)
+        let now = clock.now
+
+        ChatEventReducer.reduce(
+            .toolCall(ToolCallDelta(
+                index: 0, id: "call-1", name: "search",
+                arguments: #"{"query":"moon","explanation":"Looking up moon facts."}"#
+            )),
+            into: &state,
+            now: now
+        )
+
+        let trace = state.tools["call-1"]
+        #expect(trace?.state == .attempting)
+        #expect(trace?.output == nil)
+        let presentation = try ToolTranscriptPresentation(trace: #require(trace))
+        #expect(presentation.status == .attempting)
+        #expect(presentation.explanationText == "Looking up moon facts.")
+    }
+
     @Test("Attempting status creates a tool trace and records a start time")
     func attemptingCreatesTrace() {
         var state = ChatTurnState(turnIndex: 0)

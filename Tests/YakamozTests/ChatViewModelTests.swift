@@ -14,6 +14,7 @@ private final class ScriptedRunner: ChatRunning, @unchecked Sendable {
     private(set) var capturedMessages: [String] = []
     private(set) var lastStructuredOutput: StructuredOutputRequest?
     private(set) var lastSendId: UUID?
+    private(set) var lastSystemInstructions: String?
     var continuation: AsyncThrowingStream<ChatEvent, Error>.Continuation?
     var onRun: (@Sendable (String) -> Void)?
     private let runCounter = AsyncCounter()
@@ -31,6 +32,7 @@ private final class ScriptedRunner: ChatRunning, @unchecked Sendable {
         capturedMessages.append(request.message)
         lastStructuredOutput = request.structuredOutput
         lastSendId = request.sendId
+        lastSystemInstructions = request.systemInstructions
         onRun?(request.message)
         runCounter.increment()
         return AsyncThrowingStream { continuation in
@@ -298,6 +300,65 @@ struct ChatViewModelTests {
 
         let persisted = try await inspector.inspection(conversationId: timelineId, turnIndex: 0)
         #expect(persisted?.response?.reconstructedText == "final answer")
+    }
+
+    @Test("TEX-2: tool-guidance line is appended to system instructions when tools are offered")
+    func toolGuidanceAppendedWhenToolsOffered() async {
+        let runner = ScriptedRunner()
+        let viewModel = ChatViewModel(
+            timelineId: UUID(),
+            runner: runner,
+            tools: [CalculatorTool().toAnyTool()],
+            systemInstructions: "You are a helpful assistant."
+        )
+
+        viewModel.send("hi")
+        await runner.waitUntilRunCount(1)
+
+        let instructions = try? #require(runner.lastSystemInstructions)
+        #expect(instructions?.contains("You are a helpful assistant.") == true)
+        #expect(instructions?.contains(ToolExplanationParameter.key) == true)
+
+        runner.continuation?.finish()
+        await viewModel.awaitSendCompletion()
+    }
+
+    @Test("TEX-2: system instructions are unchanged when the conversation has no tools")
+    func systemInstructionsUnchangedWithoutTools() async {
+        let runner = ScriptedRunner()
+        let viewModel = ChatViewModel(
+            timelineId: UUID(),
+            runner: runner,
+            tools: [],
+            systemInstructions: "You are a helpful assistant."
+        )
+
+        viewModel.send("hi")
+        await runner.waitUntilRunCount(1)
+
+        #expect(runner.lastSystemInstructions == "You are a helpful assistant.")
+
+        runner.continuation?.finish()
+        await viewModel.awaitSendCompletion()
+    }
+
+    @Test("TEX-2: tool-guidance line is present even with nil base system instructions, when tools are offered")
+    func toolGuidancePresentWithNilBaseInstructions() async {
+        let runner = ScriptedRunner()
+        let viewModel = ChatViewModel(
+            timelineId: UUID(),
+            runner: runner,
+            tools: [CalculatorTool().toAnyTool()],
+            systemInstructions: nil
+        )
+
+        viewModel.send("hi")
+        await runner.waitUntilRunCount(1)
+
+        #expect(runner.lastSystemInstructions?.contains(ToolExplanationParameter.key) == true)
+
+        runner.continuation?.finish()
+        await viewModel.awaitSendCompletion()
     }
 
     @Test("A clean empty stream surfaces an explicit empty-response notice")

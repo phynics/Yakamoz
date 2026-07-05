@@ -298,6 +298,99 @@ struct TranscriptReloadToolTraceTests {
         #expect(turn.toolOrder == ["call_low", "call_high"])
     }
 
+    /// TEX-2: a tool call whose persisted arguments include `explanation` survives
+    /// `YakamozRuntime.transcriptItems(from:)` reconstruction (the same path
+    /// MessageStore-backed reload uses) with the explanation intact in the reconstructed
+    /// trace's raw `arguments` string, and the reloaded inspector projection
+    /// (`ToolTraceDTO`, and the transcript's `ToolTranscriptPresentation`) exposes the
+    /// caption/filtered-args split from that reloaded state — not just from a live turn.
+    @Test("reloaded tool call with explanation exposes caption + filtered args on both surfaces")
+    func reloadedToolCallExposesExplanationCaptionAndFilteredArgs() throws {
+        let timelineId = UUID()
+        let callId = "call_explained"
+        let toolCallsJSON = try Self.encodeJSON([
+            ToolCall(
+                id: callId,
+                name: "calculator",
+                arguments: [
+                    "expression": AnyCodable("2+2"),
+                    "explanation": AnyCodable("Adding two numbers to answer the question."),
+                ]
+            ),
+        ])
+        let assistantToolMsg = ConversationMessage(
+            timelineId: timelineId, role: .assistant, content: "", toolCalls: toolCallsJSON
+        )
+        let toolMsg = ConversationMessage(
+            timelineId: timelineId, role: .tool, content: "4", toolCallId: callId
+        )
+        let assistantFinalMsg = ConversationMessage(
+            timelineId: timelineId, role: .assistant, content: "The answer is 4."
+        )
+
+        let transcript = YakamozRuntime.transcriptItems(from: [
+            assistantToolMsg, toolMsg, assistantFinalMsg,
+        ])
+
+        guard case let .assistant(_, turn) = transcript.first(where: { Self.isAssistant($0) }) else {
+            Issue.record("expected an assistant item")
+            return
+        }
+        let trace = try #require(turn.tools[callId])
+        #expect(trace.arguments?.contains("explanation") == true)
+
+        // Inspector-level DTO projection of the reloaded trace.
+        let dto = ToolTraceDTO(trace: trace)
+        #expect(dto.explanationText == "Adding two numbers to answer the question.")
+        #expect(dto.displayArguments?.contains("explanation") == false)
+        #expect(dto.displayArguments?.contains("expression") == true)
+
+        // Transcript-level presentation of the reloaded trace.
+        let presentation = ToolTranscriptPresentation(trace: trace)
+        #expect(presentation.explanationText == "Adding two numbers to answer the question.")
+        #expect(!presentation.fullParameters.contains("explanation"))
+        #expect(!presentation.notation.contains("explanation"))
+    }
+
+    /// TEX-2 missing-explanation gap: a reloaded call with no `explanation` argument
+    /// renders exactly as before reload — no caption, no placeholder, and both DTO/
+    /// transcript-level `explanationText` are `nil`.
+    @Test("reloaded tool call without explanation exposes no caption on either surface")
+    func reloadedToolCallWithoutExplanationHasNoCaption() throws {
+        let timelineId = UUID()
+        let callId = "call_unexplained"
+        let toolCallsJSON = try Self.encodeJSON([
+            ToolCall(id: callId, name: "calculator", arguments: ["expression": AnyCodable("2+2")]),
+        ])
+        let assistantToolMsg = ConversationMessage(
+            timelineId: timelineId, role: .assistant, content: "", toolCalls: toolCallsJSON
+        )
+        let toolMsg = ConversationMessage(
+            timelineId: timelineId, role: .tool, content: "4", toolCallId: callId
+        )
+        let assistantFinalMsg = ConversationMessage(
+            timelineId: timelineId, role: .assistant, content: "The answer is 4."
+        )
+
+        let transcript = YakamozRuntime.transcriptItems(from: [
+            assistantToolMsg, toolMsg, assistantFinalMsg,
+        ])
+
+        guard case let .assistant(_, turn) = transcript.first(where: { Self.isAssistant($0) }) else {
+            Issue.record("expected an assistant item")
+            return
+        }
+        let trace = try #require(turn.tools[callId])
+
+        let dto = ToolTraceDTO(trace: trace)
+        #expect(dto.explanationText == nil)
+        #expect(dto.displayArguments == trace.arguments)
+
+        let presentation = ToolTranscriptPresentation(trace: trace)
+        #expect(presentation.explanationText == nil)
+        #expect(presentation.notation == "calculator(expression: 2+2) -> 4")
+    }
+
     // MARK: - Helpers
 
     private static func encodeJSON(_ calls: [ToolCall]) throws -> String {

@@ -58,8 +58,16 @@ public struct ToolTranscriptPresentation: Equatable, Sendable {
         trace.name
     }
 
+    /// TEX-2: the model-authored `explanation` argument (TEX-1), rendered as a caption —
+    /// excluded from `fullParameters`/`notation` (see `ToolCallExplanation`). `nil` while
+    /// unavailable/absent/blank/non-string, including on a still-partial streaming JSON
+    /// fragment, so callers render nothing rather than a placeholder.
+    public var explanationText: String? {
+        ToolCallExplanation.explanationText(fromArguments: trace.arguments)
+    }
+
     public var fullParameters: String {
-        trace.arguments ?? ""
+        ToolCallExplanation.displayArguments(fromArguments: trace.arguments) ?? ""
     }
 
     public var fullResponse: String {
@@ -87,7 +95,7 @@ public struct ToolTranscriptPresentation: Equatable, Sendable {
     }
 
     private func formattedParameters() -> String {
-        let parameters = Self.parameterPairs(from: trace.arguments)
+        let parameters = Self.parameterPairs(from: ToolCallExplanation.displayArguments(fromArguments: trace.arguments))
         return parameters.map { key, value in
             "\(key): \(Self.truncated(value, limit: Self.parameterValueLimit))"
         }.joined(separator: ", ")

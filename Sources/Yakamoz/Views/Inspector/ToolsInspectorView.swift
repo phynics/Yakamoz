@@ -197,7 +197,16 @@ private extension ToolsInspectorView {
                 }
             }
 
-            if let arguments = trace.arguments, !arguments.isEmpty {
+            // TEX-2: the model-authored `explanation` argument renders as its own caption
+            // line, filtered out of the raw "Parameters" dump below (`displayArguments`)
+            // so it isn't shown twice.
+            if let explanation = trace.explanationText {
+                Text(explanation)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let arguments = trace.displayArguments, !arguments.isEmpty {
                 labeledBlock("Parameters", text: arguments)
             }
             if let output = trace.output, !output.isEmpty {

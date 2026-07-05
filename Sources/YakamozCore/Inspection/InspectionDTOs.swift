@@ -252,6 +252,22 @@ public struct ToolTraceDTO: Codable, Sendable, Identifiable, Equatable {
 }
 
 public extension ToolTraceDTO {
+    /// TEX-2: the model-authored `explanation` argument (TEX-1), for the inspector's
+    /// caption row. `nil` when absent/blank/non-string, or while `arguments` is still an
+    /// unparseable partial JSON fragment — mirrors `ToolTranscriptPresentation.explanationText`
+    /// via the shared `ToolCallExplanation` helper so both surfaces agree.
+    var explanationText: String? {
+        ToolCallExplanation.explanationText(fromArguments: arguments)
+    }
+
+    /// `arguments` with the `explanation` key filtered out, for the raw-arguments dump —
+    /// so the reserved key never leaks into that listing alongside its caption row.
+    var displayArguments: String? {
+        ToolCallExplanation.displayArguments(fromArguments: arguments)
+    }
+}
+
+public extension ToolTraceDTO {
     /// Flattens a live reducer `ToolTrace` into its persistable projection, mapping the
     /// lifecycle state to a `ToolTraceStatus` and `elapsed` to whole milliseconds.
     init(trace: ToolTrace) {

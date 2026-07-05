@@ -190,18 +190,31 @@ private struct ToolTranscriptRow: View {
             isShowingDetail = true
         } label: {
             TranscriptRowFrame(presentation: TranscriptRowPresentation(role: .tool, isSelected: false)) {
-                HStack(spacing: 8) {
-                    statusIcon
-                    Text(presentation.notation)
-                        .font(.system(.callout, design: .monospaced))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
+                // TEX-2: the model-authored `explanation` argument renders as a secondary
+                // caption above the fx-notation one-liner — visible live, while the call is
+                // still `.attempting` (arrives with the call's streamed arguments), not only
+                // once a result is available. Absent explanation renders exactly as before
+                // (no placeholder line).
+                VStack(alignment: .leading, spacing: 2) {
+                    if let explanation = presentation.explanationText {
+                        Text(explanation)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    HStack(spacing: 8) {
+                        statusIcon
+                        Text(presentation.notation)
+                            .font(.system(.callout, design: .monospaced))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
                 }
             }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Tool call \(presentation.notation)")
+        .accessibilityLabel(accessibilityLabel)
         .popover(isPresented: $isShowingDetail) {
             // UIX-2 review fix #6: was hard-coded to `.frame(width: 520, height: 360)`
             // regardless of content, so a one-line result got a mostly-empty 360pt-tall
@@ -227,6 +240,13 @@ private struct ToolTranscriptRow: View {
             Image(systemName: "xmark.circle.fill")
                 .foregroundStyle(.red)
         }
+    }
+
+    private var accessibilityLabel: String {
+        if let explanation = presentation.explanationText {
+            return "\(explanation). Tool call \(presentation.notation)"
+        }
+        return "Tool call \(presentation.notation)"
     }
 }
 
