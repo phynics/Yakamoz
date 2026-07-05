@@ -14,7 +14,7 @@ final class UICoordinator {
     var newChatToken = 0
     /// Bumped by Command-I. `ChatView` observes it to toggle the inspector drawer.
     var toggleInspectorToken = 0
-    /// Set by Command-1…6 to the requested inspector tab index (0-based), paired with a
+    /// Set by Command-1…5 to the requested inspector tab index (0-based), paired with a
     /// token so selecting the same tab twice still re-fires.
     var inspectorTabRequest: (index: Int, token: Int) = (0, 0)
     /// Bumped by Command-Return-adjacent flows / after a send to refocus the composer.
@@ -57,12 +57,12 @@ extension EnvironmentValues {
 
 /// Menu-bar commands wired to `UICoordinator`. Added to the `WindowGroup` via `.commands`.
 ///
-/// Shortcuts: Command-N (new chat), Command-I (toggle inspector), Command-1…6 (inspector
-/// tabs). The six tab titles mirror `InspectorTab.allCases` order.
+/// Shortcuts: Command-N (new chat), Command-I (toggle inspector), Command-1…5 (inspector
+/// tabs). The five tab titles mirror `InspectorTab.allCases` order.
 struct YakamozCommands: Commands {
     let coordinator: UICoordinator
 
-    private static let inspectorTabTitles = ["Prompt", "Sent", "Journal", "Response", "Tools", "Workspace"]
+    private static let inspectorTabTitles = ["Prompt", "Sent", "Journal", "Response", "Tools"]
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {

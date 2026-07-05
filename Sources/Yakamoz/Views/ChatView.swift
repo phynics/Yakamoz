@@ -32,7 +32,7 @@ struct ChatView: View {
     /// `ScrollView`; force-set to `true` whenever a new turn snaps to bottom.
     @State private var isStickyToBottom = true
 
-    @SceneStorage("inspector.isOpen") private var isInspectorOpen = false
+    @SceneStorage("inspector.isOpen") private var isInspectorOpen = true
     @SceneStorage("inspector.tab") private var selectedInspectorTabRaw = "prompt"
 
     @Query private var workspaces: [WorkspaceModel]
@@ -160,7 +160,7 @@ struct ChatView: View {
             withAnimation(.snappy) { isInspectorOpen.toggle() }
         }
         .onChange(of: coordinator.inspectorTabRequest.token) { _, _ in
-            let tabs = ["prompt", "sent", "journal", "response", "tools", "workspace"]
+            let tabs = ["prompt", "sent", "journal", "response", "tools"]
             let index = coordinator.inspectorTabRequest.index
             guard tabs.indices.contains(index) else { return }
             selectedInspectorTabRaw = tabs[index]
@@ -215,6 +215,9 @@ struct ChatView: View {
                     conversationStack(viewModel: viewModel)
                         .onChange(of: viewModel.selectedInspectionTurnIndex) { _, newIndex in
                             Task { await inspectionViewModel?.select(conversationId: conversation.id, turnIndex: newIndex) }
+                            if newIndex != nil, !isInspectorOpen {
+                                withAnimation(.snappy) { isInspectorOpen = true }
+                            }
                         }
 
                     Divider()
@@ -234,6 +237,8 @@ struct ChatView: View {
                         detailWidth: proxy.size.width,
                         selectedTurnState: viewModel.selectedTurnState,
                         workspacePresentation: workspacePresentation,
+                        providerStatus: providerStatus,
+                        providerSettings: providerSettings,
                         availableTools: availableInspectorTools,
                         enabledToolIds: effectiveEnabledToolIds,
                         onRefreshWorkspace: { Task { await refreshWorkspacePresentation() } },
@@ -242,6 +247,8 @@ struct ChatView: View {
                         onDetachWorkspace: detachWorkspace,
                         onSetToolEnabled: setToolEnabled,
                         onCreateTerminal: pickFolderForTerminal,
+                        selectedInspectionTurnIndex: viewModel.selectedInspectionTurnIndex,
+                        onCloseInspection: { viewModel.selectInspectionTurn(nil) },
                         isOpen: $isInspectorOpen,
                         selectedTabRaw: $selectedInspectorTabRaw,
                         canSelectTurn: { viewModel.canSelectInspectionTurn($0) },

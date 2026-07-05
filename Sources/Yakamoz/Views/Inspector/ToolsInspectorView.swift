@@ -16,10 +16,6 @@ struct ToolsInspectorView: View {
     /// The selected turn's live, in-memory state — used only for the turn currently
     /// streaming, before its response (and traces) have been persisted.
     let liveTurn: ChatTurnState?
-    let availableTools: [ConversationToolOption]
-    let enabledToolIds: Set<String>
-    let onSetToolEnabled: (String, Bool) -> Void
-    let onCreateTerminal: () -> Void
 
     /// Persisted traces win when present; otherwise project the live turn's traces.
     private var traces: [ToolTraceDTO] {
@@ -29,24 +25,28 @@ struct ToolsInspectorView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                availableToolsSection
-                traceSection
-            }
+            traceSection
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
+}
+
+struct ToolSettingsView: View {
+    let availableTools: [ConversationToolOption]
+    let enabledToolIds: Set<String>
+    let onSetToolEnabled: (String, Bool) -> Void
+    let onCreateTerminal: () -> Void
 
     /// Built-in tools (always available, e.g. calculator, current date/time).
     private var builtInTools: [ConversationToolOption] {
-        availableTools.filter { !$0.requiresWorkspace }
+        availableTools.filter { !$0.requiresWorkspace && !$0.requiresTerminal }
     }
 
     /// Workspace tools (filesystem tools confined to the attached folder). Only non-empty
     /// when a workspace is attached — `availableTools` already excludes them otherwise.
     private var workspaceTools: [ConversationToolOption] {
-        availableTools.filter(\.requiresWorkspace)
+        availableTools.filter { $0.requiresWorkspace && !$0.requiresTerminal }
     }
 
     /// Terminal tools would be available if a terminal workspace were attached.
@@ -66,11 +66,14 @@ struct ToolsInspectorView: View {
     ///
     /// YAK-30: Also shows a call-to-action for creating a terminal workspace when no
     /// terminal is attached.
-    private var availableToolsSection: some View {
+    var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             toolGroup(title: "Built-in", tools: builtInTools)
             if !workspaceTools.isEmpty {
                 toolGroup(title: "Workspace", tools: workspaceTools)
+            }
+            if !terminalTools.isEmpty {
+                toolGroup(title: "Terminal", tools: terminalTools)
             }
             if shouldShowTerminalCTA {
                 terminalCTA
@@ -121,8 +124,17 @@ struct ToolsInspectorView: View {
         }
     }
 
+    private func toolBinding(for toolID: String) -> Binding<Bool> {
+        Binding(
+            get: { enabledToolIds.contains(toolID) },
+            set: { onSetToolEnabled(toolID, $0) }
+        )
+    }
+}
+
+private extension ToolsInspectorView {
     @ViewBuilder
-    private var traceSection: some View {
+    var traceSection: some View {
         if !traces.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Tool Calls This Turn")
@@ -141,7 +153,7 @@ struct ToolsInspectorView: View {
         }
     }
 
-    private func traceCard(_ trace: ToolTraceDTO) -> some View {
+    func traceCard(_ trace: ToolTraceDTO) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(trace.name)
@@ -172,7 +184,7 @@ struct ToolsInspectorView: View {
         .accessibilityElement(children: .combine)
     }
 
-    private func stateBadge(_ status: ToolTraceStatus) -> some View {
+    func stateBadge(_ status: ToolTraceStatus) -> some View {
         let (label, color): (String, Color) = switch status {
         case .attempting: ("Attempting", .orange)
         case .success: ("Succeeded", .green)
@@ -187,7 +199,7 @@ struct ToolsInspectorView: View {
             .accessibilityLabel("Status: \(label)")
     }
 
-    private func labeledBlock(_ title: String, text: String, isError: Bool = false) -> some View {
+    func labeledBlock(_ title: String, text: String, isError: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             Text(text)
@@ -197,12 +209,5 @@ struct ToolsInspectorView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityLabel("\(title): \(text)")
         }
-    }
-
-    private func toolBinding(for toolID: String) -> Binding<Bool> {
-        Binding(
-            get: { enabledToolIds.contains(toolID) },
-            set: { onSetToolEnabled(toolID, $0) }
-        )
     }
 }

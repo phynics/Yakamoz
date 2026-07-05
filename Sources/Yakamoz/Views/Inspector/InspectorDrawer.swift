@@ -10,7 +10,6 @@ enum InspectorTab: String, CaseIterable, Identifiable {
     case journal
     case response
     case tools
-    case workspace
 
     var id: String {
         rawValue
@@ -23,7 +22,6 @@ enum InspectorTab: String, CaseIterable, Identifiable {
         case .journal: "Journal"
         case .response: "Response"
         case .tools: "Tools"
-        case .workspace: "Workspace"
         }
     }
 
@@ -34,7 +32,6 @@ enum InspectorTab: String, CaseIterable, Identifiable {
         case .journal: "book.closed"
         case .response: "bubble.left.and.bubble.right"
         case .tools: "wrench.and.screwdriver"
-        case .workspace: "folder"
         }
     }
 }
@@ -62,6 +59,8 @@ struct InspectorDrawer: View {
     let selectedTurnState: ChatTurnState?
     /// The conversation's attached folder workspace, if any, for the Workspace tab.
     let workspacePresentation: WorkspacePresentation?
+    let providerStatus: ProviderStatusViewModel?
+    let providerSettings: ProviderSettings?
     let availableTools: [ConversationToolOption]
     let enabledToolIds: Set<String>
     /// Re-fetches `workspacePresentation` (e.g. after files changed on disk).
@@ -72,6 +71,8 @@ struct InspectorDrawer: View {
     let onSetToolEnabled: (String, Bool) -> Void
     /// Creates a terminal workspace for the conversation (YAK-30).
     let onCreateTerminal: () -> Void
+    let selectedInspectionTurnIndex: Int?
+    let onCloseInspection: () -> Void
     @Binding var isOpen: Bool
     /// The selected inspector tab's raw value, owned by `ChatView` (via `@SceneStorage`)
     /// so menu-bar commands (Command-1…6) can drive it. Bound here so the segmented picker
@@ -89,6 +90,10 @@ struct InspectorDrawer: View {
 
     private var selectedTab: InspectorTab {
         InspectorTab(rawValue: selectedTabRaw) ?? .prompt
+    }
+
+    private var presentation: RightPanePresentation {
+        RightPanePresentation(selectedInspectionTurnIndex: selectedInspectionTurnIndex)
     }
 
     private var minWidth: CGFloat {
@@ -109,19 +114,11 @@ struct InspectorDrawer: View {
             resizeHandle
 
             VStack(spacing: 0) {
-                Picker("Inspector Tab", selection: tabBinding) {
-                    ForEach(InspectorTab.allCases) { tab in
-                        Label(tab.title, systemImage: tab.systemImage).tag(tab)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
+                header
 
                 Divider()
 
-                tabContent
+                paneContent
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(width: clampedWidth)
@@ -161,25 +158,100 @@ struct InspectorDrawer: View {
     }
 
     @ViewBuilder
+    private var header: some View {
+        switch presentation.mode {
+        case .compose:
+            HStack {
+                Label("Compose", systemImage: "slider.horizontal.3")
+                    .font(.headline)
+                Spacer()
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+        case .inspect:
+            HStack(spacing: 8) {
+                Picker("Inspector Tab", selection: tabBinding) {
+                    ForEach(InspectorTab.allCases) { tab in
+                        Label(tab.title, systemImage: tab.systemImage).tag(tab)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+
+                Button {
+                    onCloseInspection()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                }
+                .buttonStyle(.borderless)
+                .help("Return to compose")
+                .accessibilityLabel("Return to compose")
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+        }
+    }
+
+    @ViewBuilder
+    private var paneContent: some View {
+        switch presentation.mode {
+        case .compose:
+            composeContent
+        case .inspect:
+            tabContent
+        }
+    }
+
+    private var composeContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                if let providerStatus, let providerSettings {
+                    composeSection(title: "Provider") {
+                        ProviderControlMenu(status: providerStatus, settings: providerSettings)
+                    }
+                }
+
+                composeSection(title: "Workspace") {
+                    WorkspaceInspectorView(
+                        presentation: workspacePresentation,
+                        touchedFiles: [],
+                        onRefresh: onRefreshWorkspace,
+                        onAttachDocuments: onAttachDocuments,
+                        onChooseFolder: onChooseWorkspace,
+                        onDetach: onDetachWorkspace
+                    )
+                }
+
+                composeSection(title: "Tools") {
+                    ToolSettingsView(
+                        availableTools: availableTools,
+                        enabledToolIds: enabledToolIds,
+                        onSetToolEnabled: onSetToolEnabled,
+                        onCreateTerminal: onCreateTerminal
+                    )
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func composeSection<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            content()
+        }
+    }
+
+    @ViewBuilder
     private var tabContent: some View {
         switch selectedTab {
         case .tools:
             ToolsInspectorView(
                 persistedTools: viewModel.inspection?.response?.tools ?? [],
-                liveTurn: selectedTurnState,
-                availableTools: availableTools,
-                enabledToolIds: enabledToolIds,
-                onSetToolEnabled: onSetToolEnabled,
-                onCreateTerminal: onCreateTerminal
-            )
-        case .workspace:
-            WorkspaceInspectorView(
-                presentation: workspacePresentation,
-                touchedFiles: selectedTurnState?.workspaceFiles ?? [],
-                onRefresh: onRefreshWorkspace,
-                onAttachDocuments: onAttachDocuments,
-                onChooseFolder: onChooseWorkspace,
-                onDetach: onDetachWorkspace
+                liveTurn: selectedTurnState
             )
         case .prompt, .sent, .journal, .response:
             if let inspection = viewModel.inspection {
@@ -207,7 +279,7 @@ struct InspectorDrawer: View {
             )
         case .response:
             ResponseInspectorView(inspection: inspection)
-        case .tools, .workspace:
+        case .tools:
             EmptyView()
         }
     }
