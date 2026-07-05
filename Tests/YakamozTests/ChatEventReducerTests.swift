@@ -386,6 +386,125 @@ struct ChatEventReducerTests {
         #expect((elapsed ?? .zero) > .zero)
     }
 
+    @Test("UIX-4: text-before-tool produces a text segment followed by a tool segment")
+    func textBeforeToolProducesOrderedSegments() {
+        var state = ChatTurnState(turnIndex: 0)
+        let now = clock.now
+
+        ChatEventReducer.reduce(.generation("Let me check that."), into: &state, now: now)
+        ChatEventReducer.reduce(
+            .toolProgress(toolCallId: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
+            into: &state,
+            now: now
+        )
+
+        #expect(state.turnSegments == [.text("Let me check that."), .tool(id: "call-1")])
+    }
+
+    @Test("UIX-4: tool-before-text produces a tool segment followed by a text segment")
+    func toolBeforeTextProducesOrderedSegments() {
+        var state = ChatTurnState(turnIndex: 0)
+        let now = clock.now
+
+        ChatEventReducer.reduce(
+            .toolProgress(toolCallId: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
+            into: &state,
+            now: now
+        )
+        ChatEventReducer.reduce(.generation("Here's what I found."), into: &state, now: now)
+
+        #expect(state.turnSegments == [.tool(id: "call-1"), .text("Here's what I found.")])
+    }
+
+    @Test("UIX-4: multiple tools interspersed with text preserve chronological order (text -> tool -> text -> tool)")
+    func interleavedTextAndToolsPreserveOrder() {
+        var state = ChatTurnState(turnIndex: 0)
+        let now = clock.now
+
+        ChatEventReducer.reduce(.generation("First I'll search."), into: &state, now: now)
+        ChatEventReducer.reduce(
+            .toolProgress(toolCallId: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
+            into: &state,
+            now: now
+        )
+        ChatEventReducer.reduce(.generation("Now let me calculate."), into: &state, now: now)
+        ChatEventReducer.reduce(
+            .toolProgress(toolCallId: "call-2", status: .attempting(name: "calculator", reference: .known(id: "calculator"))),
+            into: &state,
+            now: now
+        )
+
+        #expect(state.turnSegments == [
+            .text("First I'll search."),
+            .tool(id: "call-1"),
+            .text("Now let me calculate."),
+            .tool(id: "call-2"),
+        ])
+    }
+
+    @Test("UIX-4: consecutive text deltas coalesce into a single text segment")
+    func consecutiveTextDeltasCoalesce() {
+        var state = ChatTurnState(turnIndex: 0)
+        let now = clock.now
+
+        ChatEventReducer.reduce(.generation("Moon"), into: &state, now: now)
+        ChatEventReducer.reduce(.generation("light"), into: &state, now: now)
+        ChatEventReducer.reduce(
+            .toolProgress(toolCallId: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
+            into: &state,
+            now: now
+        )
+        ChatEventReducer.reduce(.generation("Sonata"), into: &state, now: now)
+        ChatEventReducer.reduce(.generation(" No. 14"), into: &state, now: now)
+
+        #expect(state.turnSegments == [
+            .text("Moonlight"),
+            .tool(id: "call-1"),
+            .text("Sonata No. 14"),
+        ])
+    }
+
+    @Test("UIX-4: tool status updates after the first sighting do not create duplicate segments")
+    func toolStatusUpdatesDoNotDuplicateSegments() {
+        var state = ChatTurnState(turnIndex: 0)
+        let startedAt = clock.now
+        let finishedAt = clock.now
+
+        ChatEventReducer.reduce(.generation("Checking..."), into: &state, now: startedAt)
+        ChatEventReducer.reduce(
+            .toolProgress(toolCallId: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
+            into: &state,
+            now: startedAt
+        )
+        ChatEventReducer.reduce(
+            .toolCompleted(toolCallId: "call-1", status: .success(.success("done"))),
+            into: &state,
+            now: finishedAt
+        )
+        ChatEventReducer.reduce(.generation("Found it."), into: &state, now: finishedAt)
+
+        #expect(state.turnSegments == [
+            .text("Checking..."),
+            .tool(id: "call-1"),
+            .text("Found it."),
+        ])
+    }
+
+    @Test("UIX-4: a toolCallError before any status update registers a tool segment (mirrors toolOrder)")
+    func toolCallErrorRegistersSegment() {
+        var state = ChatTurnState(turnIndex: 0)
+        let now = clock.now
+
+        ChatEventReducer.reduce(.generation("Trying a tool call."), into: &state, now: now)
+        ChatEventReducer.reduce(
+            .toolCallError(toolCallId: "call-2", name: "search", error: "invalid arguments"),
+            into: &state,
+            now: now
+        )
+
+        #expect(state.turnSegments == [.text("Trying a tool call."), .tool(id: "call-2")])
+    }
+
     @Test("responseDTO reflects accumulated text, thinking, and metadata")
     func responseDTOReflectsAccumulatedState() {
         var state = ChatTurnState(turnIndex: 0)

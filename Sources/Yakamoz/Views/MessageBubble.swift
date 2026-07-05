@@ -24,19 +24,55 @@ struct MessageBubble: View {
         case let .assistant(_, turn):
             let presentation = TranscriptRowPresentation(role: .assistant, isSelected: isSelected)
             VStack(alignment: .leading, spacing: 6) {
-                Button {
-                    onSelectTurn(turn.turnIndex)
-                } label: {
-                    TranscriptRowFrame(presentation: presentation) {
-                        AssistantTurnContent(turn: turn)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Assistant turn \(turn.turnIndex + 1)")
+                // UIX-4: interleave tool rows between the text segments they actually
+                // occurred between, using `turn.turnSegments` chronology captured by
+                // `ChatEventReducer`. Each text segment stays wrapped in its own
+                // selectable frame/button (mirroring the pre-UIX-4 single-frame
+                // behavior) so `onSelectTurn` keeps working from any text segment; tool
+                // rows render between them, outside the button, matching the existing
+                // tool-row tap semantics (UIX-3: a tool tap must not select the turn).
+                // Reloaded turns don't restore tool traces (STAB-3) and record no
+                // `turnSegments`, so `TurnTranscriptProjection` returns `nil` and this
+                // falls back to the legacy whole-text-then-all-tools rendering.
+                if let segments = TurnTranscriptProjection.segments(for: turn) {
+                    ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
+                        switch segment {
+                        case let .text(text):
+                            Button {
+                                onSelectTurn(turn.turnIndex)
+                            } label: {
+                                TranscriptRowFrame(presentation: presentation) {
+                                    AssistantTurnContent(
+                                        turn: turn,
+                                        segmentText: text,
+                                        isFirstSegment: index == 0,
+                                        isLastSegment: index == segments.count - 1
+                                    )
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Assistant turn \(turn.turnIndex + 1)")
 
-                ForEach(turn.orderedTools) { trace in
-                    ToolTranscriptRow(trace: trace)
+                        case let .tool(trace):
+                            ToolTranscriptRow(trace: trace)
+                        }
+                    }
+                } else {
+                    Button {
+                        onSelectTurn(turn.turnIndex)
+                    } label: {
+                        TranscriptRowFrame(presentation: presentation) {
+                            AssistantTurnContent(turn: turn, segmentText: nil, isFirstSegment: true, isLastSegment: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Assistant turn \(turn.turnIndex + 1)")
+
+                    ForEach(turn.orderedTools) { trace in
+                        ToolTranscriptRow(trace: trace)
+                    }
                 }
             }
 
@@ -276,6 +312,19 @@ private extension TranscriptRowPresentation {
 
 private struct AssistantTurnContent: View {
     let turn: ChatTurnState
+    /// UIX-4: the specific text segment this instance renders, when the turn was
+    /// projected into ordered segments by `TurnTranscriptProjection`. `nil` in the
+    /// legacy fallback path (no `turnSegments` recorded — e.g. a reloaded turn, STAB-3),
+    /// in which case this renders the full `reconstructedText` exactly as before.
+    let segmentText: String?
+    /// Whether this is the first rendered segment of the turn — only the first segment
+    /// shows the thinking disclosure and the "Thinking…" placeholder, so those don't
+    /// repeat once a turn has multiple text segments interleaved with tool rows.
+    let isFirstSegment: Bool
+    /// Whether this is the last rendered segment — only the last (and, pre-UIX-4, only)
+    /// segment can still be actively streaming into, so only it applies the STAB-9
+    /// throttled re-parse behavior below.
+    let isLastSegment: Bool
     @State private var isThinkingExpanded: Bool = true
 
     /// STAB-9: MarkdownUI re-parses the *entire* accumulated response on every body
@@ -288,9 +337,11 @@ private struct AssistantTurnContent: View {
     /// (~200ms) while `!turn.isComplete`, so `Markdown` only re-parses on that cadence
     /// (a plain `Text` in between would drop code blocks/lists/tables/bold, which is
     /// too much to lose on markdown-heavy streams). Once the turn completes,
-    /// `markdownSource` returns the live `reconstructedText` directly, so the finished
-    /// render is byte-identical to the pre-STAB-9 render — no visual change after
-    /// completion.
+    /// `markdownSource` returns the live text directly, so the finished render is
+    /// byte-identical to the pre-STAB-9 render — no visual change after completion.
+    /// UIX-4: this throttling only applies to the last segment, the only one that can
+    /// still be growing mid-stream — earlier segments are already-finalized text that
+    /// preceded a tool call, so they render their exact content immediately.
     @State private var streamingMarkdownText: String = ""
     @State private var lastMarkdownRenderAt: Date = .distantPast
     private static let streamingMarkdownCoalesceInterval: TimeInterval = 0.2
@@ -299,22 +350,30 @@ private struct AssistantTurnContent: View {
         turn.response.thinking.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// The text `Markdown` should parse right now. Once the turn is complete this is the
-    /// full `reconstructedText` (final, exact render). While streaming it is the
-    /// throttled `streamingMarkdownText` snapshot — except before the first snapshot
-    /// exists, where it falls back to the live text so the first token renders
-    /// immediately instead of blanking for ~200ms.
+    /// The full text this instance is responsible for (either the projected segment, or
+    /// the whole `reconstructedText` in the legacy fallback path).
+    private var fullSegmentText: String {
+        segmentText ?? turn.response.reconstructedText
+    }
+
+    /// The text `Markdown` should parse right now. Once the turn is complete, or this
+    /// isn't the last segment, this is `fullSegmentText` directly (final, exact render).
+    /// While streaming the last segment it is the throttled `streamingMarkdownText`
+    /// snapshot — except before the first snapshot exists, where it falls back to the
+    /// live text so the first token renders immediately instead of blanking for ~200ms.
     private var markdownSource: String {
-        if turn.isComplete { return turn.response.reconstructedText }
-        return streamingMarkdownText.isEmpty ? turn.response.reconstructedText : streamingMarkdownText
+        if turn.isComplete || !isLastSegment { return fullSegmentText }
+        return streamingMarkdownText.isEmpty ? fullSegmentText : streamingMarkdownText
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             // Reasoning usually precedes the answer, so render the thinking disclosure
             // above the assistant text. Bound to `turn.response.thinking` so it
-            // live-updates during streaming and survives reload (STAB-2).
-            if !thinkingContent.isEmpty {
+            // live-updates during streaming and survives reload (STAB-2). Only the
+            // first segment shows this — later segments are additional text chunks
+            // within the same turn.
+            if isFirstSegment, !thinkingContent.isEmpty {
                 DisclosureGroup(isExpanded: $isThinkingExpanded) {
                     Text(turn.response.thinking)
                         .font(.caption.monospaced())
@@ -342,13 +401,14 @@ private struct AssistantTurnContent: View {
                 // MarkdownUI renders full GFM (tables, nested lists, code blocks, thematic
                 // breaks) as real SwiftUI views — a single `AttributedString`-backed `Text`
                 // cannot express tables and drops block separators. STAB-9: `markdownSource`
-                // is the throttled snapshot while streaming, the live text once complete.
+                // is the throttled snapshot while streaming the last segment, the exact
+                // text otherwise.
                 Markdown(markdownSource)
                     .textSelection(.enabled)
-            } else if turn.isCancelled {
+            } else if isFirstSegment, turn.isCancelled {
                 Text("Cancelled")
                     .foregroundStyle(.secondary)
-            } else if !turn.isComplete && thinkingContent.isEmpty {
+            } else if isFirstSegment, !turn.isComplete, thinkingContent.isEmpty {
                 HStack(spacing: 6) {
                     ProgressView()
                         .controlSize(.small)
@@ -357,16 +417,16 @@ private struct AssistantTurnContent: View {
                 }
             }
         }
-        .onChange(of: turn.response.reconstructedText) { _, newText in
+        .onChange(of: turn.response.reconstructedText) { _, _ in
             // STAB-9: coalesce Markdown re-parses during streaming. `lastMarkdownRenderAt`
             // starts at `.distantPast` so the first non-empty delta snapshots immediately
             // (no ~200ms blank gap); subsequent deltas are batched onto a ~200ms cadence.
-            // Completion is handled by `markdownSource` returning the live
-            // `reconstructedText` directly, not here.
-            guard !turn.isComplete, !newText.isEmpty else { return }
+            // Completion is handled by `markdownSource` returning the exact text directly,
+            // not here. Only the last segment tracks the live-growing text.
+            guard isLastSegment, !turn.isComplete, !fullSegmentText.isEmpty else { return }
             let now = Date()
             if now.timeIntervalSince(lastMarkdownRenderAt) >= Self.streamingMarkdownCoalesceInterval {
-                streamingMarkdownText = newText
+                streamingMarkdownText = fullSegmentText
                 lastMarkdownRenderAt = now
             }
         }

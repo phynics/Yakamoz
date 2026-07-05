@@ -51,6 +51,17 @@ public struct ToolTrace: Sendable, Equatable, Identifiable {
     }
 }
 
+/// One ordered piece of a turn's chronology, as observed by `ChatEventReducer` while it
+/// folds a single ordered `ChatEvent` stream (UIX-4). Additive alongside
+/// `reconstructedText`/`toolOrder`: those flat structures remain the source of truth for
+/// existing consumers (Journal tab, `ResponseDTO` persistence); `turnSegments` exists only
+/// to let the transcript UI interleave tool rows between the text segments they actually
+/// occurred between.
+public enum TurnSegment: Sendable, Equatable {
+    case text(String)
+    case tool(id: String)
+}
+
 /// The accumulated, reducer-owned state of a single in-flight (or completed) assistant
 /// turn: reconstructed streaming text/thinking, per-tool traces (ordered by first
 /// appearance), workspace context files, and final response metadata.
@@ -79,6 +90,12 @@ public struct ChatTurnState: Sendable, Equatable {
     /// Tool traces in first-seen order, keyed by `toolCallId`.
     public var toolOrder: [String] = []
     public var tools: [String: ToolTrace] = [:]
+    /// True chronology of text/tool segments observed by the reducer (UIX-4), additive
+    /// alongside `reconstructedText`/`toolOrder`. Consecutive text deltas coalesce into a
+    /// single `.text` segment; a `.tool` segment is appended the first time a given
+    /// `toolCallId` is seen (mirroring `toolOrder.append`), never duplicated on later
+    /// status updates for the same id.
+    public var turnSegments: [TurnSegment] = []
     public var isComplete = false
     public var isCancelled = false
     public var errorMessage: String?
@@ -97,6 +114,25 @@ public struct ChatTurnState: Sendable, Equatable {
     /// Tool traces in the order they were first observed.
     public var orderedTools: [ToolTrace] {
         toolOrder.compactMap { tools[$0] }
+    }
+
+    /// Appends a text delta to `turnSegments`, coalescing onto the trailing `.text`
+    /// segment when one is already last (so consecutive generation deltas produce a
+    /// single segment, matching how `reconstructedText` accumulates).
+    mutating func appendTextSegment(_ text: String) {
+        guard !text.isEmpty else { return }
+        if case let .text(existing) = turnSegments.last {
+            turnSegments[turnSegments.count - 1] = .text(existing + text)
+        } else {
+            turnSegments.append(.text(text))
+        }
+    }
+
+    /// Appends a `.tool` segment the first time `id` is seen; a no-op on subsequent
+    /// status updates for the same id (mirrors the `toolOrder.append` first-seen guard).
+    mutating func appendToolSegmentIfNeeded(id: String) {
+        guard !turnSegments.contains(where: { if case .tool(id) = $0 { return true } else { return false } }) else { return }
+        turnSegments.append(.tool(id: id))
     }
 
     var hasVisibleTranscriptContent: Bool {
@@ -143,6 +179,7 @@ public struct ChatTurnState: Sendable, Equatable {
 
         if !tools.keys.contains(id) {
             toolOrder.append(id)
+            appendToolSegmentIfNeeded(id: id)
         }
 
         var trace = tools[id] ?? ToolTrace(id: id, name: delta.name ?? id)
@@ -170,6 +207,7 @@ public struct ChatTurnState: Sendable, Equatable {
 
         if !tools.keys.contains(id) {
             toolOrder.append(id)
+            appendToolSegmentIfNeeded(id: id)
         }
 
         var trace = tools[id] ?? ToolTrace(id: id, name: id)
@@ -286,6 +324,7 @@ public enum ChatEventReducer {
 
         if let text = event.textContent {
             state.response.reconstructedText += text
+            state.appendTextSegment(text)
         }
         if let thought = event.thinkingContent {
             state.response.thinking += thought
@@ -315,6 +354,7 @@ public enum ChatEventReducer {
             var trace = state.tools[id] ?? ToolTrace(id: id, name: name)
             if !state.tools.keys.contains(id) {
                 state.toolOrder.append(id)
+                state.appendToolSegmentIfNeeded(id: id)
             }
             trace.name = name
             trace.state = .failed
