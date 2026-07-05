@@ -1,47 +1,29 @@
 import Foundation
 
-/// UIX-11: presentation-level projection for a single expanded thinking/reasoning
-/// disclosure row. Wraps `TruncatedTextPresentation` to decide which slice of a
-/// potentially-huge reasoning trace to show inline, and whether a popover affordance for
-/// the full text is warranted — mirroring the tool-row pattern (UIX-2/UIX-10) where the
-/// mechanical/verbose detail moves out of the compact transcript row and into a popover.
+/// UIX-13: presentation-level projection for a single thinking/reasoning segment row.
+///
+/// Superseded design: UIX-9's auto-expand/auto-collapse `DisclosureGroup` (with its
+/// `manualExpansion` override) and UIX-11's character-count head/tail slicing
+/// (`inlinePreview`, `needsPopover` gate) are both gone. The row no longer discloses at
+/// all — while streaming it shows a fixed-height, bottom-anchored, gradient-masked tail
+/// (a *visual* line-based crop built in SwiftUI layout, not a string slice) and once the
+/// segment finishes it collapses to a compact one-line marker. The only text-shaping
+/// decision left at this layer is "should the tail area render at all" — that's exactly
+/// `isStreaming`, which the row already receives directly, so this type only exists now
+/// to hold `fullText` for the popover. Kept as a struct (rather than inlining `String`
+/// directly) so the row and popover keep one shared vocabulary and future presentation
+/// logic (e.g. a line-count estimate for the mask height) has an obvious home.
 public struct ThinkingSegmentPresentation: Equatable, Sendable {
-    /// Cap on the inline preview, in characters. Picked to be "a few hundred
-    /// characters" per the UIX-11 design direction — enough to read a couple of
-    /// sentences of live reasoning at a glance without the disclosure growing into a
-    /// second scrollable region competing with the popover. Distinct from (and much
-    /// smaller than) `TruncatedTextPresentation.defaultThreshold` (2000), which caps a
-    /// full sent-message body rather than a transcript preview line.
-    public static let defaultThreshold = 300
-
-    private let truncation: TruncatedTextPresentation
-    /// Whether this segment is the turn's actively-streaming trailing segment (UIX-9).
+    /// The full, untruncated reasoning text — used by the popover and the live tail
+    /// (which crops visually via a fixed-height container, not by slicing this string).
+    public let fullText: String
+    /// Whether this segment is the turn's actively-streaming trailing segment. Drives
+    /// both the fixed-height masked tail (only rendered while streaming) and the
+    /// eventual collapse to a compact marker row once streaming ends.
     public let isStreaming: Bool
 
-    public init(thought: String, isStreaming: Bool, threshold: Int = ThinkingSegmentPresentation.defaultThreshold) {
-        truncation = TruncatedTextPresentation(fullText: thought, threshold: threshold)
+    public init(thought: String, isStreaming: Bool) {
+        fullText = thought
         self.isStreaming = isStreaming
-    }
-
-    /// The full, untruncated reasoning text — used by the popover and for copy/paste.
-    public var fullText: String {
-        truncation.fullText
-    }
-
-    /// Whether the text exceeds the cap and thus needs a popover affordance to reach the
-    /// full content. Short thinking (at or under the cap) shows no popover affordance at
-    /// all — it already renders in full inline.
-    public var needsPopover: Bool {
-        truncation.isTruncatable
-    }
-
-    /// The text to render inline in the expanded disclosure: the full text when it's
-    /// short enough, otherwise a capped slice. While streaming, the slice is the *tail*
-    /// (most recently produced reasoning) so the live view stays informative as new
-    /// tokens arrive; once the segment is no longer streaming, the slice is the *head*
-    /// (matching the conventional "read from the start" expectation for finished text).
-    public var inlinePreview: String {
-        if !needsPopover { return fullText }
-        return isStreaming ? truncation.collapsedTailText : truncation.collapsedText
     }
 }

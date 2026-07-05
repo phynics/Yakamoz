@@ -32,6 +32,26 @@ struct ChatView: View {
     /// `ScrollView`; force-set to `true` whenever a new turn snaps to bottom.
     @State private var isStickyToBottom = true
 
+    /// UIX-14: counts programmatic scrolls we've initiated that haven't yet "settled"
+    /// (i.e. we haven't seen a subsequent `onScrollGeometryChange` reading since
+    /// triggering them). While `> 0`, an off-bottom distance reading is *not* treated as
+    /// evidence of a user scroll — see `ScrollFollowPresentation.shouldUnpin`. This is
+    /// the fix for the leading UIX-14 hypothesis: content growing after a `scrollTo` (or
+    /// that scroll landing short on a still-laying-out `LazyVStack` item) pushes the
+    /// distance-to-bottom past the 80pt threshold with zero user input, and a plain
+    /// distance check can't tell that apart from an actual scroll-up. A settle timer
+    /// (rather than waiting indefinitely for a geometry callback that may not fire if
+    /// nothing moves) bounds how long we suppress unpinning after each programmatic
+    /// scroll.
+    @State private var pendingProgrammaticScrollCount = 0
+
+    /// UIX-14 suspect 3: a stable id to `scrollTo` instead of the last transcript item's
+    /// id. Anchoring to the last *item* while that item is still mid-layout (its height
+    /// growing as markdown/tool rows render) can land short of the true bottom; a
+    /// dedicated zero-height sentinel after the `LazyVStack` always represents "the very
+    /// bottom of the content" regardless of what's above it.
+    private let scrollBottomSentinelId = "scroll-bottom-sentinel"
+
     @SceneStorage("inspector.isOpen") private var isInspectorOpen = true
     @SceneStorage("inspector.tab") private var selectedInspectorTabRaw = "prompt"
 
@@ -305,6 +325,16 @@ struct ChatView: View {
                             )
                             .id(item.id)
                         }
+                        // UIX-14 suspect 3: a stable, always-present sentinel to scroll
+                        // to instead of the last transcript item's own id. The last
+                        // item's height can still be growing mid-layout (markdown
+                        // re-parse, image/code-block layout) when `scrollTo` runs,
+                        // which can land short of the true bottom; this zero-height
+                        // marker is always positioned at the actual bottom of the
+                        // `LazyVStack`'s content.
+                        Color.clear
+                            .frame(height: 0)
+                            .id(scrollBottomSentinelId)
                     }
                     .padding()
                 }
@@ -314,7 +344,20 @@ struct ChatView: View {
                     // riding along the bottom — not after they scroll up.
                     geo.contentSize.height - geo.containerSize.height - geo.contentOffset.y <= 80
                 } action: { _, isAtBottom in
-                    isStickyToBottom = isAtBottom
+                    // UIX-14: a distance reading alone can't tell "the user scrolled
+                    // up" apart from "content outgrew the last programmatic scroll, or
+                    // that scroll landed short" — both present as isAtBottom == false.
+                    // Only let this reading unpin when we're not still waiting to see
+                    // where a programmatic scroll we triggered actually settles;
+                    // re-pinning (isAtBottom == true) is always honored immediately.
+                    if isAtBottom {
+                        isStickyToBottom = true
+                    } else if ScrollFollowPresentation.shouldUnpin(
+                        isAtBottom: isAtBottom,
+                        isProgrammaticScrollInFlight: pendingProgrammaticScrollCount > 0
+                    ) {
+                        isStickyToBottom = false
+                    }
                 }
                 .onChange(of: viewModel.transcript.last?.id) { _, newId in
                     // UIX-8: a new transcript item (new assistant turn, error row,
@@ -322,11 +365,9 @@ struct ChatView: View {
                     // user is already pinned to the bottom. Explicit re-pinning
                     // happens only from the user's own send action (see `send(
                     // viewModel:)` below), not from arbitrary content growth.
-                    guard let newId else { return }
+                    guard newId != nil else { return }
                     guard ScrollFollowPresentation.shouldFollowNewItem(isPinnedToBottom: isStickyToBottom) else { return }
-                    withAnimation {
-                        proxy.scrollTo(newId, anchor: .bottom)
-                    }
+                    followToBottom(proxy: proxy, animated: true)
                 }
                 .onChange(of: lastAssistantStreamingGrowthMetric(viewModel: viewModel)) { oldMetric, newMetric in
                     // STAB-10: the streaming assistant turn reuses one
@@ -340,24 +381,23 @@ struct ChatView: View {
                     // — but only while that turn is still streaming and the
                     // user is pinned to the bottom.
                     guard newMetric > oldMetric else { return }
-                    guard let lastId = viewModel.transcript.last?.id else { return }
                     guard ScrollFollowPresentation.shouldFollowStreamingGrowth(
                         isPinnedToBottom: isStickyToBottom,
                         isLastTurnStreaming: isLastAssistantTurnStreaming(viewModel: viewModel)
                     ) else { return }
-                    withAnimation {
-                        proxy.scrollTo(lastId, anchor: .bottom)
-                    }
+                    // UIX-14 suspect 4: an animated `scrollTo` on every delta can race
+                    // with the next one (each new delta cancels/restarts the previous
+                    // animation), which contributed to landing short. Mid-stream
+                    // follows are frequent (per-token), so keep them unanimated —
+                    // animation is reserved for discrete jumps (new item arriving,
+                    // the jump-to-bottom button).
+                    followToBottom(proxy: proxy, animated: false)
                 }
                 .overlay(alignment: .bottomTrailing) {
                     if ScrollFollowPresentation.shouldShowJumpToBottomButton(isPinnedToBottom: isStickyToBottom) {
                         JumpToBottomButton {
                             isStickyToBottom = true
-                            if let lastId = viewModel.transcript.last?.id {
-                                withAnimation {
-                                    proxy.scrollTo(lastId, anchor: .bottom)
-                                }
-                            }
+                            followToBottom(proxy: proxy, animated: true)
                         }
                         .padding(16)
                         .transition(.opacity.combined(with: .scale(scale: 0.85)))
@@ -365,6 +405,31 @@ struct ChatView: View {
                 }
                 .animation(.easeInOut(duration: 0.15), value: isStickyToBottom)
             }
+        }
+    }
+
+    /// Scrolls to `scrollBottomSentinelId` (UIX-14 suspect 3's stable bottom marker,
+    /// rather than the last item's own id) and marks a programmatic scroll "in flight"
+    /// for a short settle window, during which `onScrollGeometryChange` readings are not
+    /// allowed to unpin (UIX-14 fix — see `pendingProgrammaticScrollCount` and
+    /// `ScrollFollowPresentation.shouldUnpin`). `animated` is `false` for frequent
+    /// mid-stream follows (suspect 4: avoid animation races on every delta) and `true`
+    /// for discrete jumps (new item arriving, the jump-to-bottom button).
+    private func followToBottom(proxy: ScrollViewProxy, animated: Bool) {
+        pendingProgrammaticScrollCount += 1
+        let scroll = { proxy.scrollTo(scrollBottomSentinelId, anchor: .bottom) }
+        if animated {
+            withAnimation { scroll() }
+        } else {
+            scroll()
+        }
+        // Bound how long we suppress unpinning after this scroll: long enough for the
+        // scroll (and any animation) to settle and produce a fresh geometry reading,
+        // short enough that a genuine user scroll-up right after is still caught
+        // promptly (UIX-14 acceptance criterion).
+        Task {
+            try? await Task.sleep(for: .milliseconds(animated ? 250 : 100))
+            pendingProgrammaticScrollCount = max(0, pendingProgrammaticScrollCount - 1)
         }
     }
 

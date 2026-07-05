@@ -191,35 +191,37 @@ private struct ChatPromptRow: View {
     }
 }
 
-/// UIX-7: renders one chronologically-positioned thinking segment as its own collapsible
-/// disclosure — the segment-mode replacement for the old single first-segment-only
-/// thinking block in `AssistantTurnContent`. Not wrapped in the turn-select button (mirrors
-/// tool rows, UIX-3): a thinking disclosure toggle shouldn't also select the turn.
+/// UIX-13: renders one chronologically-positioned thinking segment. Replaces the UIX-7/
+/// UIX-9 `DisclosureGroup` entirely — there is no expand/collapse interaction anymore:
+///
+/// - **While streaming:** a compact "Thinking" label + spinner, with a fixed-height
+///   (three-line) viewport underneath showing the live tail of the reasoning text,
+///   bottom-anchored and gradient-masked at the top edge. Because the viewport height
+///   never changes and the text is bottom-aligned inside it, new lines "slide up" through
+///   a stable window as deltas arrive instead of the visible slice being recomputed from
+///   a character count each time (UIX-11's approach) — that's what removes the reflow
+///   jitter the ticket calls out.
+/// - **Once finished:** the tail viewport disappears; the row is just the compact
+///   one-line "Thinking" marker.
+/// - **Click anywhere on the row** opens the full-text popover (`ThinkingDetailPopover`),
+///   for every thinking row regardless of length — no more `needsPopover` length gate.
+///
+/// Not wrapped in the turn-select button (mirrors tool rows, UIX-3): a thinking-row click
+/// opens its own popover and must never also select the turn.
 private struct ThinkingSegmentRow: View {
     let thought: String
-    /// Whether this is the currently-growing trailing segment of an in-progress turn —
-    /// only then does the row show the streaming spinner, matching the pre-UIX-7
-    /// first-segment-only placeholder behavior. Also drives the UIX-9 auto-expand/
-    /// auto-collapse default (see `isExpanded`) as long as the user hasn't manually
-    /// overridden it.
+    /// Whether this is the currently-growing trailing segment of an in-progress turn.
+    /// Drives both the streaming spinner and whether the masked tail viewport renders at
+    /// all (`true` while streaming, gone once the segment completes).
     let isStreaming: Bool
-    /// UIX-9: `nil` means "follow the automatic behavior" (expanded while `isStreaming`,
-    /// collapsed once it isn't); a non-nil value is a manual override that wins in both
-    /// directions — a user-expanded block never auto-collapses, and a user-collapsed
-    /// streaming block never auto-reopens. Modeled as `Bool?` rather than a plain `Bool`
-    /// precisely so "unset" is representable and distinct from either explicit state.
-    @State private var manualExpansion: Bool?
-    /// UIX-11: whether the full-text popover is currently shown. Mirrors the tool-row
-    /// popover pattern (UIX-3): tapping the preview to open the popover must not toggle
-    /// the disclosure or select the turn.
+    /// Whether the full-text popover is currently shown. Tapping the row (label or tail)
+    /// opens it; mirrors the tool-row popover pattern (UIX-3).
     @State private var isShowingDetail = false
 
-    private var isExpanded: Bool {
-        manualExpansion ?? isStreaming
-    }
-
-    /// UIX-11: presentation projecting `thought` into a capped inline preview (tail while
-    /// streaming, head once complete) plus the popover-affordance decision.
+    /// UIX-13: presentation now just carries `fullText` (for the popover) and
+    /// `isStreaming` (which still decides tail-vs-marker) — see the type's doc comment
+    /// for why the head/tail slicing and popover-length-gate logic it used to own moved
+    /// out (superseding UIX-9/UIX-11).
     private var presentation: ThinkingSegmentPresentation {
         ThinkingSegmentPresentation(thought: thought, isStreaming: isStreaming)
     }
@@ -227,65 +229,97 @@ private struct ThinkingSegmentRow: View {
     var body: some View {
         // Rendered inside the shared `TranscriptRowFrame` (gutter + role icon) so thinking
         // rows read as part of the same visual system as user/assistant/tool rows — the
-        // frame's `.thinking` role supplies the brain icon, so the disclosure label is
-        // just the text + spinner.
-        TranscriptRowFrame(presentation: TranscriptRowPresentation(role: .thinking, isSelected: false)) {
-            DisclosureGroup(isExpanded: Binding(
-                get: { isExpanded },
-                set: { manualExpansion = $0 }
-            )) {
-                // UIX-11: the inline expanded view never renders more than
-                // `presentation.inlinePreview` (capped to `ThinkingSegmentPresentation
-                // .defaultThreshold` characters) — the live tail while streaming, the head
-                // once complete. Reaching the full text (when it exceeds the cap) is only
-                // available via the popover below.
-                let preview = presentation.inlinePreview
+        // frame's `.thinking` role supplies the brain icon.
+        Button {
+            isShowingDetail = true
+        } label: {
+            TranscriptRowFrame(presentation: TranscriptRowPresentation(role: .thinking, isSelected: false)) {
                 VStack(alignment: .leading, spacing: 4) {
-                    if presentation.needsPopover {
-                        Button {
-                            isShowingDetail = true
-                        } label: {
-                            Text(preview)
-                                .font(.caption.monospaced())
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .buttonStyle(.plain)
-                        .popover(isPresented: $isShowingDetail) {
-                            ThinkingDetailPopover(fullText: presentation.fullText)
-                                .frame(minWidth: 280, idealWidth: 520, maxWidth: 520, maxHeight: 360)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    } else {
-                        Text(preview)
-                            .font(.caption.monospaced())
+                    HStack(spacing: 4) {
+                        Text("Thinking")
+                            .font(.caption.weight(.medium))
                             .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if isStreaming {
+                            ProgressView()
+                                .controlSize(.mini)
+                        }
+                        Spacer(minLength: 0)
                     }
-                }
-                .padding(.top, 2)
-            } label: {
-                HStack(spacing: 4) {
-                    Text("Thinking")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
+
                     if isStreaming {
-                        ProgressView()
-                            .controlSize(.mini)
+                        ThinkingTailView(text: presentation.fullText)
+                            // UIX-13/UIX-8: the tail viewport is fixed-height regardless
+                            // of how many lines of text back it — the one height change
+                            // left is this view disappearing entirely at segment end,
+                            // which coincides with new-content arrival (a following
+                            // segment appears, or the turn completes) — the same event
+                            // that already retriggers `ChatView`'s pinned mid-stream
+                            // follow via `ScrollFollowPresentation.streamingGrowthMetric`.
+                            .transition(.opacity)
                     }
                 }
             }
         }
-        // UIX-9/UIX-8 interaction: an auto-collapse always coincides with new content
-        // arriving after this segment (a following text/tool segment appears, or the
-        // turn completes) — exactly the events that already bump
-        // `ScrollFollowPresentation.streamingGrowthMetric`'s `segmentCount` term and
-        // retrigger `ChatView`'s pinned mid-stream follow. No separate height
-        // compensation is needed here: the same content-arrival event that causes the
-        // collapse also re-triggers the scroll-to-bottom while pinned.
-        .animation(.easeInOut(duration: 0.2), value: isExpanded)
+        .buttonStyle(.plain)
+        .popover(isPresented: $isShowingDetail) {
+            ThinkingDetailPopover(fullText: presentation.fullText)
+                .frame(minWidth: 280, idealWidth: 520, maxWidth: 520, maxHeight: 360)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .animation(.easeInOut(duration: 0.2), value: isStreaming)
         .accessibilityLabel("Reasoning trace")
+    }
+}
+
+/// UIX-13: fixed-height, bottom-anchored, top-gradient-masked "ticker" viewport onto the
+/// live tail of a streaming thinking segment. Deliberately layout-based rather than
+/// string-slicing (UIX-11's approach, which reflowed/jittered on every delta): the text
+/// is rendered in full inside a fixed-height clipping container, bottom-aligned, so as new
+/// characters/lines are appended the already-visible lines simply shift up within a stable
+/// window — nothing about the *visible* slice is recomputed from a character count.
+private struct ThinkingTailView: View {
+    let text: String
+
+    /// Three lines tall (per the ticket's revised "three-line tail" direction), sized off
+    /// the caption-monospaced font actually rendered below so the mask lines up with real
+    /// line boxes rather than a guessed constant.
+    private var viewportHeight: CGFloat {
+        let lineHeight = Font.TextStyle.caption.lineHeightApproximation
+        return lineHeight * 3
+    }
+
+    var body: some View {
+        Text(text)
+            .font(.caption.monospaced())
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.leading)
+            .frame(maxWidth: .infinity, alignment: .bottomLeading)
+            .frame(height: viewportHeight, alignment: .bottom)
+            .clipped()
+            .mask(
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .black, location: 0.35),
+                        .init(color: .black, location: 1),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+    }
+}
+
+private extension Font.TextStyle {
+    /// Rough point-size-based line-height approximation for sizing the fixed tail
+    /// viewport. Not pixel-exact (the real line height depends on the resolved system
+    /// font metrics), but stable and proportionate — good enough for a mask boundary,
+    /// where a few points of slop is invisible next to the gradient fade.
+    var lineHeightApproximation: CGFloat {
+        switch self {
+        case .caption: 14
+        default: 16
+        }
     }
 }
 

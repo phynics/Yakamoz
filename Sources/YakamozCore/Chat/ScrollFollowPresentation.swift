@@ -44,4 +44,22 @@ public enum ScrollFollowPresentation {
     ) -> Int {
         reconstructedTextCount + thinkingCount + segmentCount
     }
+
+    /// UIX-14: whether an `onScrollGeometryChange` distance-to-bottom reading should be
+    /// allowed to *unpin* (flip `isStickyToBottom` from `true` to `false`).
+    ///
+    /// Root cause of the UIX-14 intermittent drop-out: a plain "distance <= 80pt" check
+    /// can't distinguish "the user scrolled up" from "content grew (or a programmatic
+    /// `scrollTo` landed short on a mid-layout item) after the last scroll-to-bottom,
+    /// pushing the bottom edge away." Both produce the same symptom — distance exceeds
+    /// the threshold — but only the first should unpin. This only fires with `false`
+    /// (never unpin) while a programmatic scroll initiated by the follow logic itself is
+    /// still "in flight" (see `ChatView`'s `pendingProgrammaticScrollCount`) — i.e.
+    /// evidence of *user* scrolling is required to unpin, not just distance. Re-pinning
+    /// (`isAtBottom == true`) is always allowed regardless of this flag: snapping back
+    /// into the sticky zone is never something we need to suppress.
+    public static func shouldUnpin(isAtBottom: Bool, isProgrammaticScrollInFlight: Bool) -> Bool {
+        guard !isAtBottom else { return false }
+        return !isProgrammaticScrollInFlight
+    }
 }
