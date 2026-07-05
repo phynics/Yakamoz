@@ -37,4 +37,15 @@ struct TranscriptRowPresentationTests {
         #expect(error.iconSystemName == "exclamationmark.triangle.fill")
         #expect(error.gutterAccent == .error)
     }
+
+    @Test("Thinking rows join the transcript row system with their own reverie accent")
+    func thinkingRowsUseTranscriptStyling() {
+        let thinking = TranscriptRowPresentation(role: .thinking, isSelected: false)
+
+        #expect(thinking.layout == .fullWidthLeading)
+        #expect(thinking.usesBubbleBackground == false)
+        #expect(thinking.iconSystemName == "brain.head.profile")
+        #expect(thinking.gutterAccent == .reverie)
+        #expect(thinking.gutterAccent != TranscriptRowPresentation(role: .assistant, isSelected: false).gutterAccent)
+    }
 }

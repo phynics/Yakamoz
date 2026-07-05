@@ -215,30 +215,32 @@ private struct ThinkingSegmentRow: View {
     }
 
     var body: some View {
-        DisclosureGroup(isExpanded: Binding(
-            get: { isExpanded },
-            set: { manualExpansion = $0 }
-        )) {
-            Text(thought)
-                .font(.caption.monospaced())
-                .foregroundStyle(.secondary)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 2)
-                .padding(.leading, 26)
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "brain.head.profile")
+        // Rendered inside the shared `TranscriptRowFrame` (gutter + role icon) so thinking
+        // rows read as part of the same visual system as user/assistant/tool rows — the
+        // frame's `.thinking` role supplies the brain icon, so the disclosure label is
+        // just the text + spinner.
+        TranscriptRowFrame(presentation: TranscriptRowPresentation(role: .thinking, isSelected: false)) {
+            DisclosureGroup(isExpanded: Binding(
+                get: { isExpanded },
+                set: { manualExpansion = $0 }
+            )) {
+                Text(thought)
+                    .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
-                Text("Thinking")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-                if isStreaming {
-                    ProgressView()
-                        .controlSize(.mini)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 2)
+            } label: {
+                HStack(spacing: 4) {
+                    Text("Thinking")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                    if isStreaming {
+                        ProgressView()
+                            .controlSize(.mini)
+                    }
                 }
             }
-            .padding(.leading, 21)
         }
         // UIX-9/UIX-8 interaction: an auto-collapse always coincides with new content
         // arriving after this segment (a following text/tool segment appears, or the
@@ -378,9 +380,13 @@ private extension TranscriptRowPresentation {
         case .sea:
             Color.cyan.opacity(0.72)
         case .moon:
-            Color.indigo.opacity(0.58)
+            // Turquoise for assistant rows; the indigo/purple moved to `.reverie`
+            // (thinking) — user direction 2026-07-05.
+            Color.teal.opacity(0.72)
         case .selectedMoon:
             Color.accentColor
+        case .reverie:
+            Color.indigo.opacity(0.58)
         case .tool:
             Color.orange.opacity(0.72)
         case .error:
@@ -395,7 +401,9 @@ private extension TranscriptRowPresentation {
         case .user:
             Color.cyan.opacity(0.85)
         case .assistant:
-            isSelected ? Color.accentColor : Color.indigo.opacity(0.75)
+            isSelected ? Color.accentColor : Color.teal.opacity(0.85)
+        case .thinking:
+            Color.indigo.opacity(0.75)
         case .tool:
             Color.orange.opacity(0.82)
         case .error:

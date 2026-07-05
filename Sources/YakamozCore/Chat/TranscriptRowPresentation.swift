@@ -1,6 +1,7 @@
 public enum TranscriptRowRole: Equatable, Sendable {
     case user
     case assistant
+    case thinking
     case tool
     case error
     case prompt
@@ -14,6 +15,10 @@ public enum TranscriptGutterAccent: Equatable, Sendable {
     case sea
     case moon
     case selectedMoon
+    /// Reasoning/thinking rows (UIX-7). Carries the deep indigo/purple that `moon` mapped
+    /// to pre-recolor, now that assistant (`moon`) rows read turquoise (user direction
+    /// 2026-07-05).
+    case reverie
     case tool
     case error
     case neutral
@@ -33,8 +38,13 @@ public struct TranscriptRowPresentation: Equatable, Sendable {
         self.isSelected = isSelected
     }
 
-    public var layout: TranscriptRowLayout { .fullWidthLeading }
-    public var usesBubbleBackground: Bool { false }
+    public var layout: TranscriptRowLayout {
+        .fullWidthLeading
+    }
+
+    public var usesBubbleBackground: Bool {
+        false
+    }
 
     public var iconSystemName: String {
         switch role {
@@ -42,6 +52,8 @@ public struct TranscriptRowPresentation: Equatable, Sendable {
             "person.crop.circle"
         case .assistant:
             "moon.stars"
+        case .thinking:
+            "brain.head.profile"
         case .tool:
             "function"
         case .error:
@@ -57,6 +69,8 @@ public struct TranscriptRowPresentation: Equatable, Sendable {
             .sea
         case .assistant:
             isSelected ? .selectedMoon : .moon
+        case .thinking:
+            .reverie
         case .tool:
             .tool
         case .error:
