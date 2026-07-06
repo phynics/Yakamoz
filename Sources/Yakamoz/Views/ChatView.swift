@@ -477,6 +477,13 @@ struct ChatView: View {
             terminals: terminalContexts,
             typedReplyEnabled: conversation.typedReplyEnabled,
             autonomousFollowUpEnabled: conversation.autonomousFollowUpEnabled,
+            // SID-1 cadence state: treat the conversation as "untitled" until the
+            // title directive has actually returned a non-null value, so a manually
+            // set initial title (e.g. "New Chat") is not mistaken for the model's
+            // current title for comparison. `hasReceivedTitleDirective` flips on the
+            // first accepted title directive; only then do we feed `conversation.title`.
+            conversationTitle: conversation.hasReceivedTitleDirective ? conversation.title : nil,
+            turnsSinceLastTitleDirective: conversation.turnsSinceLastTitleDirective,
             onTimelineStateChange: { [conversation, modelContext] state in
                 guard conversation.timelineState != state else { return }
                 conversation.timelineState = state

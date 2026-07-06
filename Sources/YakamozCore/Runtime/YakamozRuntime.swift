@@ -161,6 +161,25 @@ public actor YakamozRuntime: ChatRunning {
         return providers
     }
 
+    /// Computes the sidecar-directive list due for the upcoming turn (SID-1/SID-2).
+    /// Pure (no actor state) so it can be unit-tested directly via `@testable import
+    /// YakamozCore` without exercising the runtime's network/persistence stack. Task 5
+    /// (SID-1) only contributes the cadence-gated `title` directive; Task 9 (SID-2) will
+    /// add the unconditional `section_title` directive here as well.
+    static func dueSidecarDirectives(
+        conversationTitle: String?,
+        turnsSinceLastTitleDirective: Int
+    ) -> [SidecarDirective] {
+        var directives: [SidecarDirective] = []
+        if TitleSidecarSchedule.isDue(
+            hasTitle: conversationTitle != nil,
+            turnsSinceLastTitle: turnsSinceLastTitleDirective
+        ) {
+            directives.append(TitleDirective.make(currentTitle: conversationTitle))
+        }
+        return directives
+    }
+
     /// Builds a `WorkspacePresentation` for the given folder-backed `WorkspaceModel`, for
     /// the Workspace inspector tab. Returns `nil` if the folder no longer exists.
     public nonisolated func makeWorkspacePresentation(folderPath: String, displayName: String) async -> WorkspacePresentation? {
@@ -211,6 +230,8 @@ public actor YakamozRuntime: ChatRunning {
         terminals: [TerminalToolContext] = [],
         typedReplyEnabled: Bool = false,
         autonomousFollowUpEnabled: Bool = false,
+        conversationTitle: String? = nil,
+        turnsSinceLastTitleDirective: Int = 0,
         onTimelineStateChange: (@MainActor @Sendable (ConversationTimelineState) async -> Void)? = nil
     ) async -> ChatViewModel {
         let turnInspector = inspector
@@ -249,7 +270,13 @@ public actor YakamozRuntime: ChatRunning {
             systemInstructions: systemInstructions,
             structuredOutput: typedReplyEnabled ? TypedReply.request() : nil,
             typedReplyEnabled: typedReplyEnabled,
-            sidecars: PositronicKit.sidecarsIfEnabled([], when: typedReplyEnabled),
+            sidecars: PositronicKit.sidecarsIfEnabled(
+                Self.dueSidecarDirectives(
+                    conversationTitle: conversationTitle,
+                    turnsSinceLastTitleDirective: turnsSinceLastTitleDirective
+                ),
+                when: typedReplyEnabled
+            ),
             onBeginUserSend: onBeginUserSend,
             onTimelineStateChange: onTimelineStateChange,
             initialTranscript: loadedTranscript.transcript
