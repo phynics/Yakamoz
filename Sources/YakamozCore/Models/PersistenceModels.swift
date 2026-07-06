@@ -17,6 +17,7 @@ public enum YakamozSchema {
         AgentInstanceModel.self,
         AgentTemplateModel.self,
         RequestOriginModel.self,
+        TimelineAnnotationModel.self,
     ]
 }
 
