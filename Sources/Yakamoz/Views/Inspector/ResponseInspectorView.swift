@@ -40,10 +40,53 @@ struct ResponseInspectorView: View {
                 )
 
                 structuredOutput(response)
+                sidecars(response)
             }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    /// Sidecar-directive section (SID-1/SID-2): one row per directive result for the turn.
+    /// Renders nothing for turns that carried no sidecar directives (empty
+    /// `sidecarResultViews`) — absence is the normal case (Typed Replies off, or no
+    /// directive was due this turn per its cadence policy), not an error state. A
+    /// `declined` outcome is rendered as the expected "no meaningfully better value"
+    /// rather than a failure, matching the sidecar-directive contract that `null` is a
+    /// valid non-answer.
+    @ViewBuilder
+    private func sidecars(_ response: ResponseDTO) -> some View {
+        if !response.sidecarResultViews.isEmpty {
+            Divider()
+            Text("Sidecars")
+                .font(.caption.weight(.bold))
+
+            ForEach(response.sidecarResultViews) { view in
+                sidecarRow(view)
+            }
+        }
+    }
+
+    private func sidecarRow(_ view: SidecarResultView) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(view.name)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            if let valueText = view.valueText {
+                Text(valueText)
+                    .font(.callout)
+                    .textSelection(.enabled)
+            } else if view.isDeclined {
+                Text("Declined (no meaningfully better value)")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } else if let reason = view.failureReason {
+                Text("Failed: \(reason)")
+                    .font(.callout)
+                    .foregroundStyle(.red)
+            }
+        }
+        .padding(.vertical, 2)
     }
 
     /// Typed-reply (structured-output) section: schema requested, parsed/validated JSON, or

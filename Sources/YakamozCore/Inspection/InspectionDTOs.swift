@@ -197,6 +197,77 @@ public struct ResponseDTO: Codable, Sendable, Equatable {
     }
 }
 
+/// App-target-safe view of a single sidecar-directive result (SID-1/SID-2). The
+/// underlying `SidecarResult` lives in `PKShared` and carries `AnyCodable` (also
+/// `PKShared`); Yakamoz's app target is a `YakamozCore`-only client per the
+/// architecture boundary, so `ResponseDTO` exposes its sidecar results through this
+/// projection instead. The projection preserves the value/declined/failed distinction
+/// the inspector UI renders, flattening `.value`'s `AnyCodable` to its string form (or
+/// a `String(describing:)` fallback for non-string values).
+public struct SidecarResultView: Sendable, Identifiable, Equatable {
+    public let id: String
+    public let name: String
+    /// Rendered value text for a `.value` outcome; `nil` for declined/failed results.
+    public let valueText: String?
+    /// `true` when the directive explicitly returned `null` (a valid non-answer).
+    public let isDeclined: Bool
+    /// Failure reason text for a `.failed` outcome; `nil` otherwise.
+    public let failureReason: String?
+
+    public init(
+        id: String,
+        name: String,
+        valueText: String?,
+        isDeclined: Bool,
+        failureReason: String?
+    ) {
+        self.id = id
+        self.name = name
+        self.valueText = valueText
+        self.isDeclined = isDeclined
+        self.failureReason = failureReason
+    }
+}
+
+public extension ResponseDTO {
+    /// Projects the persisted `sidecarResults` (a `PKShared`-typed storage field) into a
+    /// `YakamozCore`-defined presentation the app target's Response inspector can render
+    /// without importing `PKShared`. One `SidecarResultView` per stored result, keyed by
+    /// `result.name` (matching `ForEach(... id: \.name)`). Empty when the turn carried no
+    /// sidecar directives — the inspector's "Sidecars" section renders nothing in that
+    /// case (absence is the normal state, not an error).
+    var sidecarResultViews: [SidecarResultView] {
+        sidecarResults.map { result in
+            switch result.outcome {
+            case let .value(value):
+                return SidecarResultView(
+                    id: result.name,
+                    name: result.name,
+                    valueText: value.asString ?? String(describing: value.value),
+                    isDeclined: false,
+                    failureReason: nil
+                )
+            case .declined:
+                return SidecarResultView(
+                    id: result.name,
+                    name: result.name,
+                    valueText: nil,
+                    isDeclined: true,
+                    failureReason: nil
+                )
+            case let .failed(reason):
+                return SidecarResultView(
+                    id: result.name,
+                    name: result.name,
+                    valueText: nil,
+                    isDeclined: false,
+                    failureReason: reason
+                )
+            }
+        }
+    }
+}
+
 /// Terminal-or-in-flight status of a persisted tool trace, mirrored from the live
 /// `ToolTraceState` the reducer produces (`attempting`/`succeeded`/`failed`).
 ///
