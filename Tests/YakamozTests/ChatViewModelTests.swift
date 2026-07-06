@@ -8,9 +8,11 @@ import Testing
 @testable import YakamozCore
 
 private actor LockedSidecarResults {
-    private(set) var invocations: [[SidecarResult]] = []
-    func append(_ results: [SidecarResult]) { invocations.append(results) }
-    func snapshot() -> [[SidecarResult]] { invocations }
+    private(set) var invocations: [(turnIndex: Int, results: [SidecarResult])] = []
+    func append(turnIndex: Int, _ results: [SidecarResult]) {
+        invocations.append((turnIndex: turnIndex, results: results))
+    }
+    func snapshot() -> [(turnIndex: Int, results: [SidecarResult])] { invocations }
 }
 
 /// A scripted `ChatRunning` fake: the test drives a hand-built `AsyncThrowingStream`
@@ -212,8 +214,8 @@ struct ChatViewModelTests {
             timelineId: timelineId,
             runner: runner,
             inspector: inspector,
-            onSidecarResults: { results in
-                await recorder.append(results)
+            onSidecarResults: { turnIndex, results in
+                await recorder.append(turnIndex: turnIndex, results)
             }
         )
 
@@ -255,7 +257,8 @@ struct ChatViewModelTests {
 
         let invocations = await recorder.snapshot()
         #expect(invocations.count == 1)
-        #expect(invocations.first == results)
+        #expect(invocations.first?.turnIndex == 0)
+        #expect(invocations.first?.results == results)
     }
 
     @Test("onSidecarResults does not fire when no inspector is wired (persistResponse early-returns)")
@@ -265,8 +268,8 @@ struct ChatViewModelTests {
         let viewModel = ChatViewModel(
             timelineId: UUID(),
             runner: runner,
-            onSidecarResults: { results in
-                await recorder.append(results)
+            onSidecarResults: { turnIndex, results in
+                await recorder.append(turnIndex: turnIndex, results)
             }
         )
 

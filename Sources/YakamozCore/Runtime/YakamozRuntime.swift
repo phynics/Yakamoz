@@ -169,12 +169,21 @@ public actor YakamozRuntime: ChatRunning {
 
     /// Computes the sidecar-directive list due for the upcoming turn (SID-1/SID-2).
     /// Pure (no actor state) so it can be unit-tested directly via `@testable import
-    /// YakamozCore` without exercising the runtime's network/persistence stack. Task 5
-    /// (SID-1) only contributes the cadence-gated `title` directive; Task 9 (SID-2) will
-    /// add the unconditional `section_title` directive here as well.
+    /// YakamozCore` without exercising the runtime's network/persistence stack.
+    ///
+    /// - SID-1 (`title`): cadence-gated by `TitleSidecarSchedule.isDue` against
+    ///   `conversationTitle` and `turnsSinceLastTitleDirective`.
+    /// - SID-2 (`section_title`): **no schedule** — unconditionally included on every
+    ///   sidecar-enabled turn (the optional-response contract keeps it cheap: the model
+    ///   returns `null` for the majority of turns that continue the current section).
+    ///   `currentSectionTitle` is the *last emitted* annotation's text (fetched by the
+    ///   caller via `ConversationCoordinator.fetchLatestSectionTitle`), not a
+    ///   `ConversationModel` field — section titles are turn-anchored navigation markers,
+    ///   not a single mutable value.
     static func dueSidecarDirectives(
         conversationTitle: String?,
-        turnsSinceLastTitleDirective: Int
+        turnsSinceLastTitleDirective: Int,
+        currentSectionTitle: String?
     ) -> [SidecarDirective] {
         var directives: [SidecarDirective] = []
         if TitleSidecarSchedule.isDue(
@@ -183,6 +192,7 @@ public actor YakamozRuntime: ChatRunning {
         ) {
             directives.append(TitleDirective.make(currentTitle: conversationTitle))
         }
+        directives.append(SectionTitleDirective.make(currentSectionTitle: currentSectionTitle))
         return directives
     }
 
@@ -238,6 +248,7 @@ public actor YakamozRuntime: ChatRunning {
         autonomousFollowUpEnabled: Bool = false,
         conversationTitle: String? = nil,
         turnsSinceLastTitleDirective: Int = 0,
+        currentSectionTitle: String? = nil,
         onTimelineStateChange: (@MainActor @Sendable (ConversationTimelineState) async -> Void)? = nil
     ) async -> ChatViewModel {
         let turnInspector = inspector
@@ -270,26 +281,36 @@ public actor YakamozRuntime: ChatRunning {
         // SID-1/SID-2 post-turn sidecar-results hook. A `ConversationCoordinator` is
         // constructed fresh from the captured container's main context (cheap; the
         // coordinator is a thin value type over `ModelContext`). The closure routes
-        // each `SidecarResult` to its handler by `result.name`: `title` -> `applyTitleDirective`
-        // (SID-1, mutates `ConversationModel`); `section_title` lands in Task 8's
-        // `recordSectionTitleAnnotation` (SID-2, Task 10). Empty `results` (no
-        // directive carried the turn, or the model emitted none) is the common path and
-        // the closure no-ops through it. Errors from `applyTitleDirective` are swallowed
-        // here: the response has already been persisted; a side-effect write failure is
-        // not worth surfacing as a turn error (matches `applyTitleDirective`'s own
-        // silent-no-op for missing conversations).
+        // each `SidecarResult` to its handler by `result.name`:
+        // - `title` (SID-1) -> `applyTitleDirective` (mutates `ConversationModel`);
+        // - `section_title` (SID-2) -> `recordSectionTitleAnnotation` (inserts a
+        //   `TimelineAnnotationModel` row anchored to the turn index).
+        // Empty `results` (no directive carried the turn, or the model emitted none) is
+        // the common path and the closure no-ops through it. Errors from the handlers
+        // are swallowed here: the response has already been persisted; a side-effect
+        // write failure is not worth surfacing as a turn error (matches the handlers'
+        // own silent-no-op for missing conversations).
         let conversationCoordinator = ConversationCoordinator(
             modelContext: modelContainer.mainContext,
             timelineStore: stores.timelines
         )
         let sidecarTimelineId = timelineId
-        let onSidecarResults: (@MainActor @Sendable ([SidecarResult]) async -> Void) = { results in
+        let onSidecarResults: (@MainActor @Sendable (Int, [SidecarResult]) async -> Void) = { turnIndex, results in
             for result in results {
-                if result.name == TitleDirective.name {
+                switch result.name {
+                case TitleDirective.name:
                     try? await conversationCoordinator.applyTitleDirective(
                         conversationId: sidecarTimelineId,
                         result: result
                     )
+                case SectionTitleDirective.name:
+                    try? conversationCoordinator.recordSectionTitleAnnotation(
+                        conversationId: sidecarTimelineId,
+                        turnIndex: turnIndex,
+                        result: result
+                    )
+                default:
+                    break
                 }
             }
         }
@@ -306,7 +327,8 @@ public actor YakamozRuntime: ChatRunning {
             sidecars: PositronicKit.sidecarsIfEnabled(
                 Self.dueSidecarDirectives(
                     conversationTitle: conversationTitle,
-                    turnsSinceLastTitleDirective: turnsSinceLastTitleDirective
+                    turnsSinceLastTitleDirective: turnsSinceLastTitleDirective,
+                    currentSectionTitle: currentSectionTitle
                 ),
                 when: typedReplyEnabled
             ),
@@ -330,6 +352,23 @@ public actor YakamozRuntime: ChatRunning {
     @MainActor
     public func makeInspectionViewModel() -> InspectionViewModel {
         InspectionViewModel(repository: inspector)
+    }
+
+    /// Returns the conversation's most recent section-title annotation text (SID-2), or
+    /// `nil` when none exists yet. Used by `ChatView` to feed the upcoming turn's
+    /// `section_title` directive's "current section" context. Surfaced on the runtime
+    /// (rather than having the app target construct a `ConversationCoordinator` itself)
+    /// so the app target never names `TimelinePersistenceProtocol` — a PositronicKit
+    /// type the app target must not import per the architecture boundary. Swallows
+    /// SwiftData read errors (returns `nil`) since a missing read degrades gracefully to
+    /// "no section has been marked yet" in the directive's instruction.
+    @MainActor
+    public func fetchCurrentSectionTitle(conversationId: UUID) async -> String? {
+        let coordinator = ConversationCoordinator(
+            modelContext: modelContainer.mainContext,
+            timelineStore: stores.timelines
+        )
+        return try? coordinator.fetchLatestSectionTitle(conversationId: conversationId)
     }
 
     /// Creates a new conversation, pairing a `ConversationModel` row with a

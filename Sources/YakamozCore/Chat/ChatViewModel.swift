@@ -83,10 +83,12 @@ public final class ChatViewModel {
     /// response has been persisted onto the terminal inspection row. YakamozRuntime
     /// supplies the closure, routing each result to its handler by `result.name`:
     /// `title` (SID-1) updates `ConversationModel` via `ConversationCoordinator.applyTitleDirective`;
-    /// `section_title` (SID-2) records a `TimelineAnnotationModel` row. Kept as a closure
+    /// `section_title` (SID-2) records a `TimelineAnnotationModel` row via
+    /// `recordSectionTitleAnnotation`, anchored to the turn index supplied here so the
+    /// navigation bar can map a chip tap back to a transcript turn. Kept as a closure
     /// rather than injecting `ConversationCoordinator` directly so `ChatViewModel` stays
     /// decoupled from SwiftData — matching the existing `onTimelineStateChange` boundary.
-    private let onSidecarResults: (@MainActor @Sendable ([SidecarResult]) async -> Void)?
+    private let onSidecarResults: (@MainActor @Sendable (Int, [SidecarResult]) async -> Void)?
     private let clock: ContinuousClock
     private var nextTurnIndex = 0
     private var nextInspectionTurnIndex = 0
@@ -122,7 +124,7 @@ public final class ChatViewModel {
         sidecars: [SidecarDirective] = [],
         onBeginUserSend: (@MainActor @Sendable () async -> Void)? = nil,
         onTimelineStateChange: (@MainActor @Sendable (ConversationTimelineState) async -> Void)? = nil,
-        onSidecarResults: (@MainActor @Sendable ([SidecarResult]) async -> Void)? = nil,
+        onSidecarResults: (@MainActor @Sendable (Int, [SidecarResult]) async -> Void)? = nil,
         initialTranscript: [TranscriptItem] = [],
         clock: ContinuousClock = ContinuousClock()
     ) {
@@ -481,8 +483,9 @@ public final class ChatViewModel {
             }
             // Forward the turn's final sidecar results onto the runtime-supplied closure
             // (SID-1/SID-2 persist step) now that the response itself is durably recorded.
-            // Empty when the turn carried no sidecar directives (no TimelineState change).
-            await onSidecarResults?(state.sidecarResults)
+            // The turn index anchors any SID-2 section-title annotation to the transcript
+            // turn it occurred on, so the navigation bar can map a chip tap back to a turn.
+            await onSidecarResults?(state.turnIndex, state.sidecarResults)
             nextInspectionTurnIndex = latestTurnIndex + 1
             var completedState = state
             completedState.inspectionTurnIndex = latestTurnIndex

@@ -79,4 +79,43 @@ public struct ConversationCoordinator {
         }
         try modelContext.save()
     }
+
+    /// Records a new navigation annotation for an accepted (non-null) section-title
+    /// result (SID-2). No-ops on decline/failure — most turns are expected to decline,
+    /// and that must not create noise in the navigation list. Also no-ops silently when
+    /// `result.name` is not `"section_title"` or the value cannot be read as a non-empty
+    /// string. `turnIndex` anchors the annotation to the transcript turn it occurred on,
+    /// so the navigation bar can map a chip tap back to a transcript turn.
+    public func recordSectionTitleAnnotation(
+        conversationId: UUID,
+        turnIndex: Int,
+        result: SidecarResult
+    ) throws {
+        guard result.name == SectionTitleDirective.name else { return }
+        guard case let .value(anyCodable) = result.outcome,
+              let text = anyCodable.asString, !text.isEmpty else { return }
+        let annotation = TimelineAnnotationModel(
+            conversationId: conversationId,
+            turnIndex: turnIndex,
+            kind: .sectionTitle,
+            text: text
+        )
+        modelContext.insert(annotation)
+        try modelContext.save()
+    }
+
+    /// Returns the most recent section-title annotation's text for a conversation, or
+    /// `nil` when none exists yet. Used by `YakamozRuntime.dueSidecarDirectives` to feed
+    /// the `section_title` directive's "current section" context (mirroring SID-1's
+    /// current-title feed). "Most recent" is the highest `turnIndex` (matches the
+    /// conversation's reading order), with `createdAt` as a tiebreaker.
+    public func fetchLatestSectionTitle(conversationId: UUID) throws -> String? {
+        var descriptor = FetchDescriptor<TimelineAnnotationModel>(
+            predicate: #Predicate { $0.conversationId == conversationId },
+            sortBy: [SortDescriptor(\.turnIndex, order: .reverse)]
+        )
+        descriptor.fetchLimit = 1
+        guard let latest = try modelContext.fetch(descriptor).first else { return nil }
+        return latest.text
+    }
 }

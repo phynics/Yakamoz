@@ -469,6 +469,13 @@ struct ChatView: View {
         workspacePromptId = nil
         // Idempotent backfill: move legacy single-workspace attachment into the array on rebuild.
         WorkspaceAttachmentSupport.backfillLegacyAttachment(conversation)
+        // SID-2: feed the last accepted section-title annotation as the "current section"
+        // context for the upcoming turn's `section_title` directive (mirrors SID-1's
+        // current-title feed). Fetched via the runtime so the app target does not need
+        // to construct a `ConversationCoordinator` (which would name
+        // `TimelinePersistenceProtocol`, a PositronicKit type the app target must not
+        // import per the architecture boundary).
+        let currentSectionTitle = await runtime.fetchCurrentSectionTitle(conversationId: conversation.id)
         let chat = await runtime.makeChatViewModel(
             timelineId: conversation.id,
             systemInstructions: resolvedSystemInstructions,
@@ -484,6 +491,8 @@ struct ChatView: View {
             // first accepted title directive; only then do we feed `conversation.title`.
             conversationTitle: conversation.hasReceivedTitleDirective ? conversation.title : nil,
             turnsSinceLastTitleDirective: conversation.turnsSinceLastTitleDirective,
+            // SID-2: the current section title (or nil if no section has been marked yet).
+            currentSectionTitle: currentSectionTitle,
             onTimelineStateChange: { [conversation, modelContext] state in
                 guard conversation.timelineState != state else { return }
                 conversation.timelineState = state

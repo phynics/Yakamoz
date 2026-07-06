@@ -168,4 +168,139 @@ struct ConversationCoordinatorTests {
             result: SidecarResult(name: "title", outcome: .value(AnyCodable("Late Title")))
         )
     }
+
+    @Test("recordSectionTitleAnnotation inserts a row only on a non-null value result")
+    func recordSectionTitleAnnotationInsertsOnValue() async throws {
+        let container = try makeContainer()
+        let stores = YakamozStores(modelContainer: container)
+        let coordinator = ConversationCoordinator(
+            modelContext: container.mainContext,
+            timelineStore: stores.timelines
+        )
+        let conversation = try await coordinator.createConversation(title: "New Chat")
+        let conversationId = conversation.id
+
+        try coordinator.recordSectionTitleAnnotation(
+            conversationId: conversationId,
+            turnIndex: 2,
+            result: SidecarResult(name: "section_title", outcome: .value(AnyCodable("Exploring the bug")))
+        )
+
+        let fetched = try container.mainContext.fetch(FetchDescriptor<TimelineAnnotationModel>(
+            predicate: #Predicate { $0.conversationId == conversationId }
+        ))
+        #expect(fetched.count == 1)
+        #expect(fetched.first?.text == "Exploring the bug")
+        #expect(fetched.first?.turnIndex == 2)
+        #expect(fetched.first?.kind == .sectionTitle)
+    }
+
+    @Test("recordSectionTitleAnnotation no-ops on a declined result (no row inserted)")
+    func recordSectionTitleAnnotationNoOpsOnDecline() async throws {
+        let container = try makeContainer()
+        let stores = YakamozStores(modelContainer: container)
+        let coordinator = ConversationCoordinator(
+            modelContext: container.mainContext,
+            timelineStore: stores.timelines
+        )
+        let conversation = try await coordinator.createConversation(title: "New Chat")
+        let conversationId = conversation.id
+
+        try coordinator.recordSectionTitleAnnotation(
+            conversationId: conversationId,
+            turnIndex: 0,
+            result: SidecarResult(name: "section_title", outcome: .declined)
+        )
+
+        let fetched = try container.mainContext.fetch(FetchDescriptor<TimelineAnnotationModel>(
+            predicate: #Predicate { $0.conversationId == conversationId }
+        ))
+        #expect(fetched.isEmpty)
+    }
+
+    @Test("recordSectionTitleAnnotation no-ops on a failed result (no row inserted)")
+    func recordSectionTitleAnnotationNoOpsOnFailure() async throws {
+        let container = try makeContainer()
+        let stores = YakamozStores(modelContainer: container)
+        let coordinator = ConversationCoordinator(
+            modelContext: container.mainContext,
+            timelineStore: stores.timelines
+        )
+        let conversation = try await coordinator.createConversation(title: "New Chat")
+        let conversationId = conversation.id
+
+        try coordinator.recordSectionTitleAnnotation(
+            conversationId: conversationId,
+            turnIndex: 0,
+            result: SidecarResult(name: "section_title", outcome: .failed(reason: "schema mismatch"))
+        )
+
+        let fetched = try container.mainContext.fetch(FetchDescriptor<TimelineAnnotationModel>(
+            predicate: #Predicate { $0.conversationId == conversationId }
+        ))
+        #expect(fetched.isEmpty)
+    }
+
+    @Test("recordSectionTitleAnnotation no-ops for directive names it does not own")
+    func recordSectionTitleAnnotationIgnoresUnownedDirectiveNames() async throws {
+        let container = try makeContainer()
+        let stores = YakamozStores(modelContainer: container)
+        let coordinator = ConversationCoordinator(
+            modelContext: container.mainContext,
+            timelineStore: stores.timelines
+        )
+        let conversation = try await coordinator.createConversation(title: "New Chat")
+        let conversationId = conversation.id
+
+        try coordinator.recordSectionTitleAnnotation(
+            conversationId: conversationId,
+            turnIndex: 0,
+            result: SidecarResult(name: "title", outcome: .value(AnyCodable("A Title")))
+        )
+
+        let fetched = try container.mainContext.fetch(FetchDescriptor<TimelineAnnotationModel>(
+            predicate: #Predicate { $0.conversationId == conversationId }
+        ))
+        #expect(fetched.isEmpty)
+    }
+
+    @Test("fetchLatestSectionTitle returns the highest-turnIndex annotation's text")
+    func fetchLatestSectionTitleReturnsHighestTurnIndex() async throws {
+        let container = try makeContainer()
+        let stores = YakamozStores(modelContainer: container)
+        let coordinator = ConversationCoordinator(
+            modelContext: container.mainContext,
+            timelineStore: stores.timelines
+        )
+        let conversation = try await coordinator.createConversation(title: "New Chat")
+        let conversationId = conversation.id
+
+        try coordinator.recordSectionTitleAnnotation(
+            conversationId: conversationId,
+            turnIndex: 2,
+            result: SidecarResult(name: "section_title", outcome: .value(AnyCodable("Exploring")))
+        )
+        try coordinator.recordSectionTitleAnnotation(
+            conversationId: conversationId,
+            turnIndex: 7,
+            result: SidecarResult(name: "section_title", outcome: .value(AnyCodable("Implementing")))
+        )
+
+        let latest = try coordinator.fetchLatestSectionTitle(conversationId: conversationId)
+        #expect(latest == "Implementing")
+    }
+
+    @Test("fetchLatestSectionTitle returns nil when no annotations exist")
+    func fetchLatestSectionTitleReturnsNilWhenEmpty() async throws {
+        let container = try makeContainer()
+        let stores = YakamozStores(modelContainer: container)
+        let coordinator = ConversationCoordinator(
+            modelContext: container.mainContext,
+            timelineStore: stores.timelines
+        )
+        let conversation = try await coordinator.createConversation(title: "New Chat")
+
+        let latest = try coordinator.fetchLatestSectionTitle(conversationId: conversation.id)
+        #expect(latest == nil)
+    }
 }
