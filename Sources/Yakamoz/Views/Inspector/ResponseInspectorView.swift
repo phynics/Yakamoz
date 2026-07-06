@@ -2,8 +2,7 @@ import SwiftUI
 import YakamozCore
 
 /// Response tab: the reconstructed assistant generation plus thinking, model, finish
-/// reason, and token usage for the turn. Structured-output rendering (Task 10) will slot
-/// in below the generation section; this view intentionally leaves that space empty.
+/// reason, token usage, and sidecar-directive results for the turn.
 struct ResponseInspectorView: View {
     let inspection: InspectionPresentation
 
@@ -39,7 +38,6 @@ struct ResponseInspectorView: View {
                     secondary: false
                 )
 
-                structuredOutput(response)
                 sidecars(response)
             }
             .padding(10)
@@ -49,8 +47,8 @@ struct ResponseInspectorView: View {
 
     /// Sidecar-directive section (SID-1/SID-2): one row per directive result for the turn.
     /// Renders nothing for turns that carried no sidecar directives (empty
-    /// `sidecarResultViews`) — absence is the normal case (Typed Replies off, or no
-    /// directive was due this turn per its cadence policy), not an error state. A
+    /// `sidecarResultViews`) — absence is the normal case when no directive was due this
+    /// turn per its cadence policy, not an error state. A
     /// `declined` outcome is rendered as the expected "no meaningfully better value"
     /// rather than a failure, matching the sidecar-directive contract that `null` is a
     /// valid non-answer.
@@ -87,32 +85,6 @@ struct ResponseInspectorView: View {
             }
         }
         .padding(.vertical, 2)
-    }
-
-    /// Typed-reply (structured-output) section: schema requested, parsed/validated JSON, or
-    /// the validation error. Renders nothing for conversations that didn't enable typed replies
-    /// (all three fields `nil`).
-    @ViewBuilder
-    private func structuredOutput(_ response: ResponseDTO) -> some View {
-        if response.structuredSchemaJSON != nil
-            || response.structuredParsedJSON != nil
-            || response.structuredError != nil
-        {
-            Divider()
-            Text("Structured Reply")
-                .font(.caption.weight(.bold))
-
-            if let schema = response.structuredSchemaJSON {
-                labeledBlock("Requested Schema", text: schema, mono: true, secondary: true)
-            }
-            if let parsed = response.structuredParsedJSON {
-                labeledBlock("Parsed JSON", text: parsed, mono: true, secondary: false)
-            }
-            if let error = response.structuredError {
-                labeledBlock("Validation Error", text: error, mono: false, secondary: false)
-                    .foregroundStyle(.red)
-            }
-        }
     }
 
     private func metadata(_ response: ResponseDTO) -> some View {

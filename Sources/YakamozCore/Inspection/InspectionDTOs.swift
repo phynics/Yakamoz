@@ -124,15 +124,6 @@ public struct ResponseDTO: Codable, Sendable, Equatable {
     public var inputTokens: Int?
     public var outputTokens: Int?
 
-    // MARK: Structured (typed-reply) output — Task 10
-
-    /// Pretty-printed JSON Schema requested for a typed-reply conversation, if enabled.
-    public var structuredSchemaJSON: String?
-    /// Canonical JSON of the parsed `TypedReplyPayload`, when the response decoded cleanly.
-    public var structuredParsedJSON: String?
-    /// Human-readable validation/decoding error, when typed-reply decoding failed.
-    public var structuredError: String?
-
     // MARK: Tool traces — Task 11
 
     /// Persisted projections of the turn's tool calls, in first-seen order, so the Tools and
@@ -153,9 +144,6 @@ public struct ResponseDTO: Codable, Sendable, Equatable {
         finishReason: String? = nil,
         inputTokens: Int? = nil,
         outputTokens: Int? = nil,
-        structuredSchemaJSON: String? = nil,
-        structuredParsedJSON: String? = nil,
-        structuredError: String? = nil,
         tools: [ToolTraceDTO] = [],
         sidecarResults: [SidecarResult] = []
     ) {
@@ -165,9 +153,6 @@ public struct ResponseDTO: Codable, Sendable, Equatable {
         self.finishReason = finishReason
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
-        self.structuredSchemaJSON = structuredSchemaJSON
-        self.structuredParsedJSON = structuredParsedJSON
-        self.structuredError = structuredError
         self.tools = tools
         self.sidecarResults = sidecarResults
     }
@@ -176,7 +161,6 @@ public struct ResponseDTO: Codable, Sendable, Equatable {
     /// (encoded before Task 10) still decode — missing keys default to `nil`.
     private enum CodingKeys: String, CodingKey {
         case reconstructedText, thinking, model, finishReason, inputTokens, outputTokens
-        case structuredSchemaJSON, structuredParsedJSON, structuredError
         case tools
         case sidecarResults
     }
@@ -189,9 +173,6 @@ public struct ResponseDTO: Codable, Sendable, Equatable {
         finishReason = try container.decodeIfPresent(String.self, forKey: .finishReason)
         inputTokens = try container.decodeIfPresent(Int.self, forKey: .inputTokens)
         outputTokens = try container.decodeIfPresent(Int.self, forKey: .outputTokens)
-        structuredSchemaJSON = try container.decodeIfPresent(String.self, forKey: .structuredSchemaJSON)
-        structuredParsedJSON = try container.decodeIfPresent(String.self, forKey: .structuredParsedJSON)
-        structuredError = try container.decodeIfPresent(String.self, forKey: .structuredError)
         tools = try container.decodeIfPresent([ToolTraceDTO].self, forKey: .tools) ?? []
         sidecarResults = try container.decodeIfPresent([SidecarResult].self, forKey: .sidecarResults) ?? []
     }

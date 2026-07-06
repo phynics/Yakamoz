@@ -227,10 +227,10 @@ struct RuntimeCompositionTests {
     @Test("run() forwards a structured-output request through to the LLM transport")
     @MainActor
     func runForwardsStructuredOutputToTransport() async throws {
-        // Regression guard for YAK-1: `YakamozRuntime.run` (and `FollowUpRunner.run`) must pass
-        // `structuredOutput:` to `kit.run`. Dropping that argument silently selects the
-        // PositronicKit convenience overload that hardcodes `structuredOutput: nil`, which
-        // compiles and passes every other test while quietly disabling typed replies.
+        // Regression guard for YAK-1: `YakamozRuntime.run` must pass `structuredOutput:` to
+        // `kit.run`. Dropping that argument silently selects the PositronicKit convenience
+        // overload that hardcodes `structuredOutput: nil`, which compiles and passes every
+        // other test while quietly disabling structured-output requests.
         let settings = makeSettings()
         let secrets = FakeSecretStore()
         try secrets.write("sk-secret-runtime-key", account: ProviderSettings.apiKeyAccount)

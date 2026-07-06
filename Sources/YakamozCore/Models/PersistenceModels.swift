@@ -78,11 +78,8 @@ public final class ConversationModel {
     /// `UUID` string of a custom `PersonaModel`. Distinct from `personaId` (the
     /// agent-instance linkage); this drives the toolbar persona picker selection.
     public var personaSlug: String?
-    /// When `true`, the conversation requests typed (structured) replies and the Response
-    /// inspector tab shows the schema + parsed/validated JSON (Task 10).
-    public var typedReplyEnabled: Bool
-    /// When `true`, an `AutonomousFollowUpPlugin` injects one bounded follow-up per send.
-    public var autonomousFollowUpEnabled: Bool
+    /// When `true`, sidecar directives (title, section_title) ride on each turn.
+    public var sidecarDirectivesEnabled: Bool
     /// SID-1 cadence state: `false` until the `title` sidecar directive first returns a
     /// non-null value; drives `TitleSidecarSchedule.isDue`'s `hasTitle` parameter (kept
     /// separate from checking `title.isEmpty`, since a conversation may be manually
@@ -120,8 +117,7 @@ public final class ConversationModel {
         workspaceId: UUID? = nil,
         attachedWorkspaceIds: [UUID] = [],
         personaSlug: String? = nil,
-        typedReplyEnabled: Bool = false,
-        autonomousFollowUpEnabled: Bool = false,
+        sidecarDirectivesEnabled: Bool = false,
         hasReceivedTitleDirective: Bool = false,
         turnsSinceLastTitleDirective: Int = 0,
         timelineState: ConversationTimelineState = .idle,
@@ -135,8 +131,7 @@ public final class ConversationModel {
         self.workspaceId = workspaceId
         self.attachedWorkspaceIds = attachedWorkspaceIds
         self.personaSlug = personaSlug
-        self.typedReplyEnabled = typedReplyEnabled
-        self.autonomousFollowUpEnabled = autonomousFollowUpEnabled
+        self.sidecarDirectivesEnabled = sidecarDirectivesEnabled
         self.hasReceivedTitleDirective = hasReceivedTitleDirective
         self.turnsSinceLastTitleDirective = turnsSinceLastTitleDirective
         timelineStateRaw = timelineState.rawValue

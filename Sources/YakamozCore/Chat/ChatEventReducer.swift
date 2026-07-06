@@ -100,6 +100,12 @@ public struct ChatTurnState: Sendable, Equatable {
     /// on a tool call's first chunk; continuation chunks carry the same `index` with a
     /// nil `id` (UIX-5). This lets `applyToolCallDelta` route id-less continuations to
     /// the correct trace instead of dropping them.
+    ///
+    /// As of PositronicKit 1.1.0 (PKSTREAM-001), `LLMStreamingStage.handleToolCallDeltas`
+    /// backfills each `ToolCallDelta`'s `id` from its index-keyed accumulator, so every
+    /// delta now carries a non-nil id and this map is vestigial in practice. The
+    /// defensive routing is retained for older pinned releases and providers with
+    /// degenerate streams (UIX-12).
     var toolCallIdByIndex: [Int: String] = [:]
     /// True chronology of text/tool segments observed by the reducer (UIX-4), additive
     /// alongside `reconstructedText`/`toolOrder`. Consecutive text deltas coalesce into a
@@ -119,8 +125,7 @@ public struct ChatTurnState: Sendable, Equatable {
 
     /// Final sidecar-directive outcomes for the turn (title, section title, ...),
     /// accumulated from `.completion(event: .sidecarsCompleted)`. Empty when the turn
-    /// carried no sidecar directives (Typed Replies off, or no directive was due this
-    /// turn per its cadence policy).
+    /// carried no sidecar directives (no directive was due this turn per its cadence policy).
     public var sidecarResults: [SidecarResult] = []
 
     public init(turnIndex: Int) {
@@ -213,6 +218,13 @@ public struct ChatTurnState: Sendable, Equatable {
     /// ID-bearing "final" delta guaranteed). Route id-less deltas by `index` to the id
     /// first observed at that index; if no id has been seen yet for that index, the
     /// delta is dropped (there's nothing to key a trace on).
+    ///
+    /// As of PositronicKit 1.1.0 (PKSTREAM-001), `handleToolCallDeltas` backfills each
+    /// `ToolCallDelta`'s `id` from its index-keyed accumulator, so every delta now
+    /// carries a non-nil id and the nil-id routing branch is vestigial in practice.
+    /// The defensive routing is retained for older pinned releases and providers with
+    /// degenerate streams (UIX-12). A non-nil delta `id` always takes precedence over
+    /// the index→id map and updates it.
     public mutating func applyToolCallDelta(_ delta: ToolCallDelta) {
         guard !isComplete else { return }
 

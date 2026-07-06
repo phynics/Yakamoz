@@ -2,27 +2,23 @@ import Logging
 import SwiftUI
 import YakamozCore
 
-/// Conversation-options menu exposing the two Task 10 per-conversation toggles:
-/// typed (structured) replies and bounded autonomous follow-up. Changing either flag takes
-/// effect on the next time `ChatView` rebuilds its `ChatViewModel` (the `.task(id:)` below
-/// keys on these flags so the rebuild happens immediately).
-struct TypedReplyControls: View {
+/// Conversation-options menu exposing the per-conversation sidecar-directives toggle.
+/// Changing the flag takes effect the next time `ChatView` rebuilds its `ChatViewModel`
+/// (the `.task(id:)` below keys on this flag so the rebuild happens immediately).
+struct SidecarControls: View {
     @Bindable var conversation: ConversationModel
 
     @Environment(\.modelContext) private var modelContext
 
     var body: some View {
         Menu {
-            Toggle(isOn: bind(\.typedReplyEnabled)) {
-                Label("Typed Replies", systemImage: "curlybraces")
-            }
-            Toggle(isOn: bind(\.autonomousFollowUpEnabled)) {
-                Label("Autonomous Follow-up", systemImage: "arrow.triangle.2.circlepath")
+            Toggle(isOn: bind(\.sidecarDirectivesEnabled)) {
+                Label("Sidecar Directives", systemImage: "sidebar.right")
             }
         } label: {
             Label("Options", systemImage: "slider.horizontal.3")
         }
-        .help("Conversation options: typed replies and autonomous follow-up")
+        .help("Conversation options: sidecar directives")
         .accessibilityLabel("Conversation options")
     }
 

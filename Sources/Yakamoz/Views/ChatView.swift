@@ -3,6 +3,13 @@ import SwiftData
 import SwiftUI
 import YakamozCore
 
+/// Snapshot carried by `onScrollGeometryChange` so it can be compared across scroll events.
+/// Tuples do not conform to `Equatable`, so the API requires a concrete struct type.
+private struct ScrollGeometryState: Equatable {
+    let isAtBottom: Bool
+    let contentHeight: CGFloat
+}
+
 /// Owns the per-conversation `ChatViewModel`, built from the environment runtime and
 /// `conversation.id` — the same `UUID` used as the PositronicKit `timelineId`
 /// (see `ConversationCoordinator`).
@@ -159,7 +166,7 @@ struct ChatView: View {
             }
 
             ToolbarItem(placement: .automatic) {
-                TypedReplyControls(conversation: conversation)
+                SidecarControls(conversation: conversation)
             }
 
             // UIX-3 review fix #2: `ProviderControlMenu` used to live in the toolbar, but
@@ -176,8 +183,8 @@ struct ChatView: View {
         .task(id: toolSyncKey) {
             await refreshViewModelTools()
         }
-        // Rebuild the view model when persona/typed-reply/follow-up settings change, so the
-        // next send uses the updated system instructions, schema, and plugin wiring.
+        // Rebuild the view model when persona/sidecar settings change, so the
+        // next send uses the updated system instructions and sidecar wiring.
         .task(id: rebuildKey) {
             await buildViewModelIfNeeded()
         }
@@ -226,7 +233,7 @@ struct ChatView: View {
     /// A composite key over the settings that influence how the `ChatViewModel` is built.
     /// Changing any of them re-triggers `buildViewModelIfNeeded`.
     private var rebuildKey: String {
-        "\(conversation.personaSlug ?? "-")|\(conversation.typedReplyEnabled)|\(conversation.autonomousFollowUpEnabled)"
+        "\(conversation.personaSlug ?? "-")|\(conversation.sidecarDirectivesEnabled)"
     }
 
     /// Tracks the conversation state that affects which tools the view model should
@@ -360,22 +367,28 @@ struct ChatView: View {
                     }
                     .padding()
                 }
-                .onScrollGeometryChange(for: Bool.self) { geo in
+                .onScrollGeometryChange(for: ScrollFollowState.self) { geo in
                     // Within ~80pt of the bottom counts as "sticky", so the
                     // mid-stream follow only runs when the user is already
                     // riding along the bottom — not after they scroll up.
-                    geo.contentSize.height - geo.containerSize.height - geo.contentOffset.y <= 80
-                } action: { _, isAtBottom in
-                    // UIX-14: a distance reading alone can't tell "the user scrolled
-                    // up" apart from "content outgrew the last programmatic scroll, or
-                    // that scroll landed short" — both present as isAtBottom == false.
-                    // Only let this reading unpin when we're not still waiting to see
-                    // where a programmatic scroll we triggered actually settles;
-                    // re-pinning (isAtBottom == true) is always honored immediately.
-                    if isAtBottom {
+                    ScrollFollowState(
+                        isAtBottom: geo.contentSize.height - geo.containerSize.height - geo.contentOffset.y <= 80,
+                        contentHeight: geo.contentSize.height
+                    )
+                } action: { oldValue, newValue in
+                    // UIX-14/UIX-16: a distance reading alone can't tell "the user
+                    // scrolled up" apart from "content outgrew the last programmatic
+                    // scroll, or that scroll landed short" — both present as
+                    // isAtBottom == false. `ScrollFollowPresentation.shouldUnpin`
+                    // suppresses unpinning both while a programmatic scroll is in
+                    // flight (UIX-14) and when the contentSize grew since the last
+                    // reading (UIX-16: streaming deltas pushing the bottom edge away).
+                    // Re-pinning (isAtBottom == true) is always honored immediately.
+                    if newValue.isAtBottom {
                         isStickyToBottom = true
                     } else if ScrollFollowPresentation.shouldUnpin(
-                        isAtBottom: isAtBottom,
+                        currentState: newValue,
+                        previousState: oldValue,
                         isProgrammaticScrollInFlight: pendingProgrammaticScrollCount > 0
                     ) {
                         isStickyToBottom = false
@@ -478,8 +491,8 @@ struct ChatView: View {
     private func buildViewModelIfNeeded() async {
         guard let runtime else { return }
         // STAB-11: this rebuild replaces `viewModel` with a fresh instance (loaded from
-        // the persisted transcript) on conversation switch, persona/typed-reply/follow-up
-        // toggle, and workspace attach/detach. None of those previously cancelled the
+        // the persisted transcript) on conversation switch, persona/sidecar toggle,
+        // and workspace attach/detach. None of those previously cancelled the
         // outgoing view model's in-flight `sendTask`, so a stream mid-turn kept running
         // invisibly — retained by the concurrency runtime (and by `consume`'s strong-`self`
         // dispatch) even after `viewModel = chat` dropped the only `@State` reference —
@@ -504,8 +517,7 @@ struct ChatView: View {
             enabledToolIds: conversation.enabledToolIds,
             folder: folderWorkspace,
             terminals: terminalContexts,
-            typedReplyEnabled: conversation.typedReplyEnabled,
-            autonomousFollowUpEnabled: conversation.autonomousFollowUpEnabled,
+            sidecarDirectivesEnabled: conversation.sidecarDirectivesEnabled,
             // SID-1 cadence state: treat the conversation as "untitled" until the
             // title directive has actually returned a non-null value, so a manually
             // set initial title (e.g. "New Chat") is not mistaken for the model's

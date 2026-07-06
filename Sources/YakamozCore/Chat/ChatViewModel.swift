@@ -64,20 +64,11 @@ public final class ChatViewModel {
     private let systemInstructions: String?
     private let maxTurns: Int
     private let generationParameters: GenerationParameters?
-    private let structuredOutput: StructuredOutputRequest?
-    private let typedReplyEnabled: Bool
     /// PositronicKit sidecar directives (piggy-backed structured outputs alongside the
     /// response) carried for every turn of this conversation. `YakamozRuntime` computes
     /// the directive list (e.g. SID-1's `title` directive when it is due per cadence)
-    /// and passes it here; a `[]` value is the no-sidecar path identical to today's
-    /// behavior. The toggle itself is gated through `PositronicKit.sidecarsIfEnabled`
-    /// at the call site, so `sidecars` may be non-empty even when the typed-replies
-    /// off path is observed as `[]` downstream.
+    /// and passes it here; a `[]` value means sidecars are disabled or no directive was due this turn.
     private let sidecars: [SidecarDirective]
-    /// Called on the main actor immediately before each user send, before the runner runs.
-    /// Used to reset the autonomous-follow-up plugin's per-send guard (see
-    /// `AutonomousFollowUpPlugin.beginUserSend()`); `nil` when no plugin is wired.
-    private let onBeginUserSend: (@MainActor @Sendable () async -> Void)?
     private let onTimelineStateChange: (@MainActor @Sendable (ConversationTimelineState) async -> Void)?
     /// Called once per turn with the turn's accumulated `SidecarResult`s, after the
     /// response has been persisted onto the terminal inspection row. YakamozRuntime
@@ -119,10 +110,7 @@ public final class ChatViewModel {
         systemInstructions: String? = nil,
         maxTurns: Int = 5,
         generationParameters: GenerationParameters? = nil,
-        structuredOutput: StructuredOutputRequest? = nil,
-        typedReplyEnabled: Bool = false,
         sidecars: [SidecarDirective] = [],
-        onBeginUserSend: (@MainActor @Sendable () async -> Void)? = nil,
         onTimelineStateChange: (@MainActor @Sendable (ConversationTimelineState) async -> Void)? = nil,
         onSidecarResults: (@MainActor @Sendable (Int, [SidecarResult]) async -> Void)? = nil,
         initialTranscript: [TranscriptItem] = [],
@@ -136,10 +124,7 @@ public final class ChatViewModel {
         self.systemInstructions = systemInstructions
         self.maxTurns = maxTurns
         self.generationParameters = generationParameters
-        self.structuredOutput = structuredOutput
-        self.typedReplyEnabled = typedReplyEnabled
         self.sidecars = sidecars
-        self.onBeginUserSend = onBeginUserSend
         self.onTimelineStateChange = onTimelineStateChange
         self.onSidecarResults = onSidecarResults
         transcript = initialTranscript
@@ -202,7 +187,6 @@ public final class ChatViewModel {
         errorMessage = nil
 
         sendTask = Task { [weak self] in
-            await self?.onBeginUserSend?()
             await self?.consume(trimmed, sendId: sendId)
         }
     }
@@ -313,7 +297,6 @@ public final class ChatViewModel {
                     agentInstanceId: agentInstanceId,
                     maxTurns: maxTurns,
                     generationParameters: generationParameters,
-                    structuredOutput: structuredOutput,
                     sidecars: sidecars
                 )
             )
@@ -502,20 +485,12 @@ public final class ChatViewModel {
         }
     }
 
-    /// For typed-reply conversations, decodes the turn's final text against the
-    /// `TypedReplyPayload` schema and folds the schema JSON / parsed JSON / validation error
-    /// onto the persisted `ResponseDTO` (see `TypedReply` for why this happens here rather
-    /// than through `run()`).
+    /// Builds the persisted `ResponseDTO` from the turn state, adding tool traces so the
+    /// Tools/Workspace inspector tabs survive a relaunch (they previously lived only in the
+    /// in-memory `ChatTurnState`).
     private func enrichedResponseDTO(from state: ChatTurnState) -> ResponseDTO {
         var dto = state.responseDTO
-        // Persist the turn's tool traces so the Tools/Workspace inspector tabs survive a
-        // relaunch (they previously lived only in the in-memory `ChatTurnState`).
         dto.tools = state.toolTraceDTOs
-        guard typedReplyEnabled else { return dto }
-        let decoded = TypedReply.decode(from: dto.reconstructedText)
-        dto.structuredSchemaJSON = TypedReply.schemaJSON()
-        dto.structuredParsedJSON = decoded.parsedJSON
-        dto.structuredError = decoded.error
         return dto
     }
 

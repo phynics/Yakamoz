@@ -247,8 +247,7 @@ public actor YakamozRuntime: ChatRunning {
         enabledToolIds: [String] = [],
         folder: FolderToolContext? = nil,
         terminals: [TerminalToolContext] = [],
-        typedReplyEnabled: Bool = false,
-        autonomousFollowUpEnabled: Bool = false,
+        sidecarDirectivesEnabled: Bool = false,
         conversationTitle: String? = nil,
         turnsSinceLastTitleDirective: Int = 0,
         currentSectionTitle: String? = nil,
@@ -264,21 +263,6 @@ public actor YakamozRuntime: ChatRunning {
                 "timelineID": "\(timelineId)",
             ])
             loadedTranscript = .empty
-        }
-
-        // The autonomous-follow-up plugin is opt-in per conversation. When enabled, the
-        // conversation runs through a runner that injects the plugin into the per-turn kit
-        // (the base `run` path never adds plugins). Its per-send guard is reset by the view
-        // model via `onBeginUserSend` before each user message.
-        let runner: any ChatRunning
-        let onBeginUserSend: (@MainActor @Sendable () async -> Void)?
-        if autonomousFollowUpEnabled {
-            let plugin = AutonomousFollowUpPlugin()
-            runner = FollowUpRunner(runtime: self, plugin: plugin)
-            onBeginUserSend = { await plugin.beginUserSend() }
-        } else {
-            runner = self
-            onBeginUserSend = nil
         }
 
         // SID-1/SID-2 post-turn sidecar-results hook. A `ConversationCoordinator` is
@@ -320,33 +304,23 @@ public actor YakamozRuntime: ChatRunning {
 
         return ChatViewModel(
             timelineId: timelineId,
-            runner: runner,
+            runner: self,
             inspector: turnInspector,
             agentInstanceId: agentInstanceId,
             tools: tools,
             systemInstructions: systemInstructions,
-            structuredOutput: typedReplyEnabled ? TypedReply.request() : nil,
-            typedReplyEnabled: typedReplyEnabled,
             sidecars: PositronicKit.sidecarsIfEnabled(
                 Self.dueSidecarDirectives(
                     conversationTitle: conversationTitle,
                     turnsSinceLastTitleDirective: turnsSinceLastTitleDirective,
                     currentSectionTitle: currentSectionTitle
                 ),
-                when: typedReplyEnabled
+                when: sidecarDirectivesEnabled
             ),
-            onBeginUserSend: onBeginUserSend,
             onTimelineStateChange: onTimelineStateChange,
             onSidecarResults: onSidecarResults,
             initialTranscript: loadedTranscript.transcript
         )
-    }
-
-    /// Builds the per-turn kit with the autonomous-follow-up `plugin` attached. Used by
-    /// `FollowUpRunner` so a follow-up-enabled conversation gets the plugin without changing
-    /// the shared `run(_:)` path that every other conversation uses.
-    func makeConfiguredKit(addingPlugin plugin: any ChatTurnPlugin) async throws -> PositronicKit {
-        try await makeConfiguredKit().addPlugin(plugin)
     }
 
     /// Builds an `InspectionViewModel` backed by this runtime's turn inspector, boxing
@@ -701,24 +675,4 @@ private struct TerminalWorkspaceToolProvider: ToolProviding {
     }
 }
 
-/// A `ChatRunning` adapter that routes each turn through a plugin-augmented kit.
-///
-/// `YakamozRuntime.run(_:)` deliberately never attaches `ChatTurnPlugin`s (every
-/// conversation shares the same runtime). Conversations that opt into autonomous follow-up
-/// run through this adapter instead, which rebuilds the per-turn kit with the conversation's
-/// own `AutonomousFollowUpPlugin` attached. The runtime stays the single composition root;
-/// this only changes which kit a single conversation's turns execute on.
-struct FollowUpRunner: ChatRunning {
-    let runtime: YakamozRuntime
-    let plugin: AutonomousFollowUpPlugin
 
-    func run(_ request: ChatRunRequest) async throws -> AsyncThrowingStream<ChatEvent, Error> {
-        guard request.toolOutputs?.isEmpty != false else {
-            throw ToolError.executionFailed("Yakamoz does not accept external tool output submissions.")
-        }
-        let kit = try await runtime.makeConfiguredKit(addingPlugin: plugin)
-        return try await kit.run(
-            request
-        )
-    }
-}

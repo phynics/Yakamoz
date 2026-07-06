@@ -5,8 +5,7 @@ import PositronicKit
 import Testing
 @testable import YakamozCore
 
-/// Task 10 extension-seam tests: personas, the current-time prompt section, typed-reply
-/// schema validation, and the bounded autonomous-follow-up plugin's continuation policy.
+/// Extension-seam tests: personas and the current-time prompt section.
 struct AgentExtensionTests {
     // MARK: - Personas
 
@@ -82,90 +81,4 @@ struct AgentExtensionTests {
         #expect(textPrompt.compression == .keep)
     }
 
-    // MARK: - Typed reply schema validation
-
-    @Test
-    func typedReplyDecodesValidJSON() {
-        let json = #"{"summary":"Done","actionItems":["a","b"]}"#
-        let result = TypedReply.decode(from: json)
-
-        #expect(result.error == nil)
-        #expect(result.payload == TypedReplyPayload(summary: "Done", actionItems: ["a", "b"]))
-        #expect(result.parsedJSON != nil)
-    }
-
-    @Test
-    func typedReplyDecodesFencedJSON() {
-        let json = """
-        ```json
-        {"summary":"Done","actionItems":[]}
-        ```
-        """
-        let result = TypedReply.decode(from: json)
-        #expect(result.error == nil)
-        #expect(result.payload == TypedReplyPayload(summary: "Done", actionItems: []))
-    }
-
-    @Test
-    func typedReplyReportsValidationFailure() {
-        // Missing required `actionItems` -> schema/decoding failure surfaced as an error string.
-        let json = #"{"summary":"Done"}"#
-        let result = TypedReply.decode(from: json)
-
-        #expect(result.payload == nil)
-        #expect(result.parsedJSON == nil)
-        #expect(result.error != nil)
-    }
-
-    @Test
-    func typedReplyEmptyInputIsNotAnError() {
-        let result = TypedReply.decode(from: "   ")
-        #expect(result.payload == nil)
-        #expect(result.error == nil)
-    }
-
-    @Test
-    func typedReplyExposesSchemaJSON() {
-        #expect(TypedReply.schema().name == TypedReply.schemaName)
-        #expect(TypedReply.schemaJSON()?.isEmpty == false)
-    }
-
-    // MARK: - Autonomous follow-up plugin continuation policy
-
-    private func makeTurn() -> CompletedTurn {
-        CompletedTurn(
-            timelineId: UUID(),
-            agentInstanceId: nil,
-            turnCount: 1,
-            fullResponse: "answer",
-            modelName: "test-model"
-        )
-    }
-
-    @Test
-    func pluginEmitsAtMostOneFollowUpPerSend() async throws {
-        let plugin = AutonomousFollowUpPlugin()
-
-        let first = try await plugin.afterTurn(makeTurn())
-        #expect(first.count == 1)
-        #expect(first.first?.role == .user)
-
-        // A second completed turn within the same send must NOT trigger another follow-up.
-        let second = try await plugin.afterTurn(makeTurn())
-        #expect(second.isEmpty)
-    }
-
-    @Test
-    func pluginRearmsAfterBeginUserSend() async throws {
-        let plugin = AutonomousFollowUpPlugin()
-
-        _ = try await plugin.afterTurn(makeTurn())
-        let suppressed = try await plugin.afterTurn(makeTurn())
-        #expect(suppressed.isEmpty)
-
-        // Clearing the per-send guard re-arms the plugin for the next user send.
-        await plugin.beginUserSend()
-        let rearmed = try await plugin.afterTurn(makeTurn())
-        #expect(rearmed.count == 1)
-    }
 }

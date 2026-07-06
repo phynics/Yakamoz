@@ -1,4 +1,5 @@
 import Foundation
+import JSONSchemaBuilder
 import Logging
 import PKPrompt
 import PKShared
@@ -20,7 +21,6 @@ private actor LockedSidecarResults {
 /// No real `ChatEngine`/`PositronicKit` instance is constructed.
 private final class ScriptedRunner: ChatRunning, @unchecked Sendable {
     private(set) var capturedMessages: [String] = []
-    private(set) var lastStructuredOutput: StructuredOutputRequest?
     private(set) var lastSidecars: [SidecarDirective] = []
     private(set) var lastSendId: UUID?
     private(set) var lastSystemInstructions: String?
@@ -39,7 +39,6 @@ private final class ScriptedRunner: ChatRunning, @unchecked Sendable {
 
     func run(_ request: ChatRunRequest) async throws -> AsyncThrowingStream<ChatEvent, Error> {
         capturedMessages.append(request.message)
-        lastStructuredOutput = request.structuredOutput
         lastSidecars = request.sidecars
         lastSendId = request.sendId
         lastSystemInstructions = request.systemInstructions
@@ -155,38 +154,17 @@ struct ChatViewModelTests {
         await viewModel.awaitSendCompletion()
     }
 
-    @Test("Typed reply conversations forward the structured output schema to the runner")
-    func typedReplyConversationsForwardStructuredOutputSchema() async {
-        let runner = ScriptedRunner()
-        let viewModel = ChatViewModel(
-            timelineId: UUID(),
-            runner: runner,
-            structuredOutput: TypedReply.request(),
-            typedReplyEnabled: true
-        )
-
-        viewModel.send("summarize this")
-
-        await runner.waitUntilRunCount(1)
-        #expect(runner.lastStructuredOutput == TypedReply.request())
-
-        runner.continuation?.yield(.streamCompleted())
-        runner.continuation?.finish()
-        await viewModel.awaitSendCompletion()
-    }
-
     @Test("Sidecar directives are forwarded to the runner when supplied")
     func sidecarDirectivesForwardToRunner() async {
         let runner = ScriptedRunner()
         // Placeholder schema — the real `title` directive schema is built in Task 3
-        // (`TitleDirectivePayload`). For Task 2's toggle-plumbing commit we only need
-        // *some* valid `Schema` to construct a `SidecarDirective` the runner can echo
-        // back; `lastSidecars` is compared by structural equality so the same schema
-        // value round-trips here.
+        // (`TitleDirectivePayload`). We only need *some* valid `Schema` to construct a
+        // `SidecarDirective` the runner can echo back; `lastSidecars` is compared by
+        // structural equality so the same schema value round-trips here.
         let titleDirective = SidecarDirective(
             name: "title",
             instruction: "Produce a title only if a meaningfully better one exists.",
-            schema: TypedReplyPayload.schema.definition()
+            schema: JSONString().definition()
         )
         let viewModel = ChatViewModel(
             timelineId: UUID(),
