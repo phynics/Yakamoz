@@ -82,6 +82,14 @@ public final class ConversationModel {
     public var typedReplyEnabled: Bool
     /// When `true`, an `AutonomousFollowUpPlugin` injects one bounded follow-up per send.
     public var autonomousFollowUpEnabled: Bool
+    /// SID-1 cadence state: `false` until the `title` sidecar directive first returns a
+    /// non-null value; drives `TitleSidecarSchedule.isDue`'s `hasTitle` parameter (kept
+    /// separate from checking `title.isEmpty`, since a conversation may be manually
+    /// renamed to a non-empty string without ever having received a title directive).
+    public var hasReceivedTitleDirective: Bool = false
+    /// Turns elapsed since the last accepted title directive (reset to 0 on acceptance,
+    /// incremented once per completed turn). Feeds `TitleSidecarSchedule.isDue`.
+    public var turnsSinceLastTitleDirective: Int = 0
     /// Multi-attach workspace ids (YAK-T1). `workspaceId` is the deprecated single-attach
     /// predecessor, retained only so existing stores migrate without a versioned schema.
     public var attachedWorkspaceIds: [UUID] = []
@@ -113,6 +121,8 @@ public final class ConversationModel {
         personaSlug: String? = nil,
         typedReplyEnabled: Bool = false,
         autonomousFollowUpEnabled: Bool = false,
+        hasReceivedTitleDirective: Bool = false,
+        turnsSinceLastTitleDirective: Int = 0,
         timelineState: ConversationTimelineState = .idle,
         timelineStateUpdatedAt: Date = Date()
     ) {
@@ -126,6 +136,8 @@ public final class ConversationModel {
         self.personaSlug = personaSlug
         self.typedReplyEnabled = typedReplyEnabled
         self.autonomousFollowUpEnabled = autonomousFollowUpEnabled
+        self.hasReceivedTitleDirective = hasReceivedTitleDirective
+        self.turnsSinceLastTitleDirective = turnsSinceLastTitleDirective
         timelineStateRaw = timelineState.rawValue
         self.timelineStateUpdatedAt = timelineStateUpdatedAt
     }
