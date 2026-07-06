@@ -118,19 +118,22 @@ public actor YakamozRuntime: ChatRunning {
 
     /// All demo tools (`calculator`, `current_datetime`) plus the folder-workspace
     /// filesystem tools (`cat`/`ls`/`find`/`search_files`/`grep`/`change_directory`,
-    /// jailed to `workspaceRoot`), filtered down to `enabledToolIds`. Pass the result to
+    /// jailed to `folder.rootURL`), filtered down to `enabledToolIds`. Pass the result to
     /// `ChatViewModel`'s `tools:` parameter so a conversation only offers the tools the
     /// user actually enabled for it.
     ///
-    /// `workspaceRoot` is `nil` when the conversation has no attached folder workspace —
+    /// `folder` is `nil` when the conversation has no attached folder workspace —
     /// in that case only demo tools are offered, even if filesystem tool ids happen to be
-    /// present in `enabledToolIds` (there is nothing to jail them to).
+    /// present in `enabledToolIds` (there is nothing to jail them to). When non-nil, the
+    /// folder's `workspaceID` (the persisted `WorkspaceModel.id`) is carried through to
+    /// `FileWorkspaceToolProvider` so the resulting `ToolProvenance.workspace(id:name:)`
+    /// is stable across refreshes rather than minted per call (PKPOST-004c).
     public nonisolated func resolveTools(
         enabledToolIds: [String],
-        workspaceRoot: URL?,
+        folder: FolderToolContext?,
         terminals: [TerminalToolContext] = []
     ) async -> [AnyTool] {
-        let providers = makeToolProviders(workspaceRoot: workspaceRoot, terminals: terminals)
+        let providers = makeToolProviders(folder: folder, terminals: terminals)
         var available: [AnyTool] = []
         for provider in providers {
             available.append(contentsOf: await provider.resolvedTools())
@@ -150,12 +153,12 @@ public actor YakamozRuntime: ChatRunning {
     }
 
     private nonisolated func makeToolProviders(
-        workspaceRoot: URL?,
+        folder: FolderToolContext?,
         terminals: [TerminalToolContext]
     ) -> [any ToolProviding] {
         var providers: [any ToolProviding] = [BuiltInToolProvider()]
-        if let workspaceRoot {
-            providers.append(FileWorkspaceToolProvider(rootURL: workspaceRoot))
+        if let folder {
+            providers.append(FileWorkspaceToolProvider(folder: folder))
         }
         providers.append(contentsOf: terminals.map {
             TerminalWorkspaceToolProvider(
@@ -242,7 +245,7 @@ public actor YakamozRuntime: ChatRunning {
         agentInstanceId: UUID? = nil,
         systemInstructions: String? = nil,
         enabledToolIds: [String] = [],
-        workspaceRoot: URL? = nil,
+        folder: FolderToolContext? = nil,
         terminals: [TerminalToolContext] = [],
         typedReplyEnabled: Bool = false,
         autonomousFollowUpEnabled: Bool = false,
@@ -252,7 +255,7 @@ public actor YakamozRuntime: ChatRunning {
         onTimelineStateChange: (@MainActor @Sendable (ConversationTimelineState) async -> Void)? = nil
     ) async -> ChatViewModel {
         let turnInspector = inspector
-        let tools = await resolveTools(enabledToolIds: enabledToolIds, workspaceRoot: workspaceRoot, terminals: terminals)
+        let tools = await resolveTools(enabledToolIds: enabledToolIds, folder: folder, terminals: terminals)
         let loadedTranscript: LoadedTranscript
         do {
             loadedTranscript = try await loadTranscript(for: timelineId)
@@ -658,20 +661,14 @@ private struct BuiltInToolProvider: ToolProviding {
 }
 
 private struct FileWorkspaceToolProvider: ToolProviding {
-    let rootURL: URL
-    let workspaceID: UUID
-
-    init(rootURL: URL) {
-        self.rootURL = rootURL
-        self.workspaceID = UUID()
-    }
+    let folder: FolderToolContext
 
     var toolProvenance: ToolProvenance {
-        .workspace(id: workspaceID, name: rootURL.lastPathComponent)
+        .workspace(id: folder.workspaceID, name: folder.rootURL.lastPathComponent)
     }
 
     func provideTools() async -> [AnyTool] {
-        let root = rootURL.path
+        let root = folder.rootURL.path
         return [
             ReadFileTool(currentDirectory: root, jailRoot: root).toAnyTool(),
             ListDirectoryTool(currentDirectory: root, jailRoot: root).toAnyTool(),

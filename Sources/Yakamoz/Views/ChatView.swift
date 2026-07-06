@@ -98,8 +98,10 @@ struct ChatView: View {
         !attachedTerminalWorkspaces.isEmpty
     }
 
-    private var workspaceRoot: URL? {
-        attachedFolderWorkspaces.first.map { URL(fileURLWithPath: $0.folderPath) }
+    private var folderWorkspace: FolderToolContext? {
+        attachedFolderWorkspaces.first.map {
+            FolderToolContext(workspaceID: $0.id, rootURL: URL(fileURLWithPath: $0.folderPath))
+        }
     }
 
     private var terminalContexts: [TerminalToolContext] {
@@ -500,7 +502,7 @@ struct ChatView: View {
             timelineId: conversation.id,
             systemInstructions: resolvedSystemInstructions,
             enabledToolIds: conversation.enabledToolIds,
-            workspaceRoot: workspaceRoot,
+            folder: folderWorkspace,
             terminals: terminalContexts,
             typedReplyEnabled: conversation.typedReplyEnabled,
             autonomousFollowUpEnabled: conversation.autonomousFollowUpEnabled,
@@ -567,7 +569,7 @@ struct ChatView: View {
         guard let runtime, let viewModel else { return }
         let tools = await runtime.resolveTools(
             enabledToolIds: conversation.enabledToolIds,
-            workspaceRoot: workspaceRoot,
+            folder: folderWorkspace,
             terminals: terminalContexts
         )
         viewModel.updateTools(tools)

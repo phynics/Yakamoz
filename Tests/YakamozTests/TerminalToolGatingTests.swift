@@ -83,12 +83,12 @@ struct TerminalToolGatingTests {
         let runtime = try makeRuntime()
 
         // No terminals → no terminal tools.
-        let none = await runtime.resolveTools(enabledToolIds: [], workspaceRoot: nil, terminals: [])
+        let none = await runtime.resolveTools(enabledToolIds: [], folder: nil, terminals: [])
         #expect(!none.map(\.id).contains("terminal_run"))
 
         // One terminal context → its five tools appear.
         let ctx = TerminalToolContext(workspaceId: UUID(), rootURL: URL(fileURLWithPath: "/tmp"))
-        let withTerminal = await runtime.resolveTools(enabledToolIds: [], workspaceRoot: nil, terminals: [ctx])
+        let withTerminal = await runtime.resolveTools(enabledToolIds: [], folder: nil, terminals: [ctx])
         let ids = Set(withTerminal.map(\.id))
         #expect(ids.isSuperset(of: ["terminal_run", "terminal_read", "terminal_send_input", "terminal_interrupt", "terminal_wait"]))
         #expect(withTerminal.contains { tool in
@@ -102,7 +102,7 @@ struct TerminalToolGatingTests {
         let ctx = TerminalToolContext(workspaceId: UUID(), rootURL: URL(fileURLWithPath: "/tmp"))
         let filtered = await runtime.resolveTools(
             enabledToolIds: ["terminal_run"],
-            workspaceRoot: nil,
+            folder: nil,
             terminals: [ctx]
         )
         let ids = filtered.map(\.id)
@@ -115,7 +115,7 @@ struct TerminalToolGatingTests {
         let ctx = TerminalToolContext(workspaceId: UUID(), rootURL: URL(fileURLWithPath: "/tmp"))
         let tools = await runtime.resolveTools(
             enabledToolIds: [],
-            workspaceRoot: URL(fileURLWithPath: "/workspace"),
+            folder: FolderToolContext(workspaceID: UUID(), rootURL: URL(fileURLWithPath: "/workspace")),
             terminals: [ctx]
         )
 
@@ -123,6 +123,25 @@ struct TerminalToolGatingTests {
         #expect(options.contains { $0.id == "calculator" && $0.group == .builtIn })
         #expect(options.contains { $0.id == "cat" && $0.group == .workspace })
         #expect(options.contains { $0.id == "terminal_run" && $0.group == .terminal })
+    }
+
+    @MainActor
+    @Test func resolveToolsKeepsFolderProvenanceStableAcrossRefreshes() async throws {
+        let runtime = try makeRuntime()
+        let workspaceID = UUID()
+        let folder = FolderToolContext(workspaceID: workspaceID, rootURL: URL(fileURLWithPath: "/workspace"))
+
+        // Two refreshes with the same attached folder must produce identical provenance —
+        // the persisted workspaceID is reused, not minted per resolveTools call (PKPOST-004c:
+        // provenance is structural/stable by construction, mirroring TerminalWorkspaceToolProvider).
+        let first = await runtime.resolveTools(enabledToolIds: [], folder: folder, terminals: [])
+        let second = await runtime.resolveTools(enabledToolIds: [], folder: folder, terminals: [])
+
+        let firstCat = try #require(first.first { $0.id == "cat" })
+        let secondCat = try #require(second.first { $0.id == "cat" })
+
+        #expect(firstCat.provenance == .workspace(id: workspaceID, name: "workspace"))
+        #expect(secondCat.provenance == firstCat.provenance)
     }
 }
 

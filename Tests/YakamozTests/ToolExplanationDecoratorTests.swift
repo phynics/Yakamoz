@@ -45,7 +45,7 @@ struct ToolExplanationDecoratorTests {
     func runtimeResolveToolsDecoratesAvailableTools() async throws {
         let runtime = try makeRuntime()
 
-        let tools = await runtime.resolveTools(enabledToolIds: [], workspaceRoot: nil as URL?)
+        let tools = await runtime.resolveTools(enabledToolIds: [], folder: nil)
 
         #expect(!tools.isEmpty)
         #expect(tools.allSatisfy { tool in

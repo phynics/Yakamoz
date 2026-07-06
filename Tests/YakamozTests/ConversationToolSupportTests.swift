@@ -1,4 +1,5 @@
 import Foundation
+import PKShared
 import SwiftData
 import Testing
 @testable import YakamozCore
@@ -75,6 +76,19 @@ struct ConversationToolSupportTests {
 
         WorkspaceAttachmentSupport.detachWorkspace(from: conversation, modelContext: modelContext)
         #expect(conversation.enabledToolIds.isEmpty)
+    }
+
+    @Test("A tool with .named provenance groups as built-in")
+    func namedProvenanceGroupsAsBuiltIn() throws {
+        // `.named` is the deprecated stringly-typed provenance bridge; no Yakamoz tool
+        // produces it today, but it groups as `.builtIn` (the closest UI grouping) so a
+        // legacy/external tool with a `.named` provenance still renders in the built-in
+        // section rather than disappearing. Documents the latent mapping explicitly.
+        var tool = CalculatorTool().toAnyTool()
+        tool.provenance = .named("legacy")
+        let options = ConversationToolSupport.toolOptions(for: [tool])
+        let option = try #require(options.first { $0.id == tool.id })
+        #expect(option.group == .builtIn)
     }
 
     private func makeModelContainer() throws -> ModelContainer {

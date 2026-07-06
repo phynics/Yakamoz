@@ -70,7 +70,7 @@ struct ReadOnlyToolApprovalTests {
         let runtime = try makeRuntime()
         let tools = await runtime.resolveTools(
             enabledToolIds: [],
-            workspaceRoot: URL(fileURLWithPath: "/tmp")
+            folder: FolderToolContext(workspaceID: UUID(), rootURL: URL(fileURLWithPath: "/tmp"))
         )
         let byId = Dictionary(uniqueKeysWithValues: tools.map { ($0.id, $0) })
 
@@ -91,7 +91,7 @@ struct ReadOnlyToolApprovalTests {
     func resolveToolsKeepsGateOnTerminalRun() async throws {
         let runtime = try makeRuntime()
         let ctx = TerminalToolContext(workspaceId: UUID(), rootURL: URL(fileURLWithPath: "/tmp"))
-        let tools = await runtime.resolveTools(enabledToolIds: [], workspaceRoot: nil, terminals: [ctx])
+        let tools = await runtime.resolveTools(enabledToolIds: [], folder: nil, terminals: [ctx])
         let terminalRun = try #require(tools.first { $0.id == "terminal_run" })
         #expect(terminalRun.requiresPermission == true)
     }
@@ -141,7 +141,7 @@ struct ReadOnlyToolApprovalTests {
         let viewModel = await runtime.makeChatViewModel(
             timelineId: conversation.id,
             enabledToolIds: ["cat"],
-            workspaceRoot: workspaceURL
+            folder: FolderToolContext(workspaceID: UUID(), rootURL: workspaceURL)
         )
 
         viewModel.send("read hello.txt")
