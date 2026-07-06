@@ -680,4 +680,56 @@ struct ChatEventReducerTests {
         #expect(dto.inputTokens == 1)
         #expect(dto.outputTokens == 2)
     }
+
+    @Test("sidecarsCompleted accumulates results onto ChatTurnState")
+    func sidecarsCompletedAccumulatesResults() {
+        var state = ChatTurnState(turnIndex: 0)
+        let now = clock.now
+        let results: [SidecarResult] = [
+            SidecarResult(name: "title", outcome: .value(AnyCodable("Fixing the auth bug"))),
+            SidecarResult(name: "section_title", outcome: .declined)
+        ]
+        ChatEventReducer.reduce(.sidecarsCompleted(results), into: &state, now: now)
+        #expect(state.sidecarResults == results)
+        #expect(!state.isComplete)
+    }
+
+    @Test("sidecar delta events are observed but do not mutate reconstructedText")
+    func sidecarDeltaDoesNotMutateResponseText() {
+        var state = ChatTurnState(turnIndex: 0)
+        let now = clock.now
+        let delta = SidecarDelta(name: "title", partialText: "Fixing the", isFinal: false)
+        ChatEventReducer.reduce(.sidecar(delta), into: &state, now: now)
+        #expect(state.response.reconstructedText.isEmpty)
+    }
+
+    @Test("ResponseDTO sidecarResults round-trip through Codable")
+    func responseDTOSidecarResultsRoundTrip() throws {
+        let results: [SidecarResult] = [
+            SidecarResult(name: "title", outcome: .value(AnyCodable("Fixing the auth bug"))),
+            SidecarResult(name: "section_title", outcome: .declined)
+        ]
+        let dto = ResponseDTO(
+            reconstructedText: "answer",
+            thinking: "",
+            sidecarResults: results
+        )
+        let data = try JSONEncoder().encode(dto)
+        let decoded = try JSONDecoder().decode(ResponseDTO.self, from: data)
+        #expect(decoded.sidecarResults == results)
+    }
+
+    @Test("ResponseDTO decodes a legacy blob missing sidecarResults as an empty array")
+    func responseDTOLegacyBlobMissingSidecarResultsDefaultsToEmpty() throws {
+        // A blob encoded before SID-1 only carried the original required keys + tools.
+        let legacyJSON = """
+        {
+          "reconstructedText": "answer",
+          "thinking": "",
+          "tools": []
+        }
+        """.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(ResponseDTO.self, from: legacyJSON)
+        #expect(decoded.sidecarResults.isEmpty)
+    }
 }

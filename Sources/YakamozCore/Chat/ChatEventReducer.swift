@@ -117,6 +117,12 @@ public struct ChatTurnState: Sendable, Equatable {
     /// intentionally classified as a plain failure rather than blocked.
     public var errorIdentity: ChatEvent.ErrorIdentity?
 
+    /// Final sidecar-directive outcomes for the turn (title, section title, ...),
+    /// accumulated from `.completion(event: .sidecarsCompleted)`. Empty when the turn
+    /// carried no sidecar directives (Typed Replies off, or no directive was due this
+    /// turn per its cadence policy).
+    public var sidecarResults: [SidecarResult] = []
+
     public init(turnIndex: Int) {
         self.turnIndex = turnIndex
         inspectionTurnIndex = nil
@@ -308,7 +314,8 @@ public struct ChatTurnState: Sendable, Equatable {
             model: response.model,
             finishReason: response.finishReason,
             inputTokens: response.inputTokens,
-            outputTokens: response.outputTokens
+            outputTokens: response.outputTokens,
+            sidecarResults: sidecarResults
         )
     }
 }
@@ -416,12 +423,14 @@ public enum ChatEventReducer {
         case .completion(event: .streamCompleted):
             state.isComplete = true
 
-        // Sidecar-directive events (structured output piggy-backed onto the turn) are
-        // surfaced by `PositronicKit` but not yet consumed by Yakamoz's turn state —
-        // drop them here rather than leaving the switch non-exhaustive. When sidecar
-        // results need to drive UI, route them through `ChatTurnState` here.
-        case .delta(event: .sidecar), .completion(event: .sidecarsCompleted):
+        // Sidecar deltas are observed for potential future live-preview UI but do not
+        // mutate `response` (they are a separate JSON field, never part of the
+        // user-visible generation). Only the final, fully-parsed results are recorded.
+        case .delta(event: .sidecar):
             break
+
+        case let .completion(event: .sidecarsCompleted(results: results)):
+            state.sidecarResults = results
 
         case .delta(event: .thinking), .delta(event: .generation):
             break

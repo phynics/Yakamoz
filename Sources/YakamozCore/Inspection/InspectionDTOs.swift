@@ -140,6 +140,12 @@ public struct ResponseDTO: Codable, Sendable, Equatable {
     /// in-memory `ChatTurnState`). Empty when the turn made no tool calls.
     public var tools: [ToolTraceDTO]
 
+    // MARK: Sidecar directives — SID-1/SID-2
+
+    /// Final sidecar-directive outcomes for the turn (title, section title, ...), persisted
+    /// so historical turns can re-render their inspector "Sidecars" section after relaunch.
+    public var sidecarResults: [SidecarResult] = []
+
     public init(
         reconstructedText: String,
         thinking: String,
@@ -150,7 +156,8 @@ public struct ResponseDTO: Codable, Sendable, Equatable {
         structuredSchemaJSON: String? = nil,
         structuredParsedJSON: String? = nil,
         structuredError: String? = nil,
-        tools: [ToolTraceDTO] = []
+        tools: [ToolTraceDTO] = [],
+        sidecarResults: [SidecarResult] = []
     ) {
         self.reconstructedText = reconstructedText
         self.thinking = thinking
@@ -162,6 +169,7 @@ public struct ResponseDTO: Codable, Sendable, Equatable {
         self.structuredParsedJSON = structuredParsedJSON
         self.structuredError = structuredError
         self.tools = tools
+        self.sidecarResults = sidecarResults
     }
 
     /// `Codable` with all new fields optional so older persisted `responseData` blobs
@@ -170,6 +178,7 @@ public struct ResponseDTO: Codable, Sendable, Equatable {
         case reconstructedText, thinking, model, finishReason, inputTokens, outputTokens
         case structuredSchemaJSON, structuredParsedJSON, structuredError
         case tools
+        case sidecarResults
     }
 
     public init(from decoder: any Decoder) throws {
@@ -184,6 +193,7 @@ public struct ResponseDTO: Codable, Sendable, Equatable {
         structuredParsedJSON = try container.decodeIfPresent(String.self, forKey: .structuredParsedJSON)
         structuredError = try container.decodeIfPresent(String.self, forKey: .structuredError)
         tools = try container.decodeIfPresent([ToolTraceDTO].self, forKey: .tools) ?? []
+        sidecarResults = try container.decodeIfPresent([SidecarResult].self, forKey: .sidecarResults) ?? []
     }
 }
 
