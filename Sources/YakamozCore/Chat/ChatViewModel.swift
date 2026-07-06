@@ -66,6 +66,14 @@ public final class ChatViewModel {
     private let generationParameters: GenerationParameters?
     private let structuredOutput: StructuredOutputRequest?
     private let typedReplyEnabled: Bool
+    /// PositronicKit sidecar directives (piggy-backed structured outputs alongside the
+    /// response) carried for every turn of this conversation. `YakamozRuntime` computes
+    /// the directive list (e.g. SID-1's `title` directive when it is due per cadence)
+    /// and passes it here; a `[]` value is the no-sidecar path identical to today's
+    /// behavior. The toggle itself is gated through `PositronicKit.sidecarsIfEnabled`
+    /// at the call site, so `sidecars` may be non-empty even when the typed-replies
+    /// off path is observed as `[]` downstream.
+    private let sidecars: [SidecarDirective]
     /// Called on the main actor immediately before each user send, before the runner runs.
     /// Used to reset the autonomous-follow-up plugin's per-send guard (see
     /// `AutonomousFollowUpPlugin.beginUserSend()`); `nil` when no plugin is wired.
@@ -103,6 +111,7 @@ public final class ChatViewModel {
         generationParameters: GenerationParameters? = nil,
         structuredOutput: StructuredOutputRequest? = nil,
         typedReplyEnabled: Bool = false,
+        sidecars: [SidecarDirective] = [],
         onBeginUserSend: (@MainActor @Sendable () async -> Void)? = nil,
         onTimelineStateChange: (@MainActor @Sendable (ConversationTimelineState) async -> Void)? = nil,
         initialTranscript: [TranscriptItem] = [],
@@ -118,6 +127,7 @@ public final class ChatViewModel {
         self.generationParameters = generationParameters
         self.structuredOutput = structuredOutput
         self.typedReplyEnabled = typedReplyEnabled
+        self.sidecars = sidecars
         self.onBeginUserSend = onBeginUserSend
         self.onTimelineStateChange = onTimelineStateChange
         transcript = initialTranscript
@@ -291,7 +301,8 @@ public final class ChatViewModel {
                     agentInstanceId: agentInstanceId,
                     maxTurns: maxTurns,
                     generationParameters: generationParameters,
-                    structuredOutput: structuredOutput
+                    structuredOutput: structuredOutput,
+                    sidecars: sidecars
                 )
             )
 

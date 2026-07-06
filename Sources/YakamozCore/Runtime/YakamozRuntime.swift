@@ -249,6 +249,7 @@ public actor YakamozRuntime: ChatRunning {
             systemInstructions: systemInstructions,
             structuredOutput: typedReplyEnabled ? TypedReply.request() : nil,
             typedReplyEnabled: typedReplyEnabled,
+            sidecars: PositronicKit.sidecarsIfEnabled([], when: typedReplyEnabled),
             onBeginUserSend: onBeginUserSend,
             onTimelineStateChange: onTimelineStateChange,
             initialTranscript: loadedTranscript.transcript
