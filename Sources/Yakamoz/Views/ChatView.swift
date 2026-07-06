@@ -24,6 +24,11 @@ struct ChatView: View {
     @State private var workspacePromptId: UUID?
     @State private var dismissedWorkspacePromptConversationId: UUID?
     @State private var composerFocusToken = 0
+    /// SID-2: section-title navigation chips for the current conversation, fetched from
+    /// `TimelineAnnotationModel` rows. Refreshed on conversation switch and after each
+    /// turn completes (so a newly-accepted section title surfaces as a chip without a
+    /// manual reload). Empty for conversations that haven't shifted phases.
+    @State private var sectionAnnotations: [SectionAnnotationView] = []
 
     /// Tracks whether the conversation scroll view is currently pinned near the
     /// bottom, so mid-stream autoscroll only follows the growing assistant bubble
@@ -174,6 +179,14 @@ struct ChatView: View {
         .task(id: rebuildKey) {
             await buildViewModelIfNeeded()
         }
+        // SID-2: refresh the section-title navigation chips after each turn completes,
+        // so a newly-accepted section title surfaces as a chip without a manual reload.
+        // Fires when `isSending` flips from `true` → `false` (turn finalized).
+        .onChange(of: viewModel?.isSending ?? false) { _, isSending in
+            if !isSending {
+                Task { await refreshSectionAnnotations() }
+            }
+        }
         // Menu-bar / keyboard command intents (Command-I, Command-1…6).
         .onChange(of: coordinator.toggleInspectorToken) { _, _ in
             withAnimation(.snappy) { isInspectorOpen.toggle() }
@@ -312,6 +325,13 @@ struct ChatView: View {
 
     private func conversationStack(viewModel: ChatViewModel) -> some View {
         VStack(spacing: 0) {
+            // SID-2: section-title navigation chips. Tapping a chip selects the turn
+            // it anchors to in the transcript (reusing `viewModel.selectTurn`, the same
+            // seam the existing turn-selection UI uses).
+            SectionNavigationBar(
+                annotations: sectionAnnotations,
+                onSelect: { turnIndex in viewModel.selectTurn(turnIndex) }
+            )
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 8) {
@@ -511,6 +531,7 @@ struct ChatView: View {
         inspectionViewModel = inspection
         await inspection.select(conversationId: conversation.id, turnIndex: chat.selectedInspectionTurnIndex)
         await refreshWorkspacePresentation()
+        await refreshSectionAnnotations()
         offerWorkspacePromptIfNeeded(in: chat)
     }
 
@@ -527,6 +548,19 @@ struct ChatView: View {
         let folderPath = workspace.folderPath
         let displayName = workspace.displayName
         workspacePresentation = await runtime.makeWorkspacePresentation(folderPath: folderPath, displayName: displayName)
+    }
+
+    /// SID-2: refreshes the section-title navigation chips from persisted
+    /// `TimelineAnnotationModel` rows. Called on conversation switch and after each
+    /// turn completes so a newly-accepted section title surfaces as a chip without a
+    /// manual reload. Errors are swallowed (an empty chip list degrades gracefully —
+    /// the bar simply hides).
+    private func refreshSectionAnnotations() async {
+        guard let runtime else {
+            sectionAnnotations = []
+            return
+        }
+        sectionAnnotations = await runtime.fetchSectionAnnotations(conversationId: conversation.id)
     }
 
     private func refreshViewModelTools() async {

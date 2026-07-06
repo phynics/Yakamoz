@@ -51,3 +51,32 @@ public final class TimelineAnnotationModel {
         self.createdAt = createdAt
     }
 }
+
+/// App-target-safe view of a `TimelineAnnotationModel` row (SID-2): the navigation bar
+/// chip the user taps to jump to a turn. The underlying `@Model` is not `Sendable` and
+/// lives in SwiftData, so YakamozCore projects it into this value type for SwiftUI
+/// consumption — mirroring how `ResponseDTO`/`SidecarResultView` keep the app target
+/// insulated from `PKShared` types.
+public struct SectionAnnotationView: Sendable, Identifiable, Equatable {
+    public let id: UUID
+    public let turnIndex: Int
+    public let text: String
+
+    public init(id: UUID, turnIndex: Int, text: String) {
+        self.id = id
+        self.turnIndex = turnIndex
+        self.text = text
+    }
+
+    public init(_ annotation: TimelineAnnotationModel) {
+        self.init(id: annotation.id, turnIndex: annotation.turnIndex, text: annotation.text)
+    }
+}
+
+public extension Array where Element == TimelineAnnotationModel {
+    /// Projects persisted annotation rows into app-target-safe `SectionAnnotationView`s
+    /// for the navigation bar, preserving turn order.
+    var sectionAnnotationViews: [SectionAnnotationView] {
+        map(SectionAnnotationView.init)
+    }
+}

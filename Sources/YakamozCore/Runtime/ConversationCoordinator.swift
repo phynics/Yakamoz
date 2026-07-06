@@ -118,4 +118,21 @@ public struct ConversationCoordinator {
         guard let latest = try modelContext.fetch(descriptor).first else { return nil }
         return latest.text
     }
+
+    /// Section-title annotations for a conversation's navigation bar (SID-2), sorted by
+    /// the turn they anchor to — oldest first, matching timeline reading order. Empty
+    /// when the conversation has produced no accepted section titles yet (the common
+    /// case for short conversations that haven't shifted phases).
+    public func fetchSectionAnnotations(conversationId: UUID) throws -> [TimelineAnnotationModel] {
+        var descriptor = FetchDescriptor<TimelineAnnotationModel>(
+            predicate: #Predicate { $0.conversationId == conversationId },
+            sortBy: [SortDescriptor(\.turnIndex)]
+        )
+        // The navigation bar is the only consumer today; cap at a generous bound so a
+        // runaway conversation with hundreds of phase shifts can't unbounded-grow the
+        // chip list. The cadence model (one row per accepted directive, most turns
+        // declining) makes this bound very unlikely to hit in practice.
+        descriptor.fetchLimit = 200
+        return try modelContext.fetch(descriptor)
+    }
 }

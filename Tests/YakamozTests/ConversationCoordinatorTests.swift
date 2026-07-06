@@ -303,4 +303,78 @@ struct ConversationCoordinatorTests {
         let latest = try coordinator.fetchLatestSectionTitle(conversationId: conversation.id)
         #expect(latest == nil)
     }
+
+    @Test("fetchSectionAnnotations returns section-title annotations in turn order")
+    func fetchSectionAnnotationsReturnsInTurnOrder() async throws {
+        let container = try makeContainer()
+        let stores = YakamozStores(modelContainer: container)
+        let coordinator = ConversationCoordinator(
+            modelContext: container.mainContext,
+            timelineStore: stores.timelines
+        )
+        let conversation = try await coordinator.createConversation(title: "New Chat")
+        let conversationId = conversation.id
+
+        // Insert out of turn order to prove the fetch sorts rather than relying on
+        // insertion order.
+        try coordinator.recordSectionTitleAnnotation(
+            conversationId: conversationId,
+            turnIndex: 7,
+            result: SidecarResult(name: "section_title", outcome: .value(AnyCodable("Implementing the fix")))
+        )
+        try coordinator.recordSectionTitleAnnotation(
+            conversationId: conversationId,
+            turnIndex: 2,
+            result: SidecarResult(name: "section_title", outcome: .value(AnyCodable("Exploring the bug")))
+        )
+
+        let annotations = try coordinator.fetchSectionAnnotations(conversationId: conversationId)
+        #expect(annotations.map(\.text) == ["Exploring the bug", "Implementing the fix"])
+        #expect(annotations.map(\.turnIndex) == [2, 7])
+    }
+
+    @Test("fetchSectionAnnotations returns empty when the conversation has none")
+    func fetchSectionAnnotationsReturnsEmptyWhenNone() async throws {
+        let container = try makeContainer()
+        let stores = YakamozStores(modelContainer: container)
+        let coordinator = ConversationCoordinator(
+            modelContext: container.mainContext,
+            timelineStore: stores.timelines
+        )
+        let conversation = try await coordinator.createConversation(title: "New Chat")
+
+        let annotations = try coordinator.fetchSectionAnnotations(conversationId: conversation.id)
+        #expect(annotations.isEmpty)
+    }
+
+    @Test("fetchSectionAnnotations is scoped by conversationId")
+    func fetchSectionAnnotationsScopedByConversationId() async throws {
+        let container = try makeContainer()
+        let stores = YakamozStores(modelContainer: container)
+        let coordinator = ConversationCoordinator(
+            modelContext: container.mainContext,
+            timelineStore: stores.timelines
+        )
+        let a = try await coordinator.createConversation(title: "A")
+        let b = try await coordinator.createConversation(title: "B")
+
+        try coordinator.recordSectionTitleAnnotation(
+            conversationId: a.id,
+            turnIndex: 0,
+            result: SidecarResult(name: "section_title", outcome: .value(AnyCodable("A1")))
+        )
+        try coordinator.recordSectionTitleAnnotation(
+            conversationId: b.id,
+            turnIndex: 0,
+            result: SidecarResult(name: "section_title", outcome: .value(AnyCodable("B1")))
+        )
+        try coordinator.recordSectionTitleAnnotation(
+            conversationId: a.id,
+            turnIndex: 3,
+            result: SidecarResult(name: "section_title", outcome: .value(AnyCodable("A2")))
+        )
+
+        let aAnnotations = try coordinator.fetchSectionAnnotations(conversationId: a.id)
+        #expect(aAnnotations.map(\.text) == ["A1", "A2"])
+    }
 }

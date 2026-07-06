@@ -371,6 +371,25 @@ public actor YakamozRuntime: ChatRunning {
         return try? coordinator.fetchLatestSectionTitle(conversationId: conversationId)
     }
 
+    /// Returns the conversation's section-title annotations (SID-2) as app-target-safe
+    /// `SectionAnnotationView`s for the navigation jump bar, sorted by turn index
+    /// (oldest first, matching timeline reading order). Empty when the conversation has
+    /// produced no accepted section titles yet. Surfaced on the runtime so the app
+    /// target never names SwiftData `@Model` types or `ConversationCoordinator`
+    /// collaborators directly. Swallows SwiftData read errors (returns `[]`) so a
+    /// read failure degrades gracefully to a hidden bar.
+    @MainActor
+    public func fetchSectionAnnotations(conversationId: UUID) async -> [SectionAnnotationView] {
+        let coordinator = ConversationCoordinator(
+            modelContext: modelContainer.mainContext,
+            timelineStore: stores.timelines
+        )
+        guard let annotations = try? coordinator.fetchSectionAnnotations(conversationId: conversationId) else {
+            return []
+        }
+        return annotations.sectionAnnotationViews
+    }
+
     /// Creates a new conversation, pairing a `ConversationModel` row with a
     /// PositronicKit `Timeline` sharing the same id (see `ConversationCoordinator`),
     /// without requiring the caller to extract `stores.timelines` itself (that value's
