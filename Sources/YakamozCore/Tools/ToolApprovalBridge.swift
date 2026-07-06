@@ -26,11 +26,17 @@ public struct PendingToolApproval: Identifiable, Sendable {
 /// SwiftUI prompt — the tool-call analogue of `MainActorApprover` (which gates `terminal_run`).
 ///
 /// `ToolRouter` calls `requestApproval(tool:arguments:)` off the main actor for every tool whose
-/// `requiresPermission` is `true` (Yakamoz's filesystem tools: `read_file`, `ls`, `find`,
-/// `search_files`, `grep`). This type hops to the main actor, appends a `PendingToolApproval` to
-/// the observable `pending` list (which a banner renders), and parks a `CheckedContinuation`. The
-/// agent stays blocked until the UI calls `approve`/`deny`, at which point the call proceeds or is
-/// rejected with `ToolError.permissionDenied`.
+/// `requiresPermission` is `true`. This type hops to the main actor, appends a `PendingToolApproval`
+/// to the observable `pending` list (which a banner renders), and parks a `CheckedContinuation`.
+/// The agent stays blocked until the UI calls `approve`/`deny`, at which point the call proceeds or
+/// is rejected with `ToolError.permissionDenied`.
+///
+/// YAK-47: the read-only filesystem tools (`cat`/`ls`/`find`/`search_files`/`grep`) are now
+/// auto-approved at Yakamoz's tool registration seam (`YakamozRuntime.resolveTools` →
+/// `withoutPermissionRequirement()`), so they no longer route through this gate. With the current
+/// tool set this banner is dormant — `terminal_run` is self-gated (below), and every other tool is
+/// either unpermissioned or in the read-only auto-approve set. The gate remains the seam for any
+/// future *write* tool that opts into `requiresPermission = true`.
 ///
 /// Tools listed in `selfGatedToolIds` are approved here automatically because they already carry
 /// their own upstream approval gate — `terminal_run` is gated by `TerminalCommandApproving` inside

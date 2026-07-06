@@ -29,8 +29,10 @@ private struct TerminalApproverKey: EnvironmentKey {
 }
 
 /// Typed environment key for the permissioned-tool approver (YAK-31). The same instance is injected
-/// into `YakamozRuntime` (so `ToolRouter` routes permissioned filesystem-tool approvals through it)
-/// and exposed here so `ChatView` can render the approval banner from its pending list.
+/// into `YakamozRuntime` (so `ToolRouter` routes any permissioned tool's approvals through it) and
+/// exposed here so `ChatView` can render the approval banner from its pending list. YAK-47
+/// auto-approves the read-only filesystem tools at the registration seam, so the banner is dormant
+/// for the current tool set; this remains the seam for future write tools.
 private struct ToolApproverKey: EnvironmentKey {
     static let defaultValue: MainActorToolApprover? = nil
 }

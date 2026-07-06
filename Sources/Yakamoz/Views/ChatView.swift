@@ -515,7 +515,7 @@ struct ChatView: View {
 
     private func refreshViewModelTools() async {
         guard let runtime, let viewModel else { return }
-        let tools = runtime.resolveTools(
+        let tools = await runtime.resolveTools(
             enabledToolIds: conversation.enabledToolIds,
             workspaceRoot: workspaceRoot,
             terminals: terminalContexts

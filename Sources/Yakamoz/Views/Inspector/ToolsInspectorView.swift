@@ -68,18 +68,18 @@ struct ToolSettingsView: View {
 
     /// Built-in tools (always available, e.g. calculator, current date/time).
     private var builtInTools: [ConversationToolOption] {
-        availableTools.filter { !$0.requiresWorkspace && !$0.requiresTerminal }
+        availableTools.filter { $0.group == .builtIn }
     }
 
     /// Workspace tools (filesystem tools confined to the attached folder). Only non-empty
     /// when a workspace is attached — `availableTools` already excludes them otherwise.
     private var workspaceTools: [ConversationToolOption] {
-        availableTools.filter { $0.requiresWorkspace && !$0.requiresTerminal }
+        availableTools.filter { $0.group == .workspace }
     }
 
     /// Terminal tools would be available if a terminal workspace were attached.
     private var terminalTools: [ConversationToolOption] {
-        availableTools.filter(\.requiresTerminal)
+        availableTools.filter { $0.group == .terminal }
     }
 
     /// True if no terminal is currently attached but terminal tools would be available with one.
@@ -87,10 +87,9 @@ struct ToolSettingsView: View {
         !availableTools.contains { $0.requiresTerminal } && !ConversationToolSupport.terminalToolOptions.isEmpty
     }
 
-    /// YAK-18: groups the flat tool list into "Built-in" (always available) and
-    /// "Workspace" (only present, and confined to, an attached folder) sections, using
-    /// `ConversationToolOption.requiresWorkspace` to split. The Workspace group renders
-    /// only when non-empty, i.e. only when a workspace is attached.
+    /// YAK-18 / PKPOST-004: groups the flat tool list by structural provenance. Capability
+    /// flags (`requiresWorkspace` / `requiresTerminal`) remain descriptive metadata; they are
+    /// no longer the grouping mechanism.
     ///
     /// YAK-30: Also shows a call-to-action for creating a terminal workspace when no
     /// terminal is attached.

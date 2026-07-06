@@ -18,7 +18,7 @@ settings:
 packages:
   PositronicKit:
     url: https://github.com/phynics/PositronicKit.git
-    from: "1.0.0"
+    from: "1.1.0"
   # Pin the transitive swift-json-schema to the same version PositronicKit builds
   # against on its public main branch. Without this,
   # Yakamoz can resolve a different release and the workspace ends up with a

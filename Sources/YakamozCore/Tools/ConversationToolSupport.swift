@@ -1,20 +1,29 @@
 import Foundation
 import Logging
+import PKShared
 import SwiftData
 
 public struct ConversationToolOption: Sendable, Equatable, Identifiable {
+    public enum Group: String, Sendable, Equatable {
+        case builtIn
+        case workspace
+        case terminal
+    }
+
     public let id: String
     public let title: String
     public let systemImage: String
+    public let group: Group
     public let requiresWorkspace: Bool
     /// Whether this option requires an attached *terminal* workspace (YAK-T4), distinct from
     /// `requiresWorkspace` which gates on a folder workspace.
     public let requiresTerminal: Bool
 
-    public init(id: String, title: String, systemImage: String, requiresWorkspace: Bool, requiresTerminal: Bool = false) {
+    public init(id: String, title: String, systemImage: String, group: Group, requiresWorkspace: Bool, requiresTerminal: Bool = false) {
         self.id = id
         self.title = title
         self.systemImage = systemImage
+        self.group = group
         self.requiresWorkspace = requiresWorkspace
         self.requiresTerminal = requiresTerminal
     }
@@ -22,8 +31,8 @@ public struct ConversationToolOption: Sendable, Equatable, Identifiable {
 
 public enum ConversationToolSupport {
     public static let builtInToolOptions: [ConversationToolOption] = [
-        ConversationToolOption(id: "calculator", title: "Calculator", systemImage: "plus.slash.minus", requiresWorkspace: false),
-        ConversationToolOption(id: "current_datetime", title: "Current Date/Time", systemImage: "calendar.badge.clock", requiresWorkspace: false),
+        ConversationToolOption(id: "calculator", title: "Calculator", systemImage: "plus.slash.minus", group: .builtIn, requiresWorkspace: false),
+        ConversationToolOption(id: "current_datetime", title: "Current Date/Time", systemImage: "calendar.badge.clock", group: .builtIn, requiresWorkspace: false),
     ]
 
     public static var builtInToolIDs: [String] {
@@ -33,12 +42,12 @@ public enum ConversationToolSupport {
     /// The six terminal tool options (YAK-T4 + YAK-T6), offered only when a terminal workspace is
     /// attached. Their ids mirror `TerminalWorkspace.toolIds`.
     public static let terminalToolOptions: [ConversationToolOption] = [
-        ConversationToolOption(id: "terminal_run", title: "Run Command", systemImage: "terminal", requiresWorkspace: false, requiresTerminal: true),
-        ConversationToolOption(id: "terminal_read", title: "Read Output", systemImage: "text.alignleft", requiresWorkspace: false, requiresTerminal: true),
-        ConversationToolOption(id: "terminal_send_input", title: "Send Input", systemImage: "keyboard", requiresWorkspace: false, requiresTerminal: true),
-        ConversationToolOption(id: "terminal_interrupt", title: "Interrupt", systemImage: "stop.circle", requiresWorkspace: false, requiresTerminal: true),
-        ConversationToolOption(id: "terminal_wait", title: "Wait", systemImage: "hourglass", requiresWorkspace: false, requiresTerminal: true),
-        ConversationToolOption(id: "terminal_read_output", title: "Read Stored Output", systemImage: "archivebox", requiresWorkspace: false, requiresTerminal: true),
+        ConversationToolOption(id: "terminal_run", title: "Run Command", systemImage: "terminal", group: .terminal, requiresWorkspace: false, requiresTerminal: true),
+        ConversationToolOption(id: "terminal_read", title: "Read Output", systemImage: "text.alignleft", group: .terminal, requiresWorkspace: false, requiresTerminal: true),
+        ConversationToolOption(id: "terminal_send_input", title: "Send Input", systemImage: "keyboard", group: .terminal, requiresWorkspace: false, requiresTerminal: true),
+        ConversationToolOption(id: "terminal_interrupt", title: "Interrupt", systemImage: "stop.circle", group: .terminal, requiresWorkspace: false, requiresTerminal: true),
+        ConversationToolOption(id: "terminal_wait", title: "Wait", systemImage: "hourglass", group: .terminal, requiresWorkspace: false, requiresTerminal: true),
+        ConversationToolOption(id: "terminal_read_output", title: "Read Stored Output", systemImage: "archivebox", group: .terminal, requiresWorkspace: false, requiresTerminal: true),
     ]
 
     public static func toolOptions(hasWorkspace: Bool, hasTerminal: Bool = false) -> [ConversationToolOption] {
@@ -47,6 +56,7 @@ public enum ConversationToolSupport {
                 id: $0,
                 title: workspaceToolTitle(for: $0),
                 systemImage: workspaceToolSystemImage(for: $0),
+                group: .workspace,
                 requiresWorkspace: true
             )
         }
@@ -68,6 +78,19 @@ public enum ConversationToolSupport {
             return []
         }
         return normalized.sorted()
+    }
+
+    public static func toolOptions(for tools: [AnyTool]) -> [ConversationToolOption] {
+        tools.map { tool in
+            ConversationToolOption(
+                id: tool.id,
+                title: title(for: tool),
+                systemImage: systemImage(for: tool.id),
+                group: group(for: tool.provenance),
+                requiresWorkspace: tool.provenance.isWorkspaceScoped,
+                requiresTerminal: tool.provenance.isTerminalScoped
+            )
+        }
     }
 
     private static func workspaceToolTitle(for id: String) -> String {
@@ -92,6 +115,48 @@ public enum ConversationToolSupport {
         case "change_directory": "folder.badge.gearshape"
         default: "wrench.and.screwdriver"
         }
+    }
+
+    private static func title(for tool: AnyTool) -> String {
+        switch tool.id {
+        case "current_datetime":
+            "Current Date/Time"
+        default:
+            tool.name
+        }
+    }
+
+    private static func systemImage(for id: String) -> String {
+        if let builtIn = builtInToolOptions.first(where: { $0.id == id }) {
+            return builtIn.systemImage
+        }
+        if let terminal = terminalToolOptions.first(where: { $0.id == id }) {
+            return terminal.systemImage
+        }
+        return workspaceToolSystemImage(for: id)
+    }
+
+    private static func group(for provenance: ToolProvenance) -> ConversationToolOption.Group {
+        switch provenance {
+        case .terminal:
+            .terminal
+        case .workspace:
+            .workspace
+        case .global, .named:
+            .builtIn
+        }
+    }
+}
+
+private extension ToolProvenance {
+    var isWorkspaceScoped: Bool {
+        if case .workspace = self { return true }
+        return false
+    }
+
+    var isTerminalScoped: Bool {
+        if case .terminal = self { return true }
+        return false
     }
 }
 

@@ -42,10 +42,10 @@ struct ToolExplanationDecoratorTests {
 
     @MainActor
     @Test("Runtime-resolved tools are decorated at the single registration seam")
-    func runtimeResolveToolsDecoratesAvailableTools() throws {
+    func runtimeResolveToolsDecoratesAvailableTools() async throws {
         let runtime = try makeRuntime()
 
-        let tools = runtime.resolveTools(enabledToolIds: [], workspaceRoot: nil as URL?)
+        let tools = await runtime.resolveTools(enabledToolIds: [], workspaceRoot: nil as URL?)
 
         #expect(!tools.isEmpty)
         #expect(tools.allSatisfy { tool in

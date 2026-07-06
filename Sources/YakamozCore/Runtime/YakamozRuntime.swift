@@ -70,10 +70,14 @@ public actor YakamozRuntime: ChatRunning {
     /// app injects a concrete UI-bridging approver (YAK-T5).
     private let terminalApprover: any TerminalCommandApproving
 
-    /// Gate consulted by PositronicKit's `ToolRouter` before any permissioned tool (the filesystem
-    /// tools `read_file`/`ls`/`find`/`search_files`/`grep`) executes. Defaults to
-    /// `DenyAllToolApprovalGate()` (default-deny) so permissioned tools are never an un-gated
-    /// primitive when unwired; the app injects a concrete `MainActorToolApprover` (YAK-31).
+    /// Gate consulted by PositronicKit's `ToolRouter` before any tool whose
+    /// `requiresPermission` is `true` executes. Defaults to
+    /// `DenyAllToolApprovalGate()` (default-deny) so permissioned tools are never an
+    /// un-gated primitive when unwired; the app injects a concrete
+    /// `MainActorToolApprover` (YAK-31). YAK-47 auto-approves the read-only filesystem
+    /// tools (`cat`/`ls`/`find`/`search_files`/`grep`) at this seam in
+    /// `resolveTools`, so they never reach this gate; it remains the seam for any
+    /// future write tool that opts into `requiresPermission = true`.
     private let toolApprovalGate: any ToolApprovalGate
 
     @MainActor
@@ -119,44 +123,42 @@ public actor YakamozRuntime: ChatRunning {
         enabledToolIds: [String],
         workspaceRoot: URL?,
         terminals: [TerminalToolContext] = []
-    ) -> [AnyTool] {
-        var available: [AnyTool] = [
-            CalculatorTool().toAnyTool(),
-            CurrentDateTimeTool().toAnyTool(),
-        ]
-
-        if let workspaceRoot {
-            let root = workspaceRoot.path
-            available.append(contentsOf: [
-                ReadFileTool(currentDirectory: root, jailRoot: root).toAnyTool(),
-                ListDirectoryTool(currentDirectory: root, jailRoot: root).toAnyTool(),
-                FindFileTool(currentDirectory: root, jailRoot: root).toAnyTool(),
-                SearchFilesTool(currentDirectory: root, jailRoot: root).toAnyTool(),
-                SearchFileContentTool(currentDirectory: root, jailRoot: root).toAnyTool(),
-                ChangeDirectoryTool(currentPath: root, root: root, onChange: { _ in }).toAnyTool(),
-            ])
+    ) async -> [AnyTool] {
+        let providers = makeToolProviders(workspaceRoot: workspaceRoot, terminals: terminals)
+        var available: [AnyTool] = []
+        for provider in providers {
+            available.append(contentsOf: await provider.resolvedTools())
         }
-
-        // One set of the six terminal tools per attached terminal, all backed by the shared
-        // registry/approver so the live agent path and any parity path see the same session.
-        // Includes the YAK-T6 `terminal_read_output` tool for fetching full stored output.
-        for terminal in terminals {
-            let id = terminal.workspaceId
-            let url = terminal.rootURL
-            available.append(contentsOf: [
-                TerminalRunTool(workspaceId: id, registry: terminalRegistry, rootURL: url, approver: terminalApprover).toAnyTool(),
-                TerminalReadTool(workspaceId: id, registry: terminalRegistry, rootURL: url).toAnyTool(),
-                TerminalSendInputTool(workspaceId: id, registry: terminalRegistry, rootURL: url).toAnyTool(),
-                TerminalInterruptTool(workspaceId: id, registry: terminalRegistry, rootURL: url).toAnyTool(),
-                TerminalWaitTool(workspaceId: id, registry: terminalRegistry, rootURL: url).toAnyTool(),
-                TerminalReadOutputTool(workspaceId: id, registry: terminalRegistry, rootURL: url).toAnyTool(),
-            ])
-        }
-
         let explained = available.map { $0.withExplanationParameter() }
+        // YAK-47: auto-approve the read-only filesystem tools (no per-call approval
+        // banner) at the registration seam. Write/execute capabilities
+        // (`terminal_run`, future write tools) keep their gates — allowlist, not
+        // "everything except terminal".
+        let autoApproved = ReadOnlyToolApproval.autoApprovedToolIds
+        let unpermissioned = explained.map { tool in
+            autoApproved.contains(tool.id) ? tool.withoutPermissionRequirement() : tool
+        }
         let enabled = Set(enabledToolIds)
-        guard !enabled.isEmpty else { return explained }
-        return explained.filter { enabled.contains($0.id) }
+        guard !enabled.isEmpty else { return unpermissioned }
+        return unpermissioned.filter { enabled.contains($0.id) }
+    }
+
+    private nonisolated func makeToolProviders(
+        workspaceRoot: URL?,
+        terminals: [TerminalToolContext]
+    ) -> [any ToolProviding] {
+        var providers: [any ToolProviding] = [BuiltInToolProvider()]
+        if let workspaceRoot {
+            providers.append(FileWorkspaceToolProvider(rootURL: workspaceRoot))
+        }
+        providers.append(contentsOf: terminals.map {
+            TerminalWorkspaceToolProvider(
+                terminal: $0,
+                registry: terminalRegistry,
+                approver: terminalApprover
+            )
+        })
+        return providers
     }
 
     /// Builds a `WorkspacePresentation` for the given folder-backed `WorkspaceModel`, for
@@ -212,7 +214,7 @@ public actor YakamozRuntime: ChatRunning {
         onTimelineStateChange: (@MainActor @Sendable (ConversationTimelineState) async -> Void)? = nil
     ) async -> ChatViewModel {
         let turnInspector = inspector
-        let tools = resolveTools(enabledToolIds: enabledToolIds, workspaceRoot: workspaceRoot, terminals: terminals)
+        let tools = await resolveTools(enabledToolIds: enabledToolIds, workspaceRoot: workspaceRoot, terminals: terminals)
         let loadedTranscript: LoadedTranscript
         do {
             loadedTranscript = try await loadTranscript(for: timelineId)
@@ -523,6 +525,63 @@ public actor YakamozRuntime: ChatRunning {
     /// `content` when the tool failed (`"Error: <message>"`). Used to distinguish
     /// succeeded from failed tool results on reload.
     private static let toolErrorPrefix = "Error: "
+}
+
+private struct BuiltInToolProvider: ToolProviding {
+    let toolProvenance: ToolProvenance = .global
+    func provideTools() async -> [AnyTool] {
+        [
+            CalculatorTool().toAnyTool(),
+            CurrentDateTimeTool().toAnyTool(),
+        ]
+    }
+}
+
+private struct FileWorkspaceToolProvider: ToolProviding {
+    let rootURL: URL
+    let workspaceID: UUID
+
+    init(rootURL: URL) {
+        self.rootURL = rootURL
+        self.workspaceID = UUID()
+    }
+
+    var toolProvenance: ToolProvenance {
+        .workspace(id: workspaceID, name: rootURL.lastPathComponent)
+    }
+
+    func provideTools() async -> [AnyTool] {
+        let root = rootURL.path
+        return [
+            ReadFileTool(currentDirectory: root, jailRoot: root).toAnyTool(),
+            ListDirectoryTool(currentDirectory: root, jailRoot: root).toAnyTool(),
+            FindFileTool(currentDirectory: root, jailRoot: root).toAnyTool(),
+            SearchFilesTool(currentDirectory: root, jailRoot: root).toAnyTool(),
+            SearchFileContentTool(currentDirectory: root, jailRoot: root).toAnyTool(),
+            ChangeDirectoryTool(currentPath: root, root: root, onChange: { _ in }).toAnyTool(),
+        ]
+    }
+}
+
+private struct TerminalWorkspaceToolProvider: ToolProviding {
+    let terminal: TerminalToolContext
+    let registry: TerminalSessionRegistry
+    let approver: any TerminalCommandApproving
+
+    var toolProvenance: ToolProvenance {
+        .terminal(id: terminal.workspaceId, name: terminal.rootURL.lastPathComponent)
+    }
+
+    func provideTools() async -> [AnyTool] {
+        [
+            TerminalRunTool(workspaceId: terminal.workspaceId, registry: registry, rootURL: terminal.rootURL, approver: approver).toAnyTool(),
+            TerminalReadTool(workspaceId: terminal.workspaceId, registry: registry, rootURL: terminal.rootURL).toAnyTool(),
+            TerminalSendInputTool(workspaceId: terminal.workspaceId, registry: registry, rootURL: terminal.rootURL).toAnyTool(),
+            TerminalInterruptTool(workspaceId: terminal.workspaceId, registry: registry, rootURL: terminal.rootURL).toAnyTool(),
+            TerminalWaitTool(workspaceId: terminal.workspaceId, registry: registry, rootURL: terminal.rootURL).toAnyTool(),
+            TerminalReadOutputTool(workspaceId: terminal.workspaceId, registry: registry, rootURL: terminal.rootURL).toAnyTool(),
+        ]
+    }
 }
 
 /// A `ChatRunning` adapter that routes each turn through a plugin-augmented kit.

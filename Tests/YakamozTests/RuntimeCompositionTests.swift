@@ -322,7 +322,7 @@ struct RuntimeCompositionTests {
         let viewModel = ChatViewModel(
             timelineId: UUID(),
             runner: runner,
-            tools: runtime.resolveTools(enabledToolIds: [], workspaceRoot: nil)
+            tools: await runtime.resolveTools(enabledToolIds: [], workspaceRoot: nil)
         )
 
         viewModel.send("before attach")
@@ -336,7 +336,7 @@ struct RuntimeCompositionTests {
         defer { cleanup(workspaceRoot) }
 
         viewModel.updateTools(
-            runtime.resolveTools(
+            await runtime.resolveTools(
                 enabledToolIds: FileSystemWorkspace.toolIds,
                 workspaceRoot: workspaceRoot
             )
@@ -350,7 +350,7 @@ struct RuntimeCompositionTests {
         runner.continuation?.finish()
         await viewModel.awaitSendCompletion()
 
-        viewModel.updateTools(runtime.resolveTools(enabledToolIds: [], workspaceRoot: nil))
+        viewModel.updateTools(await runtime.resolveTools(enabledToolIds: [], workspaceRoot: nil))
 
         viewModel.send("after detach")
         await runner.waitUntilRunCount(3)

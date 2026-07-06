@@ -79,31 +79,50 @@ struct TerminalToolGatingTests {
     }
 
     @MainActor
-    @Test func resolveToolsAppendsTerminalToolsOnlyForAttachedTerminals() throws {
+    @Test func resolveToolsAppendsTerminalToolsOnlyForAttachedTerminals() async throws {
         let runtime = try makeRuntime()
 
         // No terminals → no terminal tools.
-        let none = runtime.resolveTools(enabledToolIds: [], workspaceRoot: nil, terminals: [])
+        let none = await runtime.resolveTools(enabledToolIds: [], workspaceRoot: nil, terminals: [])
         #expect(!none.map(\.id).contains("terminal_run"))
 
         // One terminal context → its five tools appear.
         let ctx = TerminalToolContext(workspaceId: UUID(), rootURL: URL(fileURLWithPath: "/tmp"))
-        let withTerminal = runtime.resolveTools(enabledToolIds: [], workspaceRoot: nil, terminals: [ctx])
+        let withTerminal = await runtime.resolveTools(enabledToolIds: [], workspaceRoot: nil, terminals: [ctx])
         let ids = Set(withTerminal.map(\.id))
         #expect(ids.isSuperset(of: ["terminal_run", "terminal_read", "terminal_send_input", "terminal_interrupt", "terminal_wait"]))
+        #expect(withTerminal.contains { tool in
+            tool.id == "terminal_run" && tool.provenance == .terminal(id: ctx.workspaceId, name: "tmp")
+        })
     }
 
     @MainActor
-    @Test func resolveToolsRespectsEnabledFilterForTerminalTools() throws {
+    @Test func resolveToolsRespectsEnabledFilterForTerminalTools() async throws {
         let runtime = try makeRuntime()
         let ctx = TerminalToolContext(workspaceId: UUID(), rootURL: URL(fileURLWithPath: "/tmp"))
-        let filtered = runtime.resolveTools(
+        let filtered = await runtime.resolveTools(
             enabledToolIds: ["terminal_run"],
             workspaceRoot: nil,
             terminals: [ctx]
         )
         let ids = filtered.map(\.id)
         #expect(ids == ["terminal_run"])
+    }
+
+    @MainActor
+    @Test func toolOptionsGroupByProvenance() async throws {
+        let runtime = try makeRuntime()
+        let ctx = TerminalToolContext(workspaceId: UUID(), rootURL: URL(fileURLWithPath: "/tmp"))
+        let tools = await runtime.resolveTools(
+            enabledToolIds: [],
+            workspaceRoot: URL(fileURLWithPath: "/workspace"),
+            terminals: [ctx]
+        )
+
+        let options = ConversationToolSupport.toolOptions(for: tools)
+        #expect(options.contains { $0.id == "calculator" && $0.group == .builtIn })
+        #expect(options.contains { $0.id == "cat" && $0.group == .workspace })
+        #expect(options.contains { $0.id == "terminal_run" && $0.group == .terminal })
     }
 }
 
