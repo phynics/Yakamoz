@@ -56,6 +56,11 @@ public actor YakamozRuntime: ChatRunning {
     public let stores: YakamozStores
     public let inspector: SwiftDataTurnInspector
 
+    /// Captured at init so the `@MainActor` `makeChatViewModel` can build a
+    /// `ConversationCoordinator` for the post-turn sidecar-results hook without re-
+    /// routing a `ModelContext` through the view layer. `ModelContainer` is `Sendable`.
+    private nonisolated let modelContainer: ModelContainer
+
     private let settingsSnapshotProvider: @MainActor () -> ProviderSettingsSnapshot
     private let secrets: any SecretStoring
     private let llmServiceFactory: LLMServiceFactory
@@ -91,6 +96,7 @@ public actor YakamozRuntime: ChatRunning {
     ) throws {
         stores = YakamozStores(modelContainer: modelContainer)
         inspector = SwiftDataTurnInspector(modelContainer: modelContainer)
+        self.modelContainer = modelContainer
         settingsSnapshotProvider = { @MainActor in settings.snapshot }
         self.secrets = secrets
         self.llmServiceFactory = llmServiceFactory
@@ -261,6 +267,33 @@ public actor YakamozRuntime: ChatRunning {
             onBeginUserSend = nil
         }
 
+        // SID-1/SID-2 post-turn sidecar-results hook. A `ConversationCoordinator` is
+        // constructed fresh from the captured container's main context (cheap; the
+        // coordinator is a thin value type over `ModelContext`). The closure routes
+        // each `SidecarResult` to its handler by `result.name`: `title` -> `applyTitleDirective`
+        // (SID-1, mutates `ConversationModel`); `section_title` lands in Task 8's
+        // `recordSectionTitleAnnotation` (SID-2, Task 10). Empty `results` (no
+        // directive carried the turn, or the model emitted none) is the common path and
+        // the closure no-ops through it. Errors from `applyTitleDirective` are swallowed
+        // here: the response has already been persisted; a side-effect write failure is
+        // not worth surfacing as a turn error (matches `applyTitleDirective`'s own
+        // silent-no-op for missing conversations).
+        let conversationCoordinator = ConversationCoordinator(
+            modelContext: modelContainer.mainContext,
+            timelineStore: stores.timelines
+        )
+        let sidecarTimelineId = timelineId
+        let onSidecarResults: (@MainActor @Sendable ([SidecarResult]) async -> Void) = { results in
+            for result in results {
+                if result.name == TitleDirective.name {
+                    try? await conversationCoordinator.applyTitleDirective(
+                        conversationId: sidecarTimelineId,
+                        result: result
+                    )
+                }
+            }
+        }
+
         return ChatViewModel(
             timelineId: timelineId,
             runner: runner,
@@ -279,6 +312,7 @@ public actor YakamozRuntime: ChatRunning {
             ),
             onBeginUserSend: onBeginUserSend,
             onTimelineStateChange: onTimelineStateChange,
+            onSidecarResults: onSidecarResults,
             initialTranscript: loadedTranscript.transcript
         )
     }

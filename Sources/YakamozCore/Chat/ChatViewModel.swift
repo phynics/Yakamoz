@@ -79,6 +79,14 @@ public final class ChatViewModel {
     /// `AutonomousFollowUpPlugin.beginUserSend()`); `nil` when no plugin is wired.
     private let onBeginUserSend: (@MainActor @Sendable () async -> Void)?
     private let onTimelineStateChange: (@MainActor @Sendable (ConversationTimelineState) async -> Void)?
+    /// Called once per turn with the turn's accumulated `SidecarResult`s, after the
+    /// response has been persisted onto the terminal inspection row. YakamozRuntime
+    /// supplies the closure, routing each result to its handler by `result.name`:
+    /// `title` (SID-1) updates `ConversationModel` via `ConversationCoordinator.applyTitleDirective`;
+    /// `section_title` (SID-2) records a `TimelineAnnotationModel` row. Kept as a closure
+    /// rather than injecting `ConversationCoordinator` directly so `ChatViewModel` stays
+    /// decoupled from SwiftData — matching the existing `onTimelineStateChange` boundary.
+    private let onSidecarResults: (@MainActor @Sendable ([SidecarResult]) async -> Void)?
     private let clock: ContinuousClock
     private var nextTurnIndex = 0
     private var nextInspectionTurnIndex = 0
@@ -114,6 +122,7 @@ public final class ChatViewModel {
         sidecars: [SidecarDirective] = [],
         onBeginUserSend: (@MainActor @Sendable () async -> Void)? = nil,
         onTimelineStateChange: (@MainActor @Sendable (ConversationTimelineState) async -> Void)? = nil,
+        onSidecarResults: (@MainActor @Sendable ([SidecarResult]) async -> Void)? = nil,
         initialTranscript: [TranscriptItem] = [],
         clock: ContinuousClock = ContinuousClock()
     ) {
@@ -130,6 +139,7 @@ public final class ChatViewModel {
         self.sidecars = sidecars
         self.onBeginUserSend = onBeginUserSend
         self.onTimelineStateChange = onTimelineStateChange
+        self.onSidecarResults = onSidecarResults
         transcript = initialTranscript
         nextTurnIndex = Self.nextTurnIndex(for: initialTranscript)
         nextInspectionTurnIndex = Self.nextInspectionTurnIndex(for: initialTranscript)
@@ -469,6 +479,10 @@ public final class ChatViewModel {
             ) else {
                 return nil
             }
+            // Forward the turn's final sidecar results onto the runtime-supplied closure
+            // (SID-1/SID-2 persist step) now that the response itself is durably recorded.
+            // Empty when the turn carried no sidecar directives (no TimelineState change).
+            await onSidecarResults?(state.sidecarResults)
             nextInspectionTurnIndex = latestTurnIndex + 1
             var completedState = state
             completedState.inspectionTurnIndex = latestTurnIndex

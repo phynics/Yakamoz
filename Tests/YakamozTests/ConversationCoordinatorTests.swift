@@ -1,4 +1,5 @@
 import Foundation
+import PKShared
 import PKTestSupport
 import PositronicKit
 import SwiftData
@@ -79,5 +80,92 @@ struct ConversationCoordinatorTests {
         let timeline = try await runtime.stores.timelines.fetchTimeline(id: conversation.id)
         #expect(timeline?.id == conversation.id)
         #expect(timeline?.title == "Runtime Chat")
+    }
+
+    @Test("applyTitleDirective updates title and resets cadence counters on a value outcome")
+    func applyTitleDirectiveUpdatesOnValue() async throws {
+        let container = try makeContainer()
+        let stores = YakamozStores(modelContainer: container)
+        let coordinator = ConversationCoordinator(
+            modelContext: container.mainContext,
+            timelineStore: stores.timelines
+        )
+        let conversation = try await coordinator.createConversation(title: "New Chat")
+        let conversationId = conversation.id
+
+        try await coordinator.applyTitleDirective(
+            conversationId: conversationId,
+            result: SidecarResult(name: "title", outcome: .value(AnyCodable("Fixing the auth bug")))
+        )
+
+        let fetched = try #require(try container.mainContext.fetch(
+            FetchDescriptor<ConversationModel>(predicate: #Predicate { $0.id == conversationId })
+        ).first)
+        #expect(fetched.title == "Fixing the auth bug")
+        #expect(fetched.hasReceivedTitleDirective == true)
+        #expect(fetched.turnsSinceLastTitleDirective == 0)
+    }
+
+    @Test("applyTitleDirective is a no-op on a declined outcome, but still advances the cadence counter")
+    func applyTitleDirectiveNoOpOnDecline() async throws {
+        let container = try makeContainer()
+        let stores = YakamozStores(modelContainer: container)
+        let coordinator = ConversationCoordinator(
+            modelContext: container.mainContext,
+            timelineStore: stores.timelines
+        )
+        let conversation = try await coordinator.createConversation(title: "New Chat")
+        let conversationId = conversation.id
+
+        try await coordinator.applyTitleDirective(
+            conversationId: conversationId,
+            result: SidecarResult(name: "title", outcome: .declined)
+        )
+
+        let fetched = try #require(try container.mainContext.fetch(
+            FetchDescriptor<ConversationModel>(predicate: #Predicate { $0.id == conversationId })
+        ).first)
+        #expect(fetched.title == "New Chat")
+        #expect(fetched.turnsSinceLastTitleDirective == 1)
+    }
+
+    @Test("applyTitleDirective no-ops for directive names it does not own")
+    func applyTitleDirectiveIgnoresUnownedDirectiveNames() async throws {
+        let container = try makeContainer()
+        let stores = YakamozStores(modelContainer: container)
+        let coordinator = ConversationCoordinator(
+            modelContext: container.mainContext,
+            timelineStore: stores.timelines
+        )
+        let conversation = try await coordinator.createConversation(title: "New Chat")
+        let conversationId = conversation.id
+
+        try await coordinator.applyTitleDirective(
+            conversationId: conversationId,
+            result: SidecarResult(name: "section_title", outcome: .value(AnyCodable("Section")))
+        )
+
+        let fetched = try #require(try container.mainContext.fetch(
+            FetchDescriptor<ConversationModel>(predicate: #Predicate { $0.id == conversationId })
+        ).first)
+        #expect(fetched.title == "New Chat")
+        #expect(fetched.turnsSinceLastTitleDirective == 0)
+    }
+
+    @Test("applyTitleDirective no-ops silently when the conversation cannot be found")
+    func applyTitleDirectiveNoOpsForMissingConversation() async throws {
+        let container = try makeContainer()
+        let stores = YakamozStores(modelContainer: container)
+        let coordinator = ConversationCoordinator(
+            modelContext: container.mainContext,
+            timelineStore: stores.timelines
+        )
+        // A stale/cancelled turn racing conversation deletion must not throw — the
+        // caller's post-turn hook cannot recovery from a missing row, so it is
+        // intentionally swallowed.
+        try await coordinator.applyTitleDirective(
+            conversationId: UUID(),
+            result: SidecarResult(name: "title", outcome: .value(AnyCodable("Late Title")))
+        )
     }
 }

@@ -7,6 +7,12 @@ import SwiftData
 import Testing
 @testable import YakamozCore
 
+private actor LockedSidecarResults {
+    private(set) var invocations: [[SidecarResult]] = []
+    func append(_ results: [SidecarResult]) { invocations.append(results) }
+    func snapshot() -> [[SidecarResult]] { invocations }
+}
+
 /// A scripted `ChatRunning` fake: the test drives a hand-built `AsyncThrowingStream`
 /// via its continuation, so `ChatViewModel` tests are deterministic and network-free.
 /// No real `ChatEngine`/`PositronicKit` instance is constructed.
@@ -194,6 +200,87 @@ struct ChatViewModelTests {
         runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
         await viewModel.awaitSendCompletion()
+    }
+
+    @Test("onSidecarResults fires after the inspector persists the turn with the turn's sidecar results")
+    func onSidecarResultsFiresAfterTurnCompletion() async throws {
+        let runner = ScriptedRunner()
+        let inspector = try makeInspector()
+        let timelineId = UUID()
+        let recorder = LockedSidecarResults()
+        let viewModel = ChatViewModel(
+            timelineId: timelineId,
+            runner: runner,
+            inspector: inspector,
+            onSidecarResults: { results in
+                await recorder.append(results)
+            }
+        )
+
+        viewModel.send("hello")
+        await runner.waitUntilContinuationCount(1)
+
+        // Seed an inspection row for the send so `persistResponse`'s `updateResponse`
+        // has a row to enrich (mirror `completionPersistsResponseViaInspector`).
+        let sendId = try #require(runner.lastSendId)
+        let prompt = AnyPrompt.build { SystemPrompt("You are helpful") }
+        let assembled = try prompt.assemblePrompt()
+        let rendered = await assembled.render()
+        await inspector.didComposeTurn(TurnInspection(
+            identity: TurnIdentity(sendId: sendId, roundTrip: 0),
+            timelineId: timelineId,
+            agentInstanceId: nil,
+            turnIndex: 0,
+            model: "gpt-test",
+            rendered: rendered,
+            sentMessages: [],
+            journal: TurnJournalSnapshot(
+                overlay: PromptJournalDiff(changedSemiStableIDs: [], addedSemiStableIDs: [], removedSemiStableIDs: []),
+                stablePrefixCount: 0,
+                didCompact: false
+            ),
+            estimatedTokens: rendered.estimatedTokens
+        ))
+
+        let results: [SidecarResult] = [
+            SidecarResult(name: "title", outcome: .value(AnyCodable("Fixing the auth bug"))),
+            SidecarResult(name: "section_title", outcome: .declined)
+        ]
+        runner.continuation?.yield(.sidecarsCompleted(results))
+        runner.continuation?.yield(.generation("answer"))
+        runner.continuation?.yield(.streamCompleted())
+        runner.continuation?.finish()
+
+        await viewModel.awaitSendCompletion()
+
+        let invocations = await recorder.snapshot()
+        #expect(invocations.count == 1)
+        #expect(invocations.first == results)
+    }
+
+    @Test("onSidecarResults does not fire when no inspector is wired (persistResponse early-returns)")
+    func onSidecarResultsNotInvokedWithoutInspector() async throws {
+        let runner = ScriptedRunner()
+        let recorder = LockedSidecarResults()
+        let viewModel = ChatViewModel(
+            timelineId: UUID(),
+            runner: runner,
+            onSidecarResults: { results in
+                await recorder.append(results)
+            }
+        )
+
+        viewModel.send("hello")
+        await runner.waitUntilContinuationCount(1)
+
+        runner.continuation?.yield(.generation("answer"))
+        runner.continuation?.yield(.streamCompleted())
+        runner.continuation?.finish()
+
+        await viewModel.awaitSendCompletion()
+
+        let invocations = await recorder.snapshot()
+        #expect(invocations.isEmpty)
     }
 
     @Test("Live delta events update the assistant transcript item incrementally")

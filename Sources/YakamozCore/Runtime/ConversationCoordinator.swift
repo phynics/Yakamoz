@@ -1,4 +1,5 @@
 import Foundation
+import PKShared
 import PositronicKit
 import SwiftData
 
@@ -49,5 +50,33 @@ public struct ConversationCoordinator {
         try await timelineStore.saveTimeline(timeline)
 
         return conversation
+    }
+
+    /// Applies a `title` sidecar directive's outcome (SID-1): a non-null value replaces
+    /// the conversation's title and resets the cadence counter; a decline or failure
+    /// leaves the title untouched but still advances the counter (the turn happened,
+    /// whether or not the model produced a better title). No-ops silently if
+    /// `result.name` is not `"title"` or the conversation cannot be found (a
+    /// stale/cancelled turn racing conversation deletion — not an error worth surfacing).
+    public func applyTitleDirective(conversationId: UUID, result: SidecarResult) async throws {
+        guard result.name == TitleDirective.name else { return }
+        let descriptor = FetchDescriptor<ConversationModel>(
+            predicate: #Predicate { $0.id == conversationId }
+        )
+        guard let conversation = try modelContext.fetch(descriptor).first else { return }
+
+        switch result.outcome {
+        case let .value(anyCodable):
+            if let title = anyCodable.asString, !title.isEmpty {
+                conversation.title = title
+                conversation.hasReceivedTitleDirective = true
+                conversation.turnsSinceLastTitleDirective = 0
+            } else {
+                conversation.turnsSinceLastTitleDirective += 1
+            }
+        case .declined, .failed:
+            conversation.turnsSinceLastTitleDirective += 1
+        }
+        try modelContext.save()
     }
 }
