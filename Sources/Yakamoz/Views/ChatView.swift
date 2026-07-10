@@ -162,6 +162,10 @@ struct ChatView: View {
             }
 
             ToolbarItem(placement: .automatic) {
+                WorkspacePicker(conversation: conversation)
+            }
+
+            ToolbarItem(placement: .automatic) {
                 PersonaPicker(conversation: conversation)
             }
 
