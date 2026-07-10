@@ -34,14 +34,20 @@ struct MessageBubble: View {
                 // Reloaded turns don't restore tool traces (STAB-3) and record no
                 // `turnSegments`, so `TurnTranscriptProjection` returns `nil` and this
                 // falls back to the legacy whole-text-then-all-tools rendering.
-                if let segments = TurnTranscriptProjection.segments(for: turn) {
+                if let entries = TurnTranscriptProjection.indexedSegments(for: turn) {
                     // UIX-7: thinking segments render as their own disclosure at their
                     // chronological position (not folded into AssistantTurnContent), so
                     // `isFirstTextSegment`/`isLastTextSegment` below are computed over the
                     // *text*-only subsequence — thinking segments don't participate in the
                     // streaming-markdown-placeholder bookkeeping AssistantTurnContent does.
-                    let textIndices: [Int] = segments.indices.filter { if case .text = segments[$0] { true } else { false } }
-                    ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
+                    let textIndices: [Int] = entries.indices.filter { if case .text = entries[$0].segment { true } else { false } }
+                    // UIX-17: use the segment's original `turnSegments` index (stable,
+                    // append-only) as the ForEach id instead of the filtered array offset,
+                    // which could shift when a previously-filtered segment becomes non-empty
+                    // and cause SwiftUI to diff mismatched view types → crash.
+                    ForEach(entries, id: \.index) { entry in
+                        let index = entry.index
+                        let segment = entry.segment
                         switch segment {
                         case let .text(text):
                             Button {
@@ -289,11 +295,18 @@ private struct ThinkingTailView: View {
     }
 
     var body: some View {
+        // `.fixedSize(horizontal: false, vertical: true)` is the key: it makes the
+        // Text take its full intrinsic height regardless of the height proposal from
+        // `.frame(height: viewportHeight)` below. Without it, SwiftUI may position
+        // the Text from the top of the viewport (showing the head) instead of the
+        // bottom (showing the tail). With it, the full-height Text is bottom-aligned
+        // within the fixed viewport, and `.clipped()` crops the overflowing head.
         Text(text)
             .font(.caption.monospaced())
             .foregroundStyle(.secondary)
             .multilineTextAlignment(.leading)
-            .frame(maxWidth: .infinity, alignment: .bottomLeading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
             .frame(height: viewportHeight, alignment: .bottom)
             .clipped()
             .mask(

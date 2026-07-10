@@ -59,9 +59,9 @@ public final class MainActorToolApprover: ToolApprovalGate {
         tool: AnyTool,
         arguments: [String: AnyCodable]
     ) async -> ToolApprovalDecision {
-        if selfGatedToolIds.contains(tool.id) { return .approve }
+        if selfGatedToolIds.contains(tool.callName) { return .approve }
         return await enqueue(
-            toolId: tool.id,
+            toolId: tool.callName,
             toolName: tool.name,
             argumentSummary: Self.summarize(arguments)
         )

@@ -22,7 +22,7 @@ struct RuntimeCompositionTests {
 
         func run(_ request: ChatRunRequest) async throws -> AsyncThrowingStream<ChatEvent, Error> {
             capturedMessages.append(request.message)
-            capturedToolIds.append(request.tools.map(\.id))
+            capturedToolIds.append(request.tools.map(\.callName))
             runCounter.increment()
             return AsyncThrowingStream { continuation in
                 self.continuation = continuation
@@ -160,7 +160,7 @@ struct RuntimeCompositionTests {
         #expect(configuration.apiKey == "sk-or-v1-openrouter-secret")
     }
 
-    @Test("The runtime exposes the SwiftDataTurnInspector and YakamozStores it constructed")
+    @Test("The runtime exposes the SwiftDataPromptInspector and YakamozStores it constructed")
     @MainActor
     func runtimeUsesSwiftDataStoresAndInspector() async throws {
         let settings = makeSettings()
@@ -169,7 +169,7 @@ struct RuntimeCompositionTests {
 
         let runtime = try makeRuntime(settings: settings, secrets: secrets, mock: mock) { _ in }
 
-        // The inspector is a SwiftDataTurnInspector and is independently usable: round-trip a
+        // The inspector is a SwiftDataPromptInspector and is independently usable: round-trip a
         // trivial write/read against it to prove it's wired to the same model container the
         // runtime was constructed with (not some other in-memory default).
         let timelineId = UUID()
@@ -179,7 +179,7 @@ struct RuntimeCompositionTests {
         }
         let assembled = try prompt.assemblePrompt()
         let rendered = await assembled.render()
-        let inspection = TurnInspection(
+        let inspection = PromptInspection(
             timelineId: timelineId,
             agentInstanceId: nil,
             turnIndex: 0,
@@ -198,7 +198,7 @@ struct RuntimeCompositionTests {
             estimatedTokens: rendered.estimatedTokens
         )
         let inspector = await runtime.inspector
-        await inspector.didComposeTurn(inspection)
+        await inspector.didComposePrompt(inspection)
         let fetched = try await inspector.inspection(conversationId: timelineId, turnIndex: 0)
         #expect(fetched != nil)
 

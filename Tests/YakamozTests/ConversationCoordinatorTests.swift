@@ -93,9 +93,16 @@ struct ConversationCoordinatorTests {
         let conversation = try await coordinator.createConversation(title: "New Chat")
         let conversationId = conversation.id
 
+        // SID-3: the runtime emits the per-directive payload sub-object
+        // (`TitleDirectivePayload`'s encoded form `{"title": "..."}`), not a bare
+        // string. The previous bare-`AnyCodable("...")` fixture never matched the
+        // runtime shape and so was false-green.
         try await coordinator.applyTitleDirective(
             conversationId: conversationId,
-            result: SidecarResult(name: "title", outcome: .value(AnyCodable("Fixing the auth bug")))
+            result: SidecarResult(
+                name: "title",
+                outcome: .value(AnyCodable.dictionary(["title": .string("Fixing the auth bug")]))
+            )
         )
 
         let fetched = try #require(try container.mainContext.fetch(
@@ -104,6 +111,65 @@ struct ConversationCoordinatorTests {
         #expect(fetched.title == "Fixing the auth bug")
         #expect(fetched.hasReceivedTitleDirective == true)
         #expect(fetched.turnsSinceLastTitleDirective == 0)
+    }
+
+    @Test("applyTitleDirective recovers the title from an off-schema single-string dict")
+    func applyTitleDirectiveRecoversOffSchema() async throws {
+        let container = try makeContainer()
+        let stores = YakamozStores(modelContainer: container)
+        let coordinator = ConversationCoordinator(
+            modelContext: container.mainContext,
+            timelineStore: stores.timelines
+        )
+        let conversation = try await coordinator.createConversation(title: "New Chat")
+        let conversationId = conversation.id
+
+        // SID-3: providers sometimes freelance the key (e.g. `text` instead of `title`).
+        // The recover path takes the dict's only non-empty string so the title still lands.
+        try await coordinator.applyTitleDirective(
+            conversationId: conversationId,
+            result: SidecarResult(
+                name: "title",
+                outcome: .value(AnyCodable.dictionary(["text": .string("Riemann Conjecture Overview")]))
+            )
+        )
+
+        let fetched = try #require(try container.mainContext.fetch(
+            FetchDescriptor<ConversationModel>(predicate: #Predicate { $0.id == conversationId })
+        ).first)
+        #expect(fetched.title == "Riemann Conjecture Overview")
+        #expect(fetched.hasReceivedTitleDirective == true)
+        #expect(fetched.turnsSinceLastTitleDirective == 0)
+    }
+
+    @Test("applyTitleDirective leaves the title untouched but advances the cadence counter for an unextractable payload")
+    func applyTitleDirectiveAdvancesCounterOnUnextractable() async throws {
+        let container = try makeContainer()
+        let stores = YakamozStores(modelContainer: container)
+        let coordinator = ConversationCoordinator(
+            modelContext: container.mainContext,
+            timelineStore: stores.timelines
+        )
+        let conversation = try await coordinator.createConversation(title: "New Chat")
+        let conversationId = conversation.id
+
+        // SID-3: a `.value` carrying a non-empty dict with no extractable non-empty
+        // string (here an explicit `null` value) routes to the recover-but-empty path:
+        // title untouched, cadence counter still advances (the turn happened).
+        try await coordinator.applyTitleDirective(
+            conversationId: conversationId,
+            result: SidecarResult(
+                name: "title",
+                outcome: .value(AnyCodable.dictionary(["title": .null]))
+            )
+        )
+
+        let fetched = try #require(try container.mainContext.fetch(
+            FetchDescriptor<ConversationModel>(predicate: #Predicate { $0.id == conversationId })
+        ).first)
+        #expect(fetched.title == "New Chat")
+        #expect(fetched.hasReceivedTitleDirective == false)
+        #expect(fetched.turnsSinceLastTitleDirective == 1)
     }
 
     @Test("applyTitleDirective is a no-op on a declined outcome, but still advances the cadence counter")
@@ -180,10 +246,16 @@ struct ConversationCoordinatorTests {
         let conversation = try await coordinator.createConversation(title: "New Chat")
         let conversationId = conversation.id
 
+        // SID-3: runtime emits the per-directive payload sub-object
+        // (`SectionTitleDirectivePayload`'s encoded form `{"sectionTitle": "..."}`,
+        // camelCase JSON key — distinct from the directive's snake_case `name`).
         try coordinator.recordSectionTitleAnnotation(
             conversationId: conversationId,
             turnIndex: 2,
-            result: SidecarResult(name: "section_title", outcome: .value(AnyCodable("Exploring the bug")))
+            result: SidecarResult(
+                name: "section_title",
+                outcome: .value(AnyCodable.dictionary(["sectionTitle": .string("Exploring the bug")]))
+            )
         )
 
         let fetched = try container.mainContext.fetch(FetchDescriptor<TimelineAnnotationModel>(
@@ -193,6 +265,64 @@ struct ConversationCoordinatorTests {
         #expect(fetched.first?.text == "Exploring the bug")
         #expect(fetched.first?.turnIndex == 2)
         #expect(fetched.first?.kind == .sectionTitle)
+    }
+
+    @Test("recordSectionTitleAnnotation recovers from an off-schema single-string dict")
+    func recordSectionTitleAnnotationRecoversOffSchema() async throws {
+        let container = try makeContainer()
+        let stores = YakamozStores(modelContainer: container)
+        let coordinator = ConversationCoordinator(
+            modelContext: container.mainContext,
+            timelineStore: stores.timelines
+        )
+        let conversation = try await coordinator.createConversation(title: "New Chat")
+        let conversationId = conversation.id
+
+        // SID-3: off-schema recover — provider freelanced the key
+        // (`{"text": "..."}` instead of `{"sectionTitle": "..."}`).
+        try coordinator.recordSectionTitleAnnotation(
+            conversationId: conversationId,
+            turnIndex: 3,
+            result: SidecarResult(
+                name: "section_title",
+                outcome: .value(AnyCodable.dictionary(["text": .string("Implementing the fix")]))
+            )
+        )
+
+        let fetched = try container.mainContext.fetch(FetchDescriptor<TimelineAnnotationModel>(
+            predicate: #Predicate { $0.conversationId == conversationId }
+        ))
+        #expect(fetched.count == 1)
+        #expect(fetched.first?.text == "Implementing the fix")
+        #expect(fetched.first?.turnIndex == 3)
+    }
+
+    @Test("recordSectionTitleAnnotation no-ops on an unextractable dict (no row inserted)")
+    func recordSectionTitleAnnotationNoOpsOnUnextractable() async throws {
+        let container = try makeContainer()
+        let stores = YakamozStores(modelContainer: container)
+        let coordinator = ConversationCoordinator(
+            modelContext: container.mainContext,
+            timelineStore: stores.timelines
+        )
+        let conversation = try await coordinator.createConversation(title: "New Chat")
+        let conversationId = conversation.id
+
+        // SID-3: empty dict — neither the expected key nor a single-string recover
+        // candidate is present; nothing extractable, no row inserted.
+        try coordinator.recordSectionTitleAnnotation(
+            conversationId: conversationId,
+            turnIndex: 0,
+            result: SidecarResult(
+                name: "section_title",
+                outcome: .value(AnyCodable.dictionary([:]))
+            )
+        )
+
+        let fetched = try container.mainContext.fetch(FetchDescriptor<TimelineAnnotationModel>(
+            predicate: #Predicate { $0.conversationId == conversationId }
+        ))
+        #expect(fetched.isEmpty)
     }
 
     @Test("recordSectionTitleAnnotation no-ops on a declined result (no row inserted)")
@@ -278,12 +408,18 @@ struct ConversationCoordinatorTests {
         try coordinator.recordSectionTitleAnnotation(
             conversationId: conversationId,
             turnIndex: 2,
-            result: SidecarResult(name: "section_title", outcome: .value(AnyCodable("Exploring")))
+            result: SidecarResult(
+                name: "section_title",
+                outcome: .value(AnyCodable.dictionary(["sectionTitle": .string("Exploring")]))
+            )
         )
         try coordinator.recordSectionTitleAnnotation(
             conversationId: conversationId,
             turnIndex: 7,
-            result: SidecarResult(name: "section_title", outcome: .value(AnyCodable("Implementing")))
+            result: SidecarResult(
+                name: "section_title",
+                outcome: .value(AnyCodable.dictionary(["sectionTitle": .string("Implementing")]))
+            )
         )
 
         let latest = try coordinator.fetchLatestSectionTitle(conversationId: conversationId)
@@ -320,12 +456,18 @@ struct ConversationCoordinatorTests {
         try coordinator.recordSectionTitleAnnotation(
             conversationId: conversationId,
             turnIndex: 7,
-            result: SidecarResult(name: "section_title", outcome: .value(AnyCodable("Implementing the fix")))
+            result: SidecarResult(
+                name: "section_title",
+                outcome: .value(AnyCodable.dictionary(["sectionTitle": .string("Implementing the fix")]))
+            )
         )
         try coordinator.recordSectionTitleAnnotation(
             conversationId: conversationId,
             turnIndex: 2,
-            result: SidecarResult(name: "section_title", outcome: .value(AnyCodable("Exploring the bug")))
+            result: SidecarResult(
+                name: "section_title",
+                outcome: .value(AnyCodable.dictionary(["sectionTitle": .string("Exploring the bug")]))
+            )
         )
 
         let annotations = try coordinator.fetchSectionAnnotations(conversationId: conversationId)
@@ -361,17 +503,26 @@ struct ConversationCoordinatorTests {
         try coordinator.recordSectionTitleAnnotation(
             conversationId: a.id,
             turnIndex: 0,
-            result: SidecarResult(name: "section_title", outcome: .value(AnyCodable("A1")))
+            result: SidecarResult(
+                name: "section_title",
+                outcome: .value(AnyCodable.dictionary(["sectionTitle": .string("A1")]))
+            )
         )
         try coordinator.recordSectionTitleAnnotation(
             conversationId: b.id,
             turnIndex: 0,
-            result: SidecarResult(name: "section_title", outcome: .value(AnyCodable("B1")))
+            result: SidecarResult(
+                name: "section_title",
+                outcome: .value(AnyCodable.dictionary(["sectionTitle": .string("B1")]))
+            )
         )
         try coordinator.recordSectionTitleAnnotation(
             conversationId: a.id,
             turnIndex: 3,
-            result: SidecarResult(name: "section_title", outcome: .value(AnyCodable("A2")))
+            result: SidecarResult(
+                name: "section_title",
+                outcome: .value(AnyCodable.dictionary(["sectionTitle": .string("A2")]))
+            )
         )
 
         let aAnnotations = try coordinator.fetchSectionAnnotations(conversationId: a.id)

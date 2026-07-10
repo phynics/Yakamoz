@@ -1,4 +1,5 @@
 import Foundation
+import JSONSchema
 import PKShared
 import PKTestSupport
 import PositronicKit
@@ -22,15 +23,15 @@ struct ReadOnlyToolApprovalTests {
         let base = StubPermissionedTool().toAnyTool()
         let unpermissioned = base.withoutPermissionRequirement()
 
-        #expect(unpermissioned.id == "stub-perm")
+        #expect(unpermissioned.callName == "stub-perm")
         #expect(unpermissioned.name == "Stub Perm")
         #expect(unpermissioned.description == "A stub permissioned tool")
         #expect(unpermissioned.requiresPermission == false)
         #expect(unpermissioned.usageExample == base.usageExample)
-        #expect(unpermissioned.parametersSchema == base.parametersSchema)
+        #expect(unpermissioned.parametersSchema.asDictionary == base.parametersSchema.asDictionary)
         #expect(await unpermissioned.canExecute() == true)
 
-        let result = try await unpermissioned.execute(parameters: ["path": "x"])
+        let result = try await unpermissioned.execute(parameters: ["path": AnyCodable("x")])
         #expect(result.success)
         #expect(result.output == "ran:x")
 
@@ -49,12 +50,12 @@ struct ReadOnlyToolApprovalTests {
         // Order 1: explanation first, then unpermission (the order resolveTools uses).
         let order1 = base.withExplanationParameter().withoutPermissionRequirement()
         #expect(order1.requiresPermission == false)
-        #expect(order1.parametersSchema["properties"]?.asDictionary?[ToolExplanationParameter.key] != nil)
+        #expect(order1.parametersSchema.asDictionary["properties"]?.asDictionary?[ToolExplanationParameter.key] != nil)
 
         // Order 2: unpermission first, then explanation.
         let order2 = base.withoutPermissionRequirement().withExplanationParameter()
         #expect(order2.requiresPermission == false)
-        #expect(order2.parametersSchema["properties"]?.asDictionary?[ToolExplanationParameter.key] != nil)
+        #expect(order2.parametersSchema.asDictionary["properties"]?.asDictionary?[ToolExplanationParameter.key] != nil)
     }
 
     @Test("Allowlist is exactly the read-only filesystem tool ids")
@@ -72,7 +73,7 @@ struct ReadOnlyToolApprovalTests {
             enabledToolIds: [],
             folder: FolderToolContext(workspaceID: UUID(), rootURL: URL(fileURLWithPath: "/tmp"))
         )
-        let byId = Dictionary(uniqueKeysWithValues: tools.map { ($0.id, $0) })
+        let byId = Dictionary(uniqueKeysWithValues: tools.map { ($0.callName, $0) })
 
         for id in ReadOnlyToolApproval.autoApprovedToolIds {
             #expect(
@@ -92,7 +93,7 @@ struct ReadOnlyToolApprovalTests {
         let runtime = try makeRuntime()
         let ctx = TerminalToolContext(workspaceId: UUID(), rootURL: URL(fileURLWithPath: "/tmp"))
         let tools = await runtime.resolveTools(enabledToolIds: [], folder: nil, terminals: [ctx])
-        let terminalRun = try #require(tools.first { $0.id == "terminal_run" })
+        let terminalRun = try #require(tools.first { $0.callName == "terminal_run" })
         #expect(terminalRun.requiresPermission == true)
     }
 
@@ -180,7 +181,7 @@ struct ReadOnlyToolApprovalTests {
     }
 
     private func makeModelContainer() throws -> ModelContainer {
-        let schema = Schema(YakamozSchema.models)
+        let schema = SwiftData.Schema(YakamozSchema.models)
         return try ModelContainer(for: schema, configurations: .init(isStoredInMemoryOnly: true))
     }
 
@@ -198,23 +199,23 @@ struct ReadOnlyToolApprovalTests {
 
 /// A permissioned stub used to assert the decorator forwards every member except the flag.
 private struct StubPermissionedTool: Tool {
-    var id: String { "stub-perm" }
+    var callName: String { "stub-perm" }
     var name: String { "Stub Perm" }
     var description: String { "A stub permissioned tool" }
     var requiresPermission: Bool { true }
     var usageExample: String? { #"{"path": "x"}"# }
-    var parametersSchema: [String: AnyCodable] {
-        [
+    var parametersSchema: JSONSchema.Schema {
+        JSONSchema.Schema([
             "type": AnyCodable("object"),
             "properties": AnyCodable(["path": ["type": "string"]]),
             "required": AnyCodable(["path"]),
-        ]
+        ])
     }
 
     func canExecute() async -> Bool { true }
 
-    func execute(parameters: [String: Any]) async throws -> ToolResult {
-        let path = parameters["path"] as? String ?? ""
+    func execute(parameters: [String: AnyCodable]) async throws -> ToolResult {
+        let path = parameters["path"]?.asString ?? ""
         return .success("ran:\(path)")
     }
 }

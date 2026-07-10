@@ -25,14 +25,14 @@ public extension TurnInspectionModel {
     }
 }
 
-/// `TurnInspecting` adapter that confines a SwiftData `ModelContext` to persist
-/// each `TurnInspection` as a `TurnInspectionModel`.
+/// `PromptInspecting` adapter that confines a SwiftData `ModelContext` to persist
+/// each `PromptInspection` as a `TurnInspectionModel`.
 ///
 /// `ModelContext` is not `Sendable`; `@ModelActor` confines it to this actor so the
-/// adapter can safely implement the `Sendable` `async` `TurnInspecting` protocol.
+/// adapter can safely implement the `Sendable` `async` `PromptInspecting` protocol.
 @ModelActor
-public actor SwiftDataTurnInspector: TurnInspecting {
-    public func didComposeTurn(_ inspection: TurnInspection) async {
+public actor SwiftDataPromptInspector: PromptInspecting {
+    public func didComposePrompt(_ inspection: PromptInspection) async {
         do {
             let projection = try InspectionProjection(inspection)
             modelContext.insert(projection.model)
@@ -74,7 +74,7 @@ public actor SwiftDataTurnInspector: TurnInspecting {
     /// captured after the turn completes (reconstructed text/thinking, model,
     /// finish reason, token usage).
     ///
-    /// `didComposeTurn` runs at prompt-assembly time, before the LLM has produced any
+    /// `didComposePrompt` runs at prompt-assembly time, before the LLM has produced any
     /// output, so `responseData` starts `nil`; this is the seam that fills it in once
     /// `ChatViewModel.consume` observes `.streamCompleted` for the turn. JSON
     /// encode/decode happens inside the actor — the `@Model` itself never crosses the
@@ -108,7 +108,7 @@ public actor SwiftDataTurnInspector: TurnInspecting {
     /// The highest persisted turn index for a conversation, or `nil` if none exist.
     ///
     /// A single `ChatViewModel` user send can drive several engine LLM round-trips (one
-    /// per tool-resolution loop), each creating its own `didComposeTurn` inspection row.
+    /// per tool-resolution loop), each creating its own `didComposePrompt` inspection row.
     /// The final assistant text belongs to the *last* of those rows, so callers persisting
     /// response metadata target this index rather than the view model's own turn counter.
     public func latestTurnIndex(conversationId: UUID) throws -> Int? {

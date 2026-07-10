@@ -152,14 +152,14 @@ public struct InspectionPresentation: Sendable, Equatable {
 }
 
 /// Read seam for the inspector: fetches and projects a persisted turn inspection into
-/// a `Sendable` `InspectionPresentation`. `SwiftDataTurnInspector` conforms (via an
+/// a `Sendable` `InspectionPresentation`. `SwiftDataPromptInspector` conforms (via an
 /// extension); tests substitute a fake that returns hand-built presentations without
 /// SwiftData.
 public protocol InspectionReading: Sendable {
     func presentation(conversationId: UUID, turnIndex: Int) async throws -> InspectionPresentation?
 }
 
-extension SwiftDataTurnInspector: InspectionReading {
+extension SwiftDataPromptInspector: InspectionReading {
     public func presentation(conversationId: UUID, turnIndex: Int) async throws -> InspectionPresentation? {
         guard let persisted = try inspection(conversationId: conversationId, turnIndex: turnIndex) else {
             return nil

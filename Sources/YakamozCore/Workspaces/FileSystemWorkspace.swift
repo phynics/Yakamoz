@@ -125,7 +125,6 @@ public actor FileSystemWorkspace: WorkspaceProtocol {
     }
 
     public func executeTool(id toolId: String, parameters: [String: AnyCodable]) async throws -> ToolResult {
-        let rawParameters = parameters.toAnyDictionary
         let tool: any Tool
         let root = rootURL.path
         switch toolId {
@@ -150,7 +149,7 @@ public actor FileSystemWorkspace: WorkspaceProtocol {
             throw WorkspaceError.toolExecutionNotSupported
         }
 
-        return try await tool.execute(parameters: rawParameters)
+        return try await tool.execute(parameters: parameters)
     }
 
     // MARK: - Confinement

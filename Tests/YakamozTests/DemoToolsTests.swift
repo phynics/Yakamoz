@@ -113,8 +113,8 @@ struct DemoToolsTests {
     func toolIdentity() {
         let calc = CalculatorTool()
         let dateTime = CurrentDateTimeTool()
-        #expect(calc.id != dateTime.id)
-        #expect(!calc.id.isEmpty)
-        #expect(!dateTime.id.isEmpty)
+        #expect(calc.callName != dateTime.callName)
+        #expect(!calc.callName.isEmpty)
+        #expect(!dateTime.callName.isEmpty)
     }
 }

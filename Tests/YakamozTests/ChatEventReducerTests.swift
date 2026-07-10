@@ -25,8 +25,8 @@ struct ChatEventReducerTests {
         var state = ChatTurnState(turnIndex: 0)
         let now = clock.now
 
-        ChatEventReducer.reduce(.thinking("Let me consider "), into: &state, now: now)
-        ChatEventReducer.reduce(.thinking("the options."), into: &state, now: now)
+        ChatEventReducer.reduce(.reasoning("Let me consider "), into: &state, now: now)
+        ChatEventReducer.reduce(.reasoning("the options."), into: &state, now: now)
         ChatEventReducer.reduce(.generation("Here is the answer."), into: &state, now: now)
 
         #expect(state.response.thinking == "Let me consider the options.")
@@ -106,7 +106,6 @@ struct ChatEventReducerTests {
         #expect(state.tools["call-2"]?.arguments == "{\"dir\":\"/tmp\"}")
         #expect(state.orderedTools.map(\.id) == ["call-1", "call-2"])
     }
-
     @Test("UIX-5: an id-less delta for an index never seen before is dropped (no id to key on yet)")
     func toolCallDeltaIdLessWithUnknownIndexIsDropped() {
         var state = ChatTurnState(turnIndex: 0)
@@ -114,11 +113,93 @@ struct ChatEventReducerTests {
 
         ChatEventReducer.reduce(
             .toolCall(ToolCallDelta(index: 0, id: nil, name: nil, arguments: "{\"path\":\"/a.txt\"}")),
-            into: &state, now: now
+            into: &state,
+            now: now
         )
 
         #expect(state.tools.isEmpty)
         #expect(state.orderedTools.isEmpty)
+    }
+
+    @Test("UIX-12: post-fix delta shape — non-nil ids on all chunks route directly by id")
+    func toolCallDeltaPostFixNonNilIdsRouteById() {
+        var state = ChatTurnState(turnIndex: 0)
+        let now = clock.now
+
+        // Post-PKSTREAM-001 shape: every delta carries a non-nil id (the upstream
+        // backfill from the index-keyed accumulator), with the same id repeated
+        // across continuation chunks for the same index. The nil-id branch is
+        // vestigial in practice once Yakamoz is pinned to a release containing it.
+        ChatEventReducer.reduce(
+            .toolCall(ToolCallDelta(index: 0, id: "call-1", name: "cat", arguments: "{\"path")),
+            into: &state, now: now
+        )
+        ChatEventReducer.reduce(
+            .toolCall(ToolCallDelta(index: 0, id: "call-1", name: nil, arguments: "\":\"/tmp/")),
+            into: &state, now: now
+        )
+        ChatEventReducer.reduce(
+            .toolCall(ToolCallDelta(index: 0, id: "call-1", name: nil, arguments: "a.txt\"}")),
+            into: &state, now: now
+        )
+
+        let trace = state.tools["call-1"]
+        #expect(trace?.arguments == "{\"path\":\"/tmp/a.txt\"}")
+        #expect(state.orderedTools.map(\.id) == ["call-1"])
+        #expect(state.toolCallIdByIndex[0] == "call-1")
+    }
+
+    @Test("UIX-12: interleaved parallel calls with post-fix non-nil ids route by id, not just most-recent")
+    func toolCallDeltaPostFixInterleavedParallelCallsRouteById() {
+        var state = ChatTurnState(turnIndex: 0)
+        let now = clock.now
+
+        // Two parallel tool calls interleaved, post-fix shape: every chunk carries
+        // its own non-nil id matching the first chunk's id for that index.
+        ChatEventReducer.reduce(
+            .toolCall(ToolCallDelta(index: 0, id: "call-1", name: "cat", arguments: "{\"path\":")),
+            into: &state, now: now
+        )
+        ChatEventReducer.reduce(
+            .toolCall(ToolCallDelta(index: 1, id: "call-2", name: "ls", arguments: "{\"dir\":")),
+            into: &state, now: now
+        )
+        ChatEventReducer.reduce(
+            .toolCall(ToolCallDelta(index: 0, id: "call-1", name: nil, arguments: "\"/a.txt\"}")),
+            into: &state, now: now
+        )
+        ChatEventReducer.reduce(
+            .toolCall(ToolCallDelta(index: 1, id: "call-2", name: nil, arguments: "\"/tmp\"}")),
+            into: &state, now: now
+        )
+
+        #expect(state.tools["call-1"]?.arguments == "{\"path\":\"/a.txt\"}")
+        #expect(state.tools["call-2"]?.arguments == "{\"dir\":\"/tmp\"}")
+        #expect(state.orderedTools.map(\.id) == ["call-1", "call-2"])
+    }
+
+    @Test("UIX-12: a non-nil delta id takes precedence over the index→id map (id wins)")
+    func toolCallDeltaNonNilIdPrecedenceOverMap() {
+        var state = ChatTurnState(turnIndex: 0)
+        let now = clock.now
+
+        // Degenerate stream: index 0 first carries id "call-A", then a later
+        // chunk for the same index carries a different non-nil id "call-B". The
+        // id-bearing path must win over the map (the map is only consulted for
+        // nil-id deltas), so "call-B" starts a new trace and the map is updated.
+        ChatEventReducer.reduce(
+            .toolCall(ToolCallDelta(index: 0, id: "call-A", name: "cat", arguments: "{\"a\":")),
+            into: &state, now: now
+        )
+        ChatEventReducer.reduce(
+            .toolCall(ToolCallDelta(index: 0, id: "call-B", name: nil, arguments: "{\"b\":")),
+            into: &state, now: now
+        )
+
+        #expect(state.tools["call-A"]?.arguments == "{\"a\":")
+        #expect(state.tools["call-B"]?.arguments == "{\"b\":")
+        #expect(state.orderedTools.map(\.id) == ["call-A", "call-B"])
+        #expect(state.toolCallIdByIndex[0] == "call-B")
     }
 
     @Test("TEX-2: explanation in the streamed tool-call delta surfaces live, before any result")
@@ -242,7 +323,7 @@ struct ChatEventReducerTests {
             now: now
         )
         ChatEventReducer.reduce(
-            .toolCompleted(toolCallId: "call-1", status: .failure("not found")),
+            .toolCompleted(toolCallId: "call-1", status: .executionError("not found")),
             into: &state,
             now: now
         )
@@ -600,14 +681,14 @@ struct ChatEventReducerTests {
         var state = ChatTurnState(turnIndex: 0)
         let now = clock.now
 
-        ChatEventReducer.reduce(.thinking("Let me check that."), into: &state, now: now)
+        ChatEventReducer.reduce(.reasoning("Let me check that."), into: &state, now: now)
         ChatEventReducer.reduce(.generation("Checking now."), into: &state, now: now)
         ChatEventReducer.reduce(
             .toolProgress(toolCallId: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
             into: &state,
             now: now
         )
-        ChatEventReducer.reduce(.thinking("Now let me consider the result."), into: &state, now: now)
+        ChatEventReducer.reduce(.reasoning("Now let me consider the result."), into: &state, now: now)
         ChatEventReducer.reduce(.generation("Here's the answer."), into: &state, now: now)
 
         #expect(state.turnSegments == [
@@ -624,9 +705,9 @@ struct ChatEventReducerTests {
         var state = ChatTurnState(turnIndex: 0)
         let now = clock.now
 
-        ChatEventReducer.reduce(.thinking("Let me "), into: &state, now: now)
-        ChatEventReducer.reduce(.thinking("think "), into: &state, now: now)
-        ChatEventReducer.reduce(.thinking("about this."), into: &state, now: now)
+        ChatEventReducer.reduce(.reasoning("Let me "), into: &state, now: now)
+        ChatEventReducer.reduce(.reasoning("think "), into: &state, now: now)
+        ChatEventReducer.reduce(.reasoning("about this."), into: &state, now: now)
         ChatEventReducer.reduce(
             .toolProgress(toolCallId: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
             into: &state,
@@ -644,14 +725,14 @@ struct ChatEventReducerTests {
         var state = ChatTurnState(turnIndex: 0)
         let now = clock.now
 
-        ChatEventReducer.reduce(.thinking("First thought. "), into: &state, now: now)
+        ChatEventReducer.reduce(.reasoning("First thought. "), into: &state, now: now)
         ChatEventReducer.reduce(.generation("Some text."), into: &state, now: now)
         ChatEventReducer.reduce(
             .toolProgress(toolCallId: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
             into: &state,
             now: now
         )
-        ChatEventReducer.reduce(.thinking("Second thought."), into: &state, now: now)
+        ChatEventReducer.reduce(.reasoning("Second thought."), into: &state, now: now)
 
         #expect(state.response.thinking == "First thought. Second thought.")
         #expect(state.turnSegments == [
@@ -667,7 +748,7 @@ struct ChatEventReducerTests {
         var state = ChatTurnState(turnIndex: 0)
         let now = clock.now
 
-        ChatEventReducer.reduce(.thinking("pondering"), into: &state, now: now)
+        ChatEventReducer.reduce(.reasoning("pondering"), into: &state, now: now)
         ChatEventReducer.reduce(.generation("answer"), into: &state, now: now)
         let metadata = APIResponseMetadata(model: "gpt-test", promptTokens: 1, completionTokens: 2, finishReason: "stop")
         ChatEventReducer.reduce(.generationCompleted(message: Message(content: "answer", role: .assistant), metadata: metadata), into: &state, now: now)

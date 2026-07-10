@@ -71,4 +71,63 @@ struct ScrollFollowPresentationTests {
         // settling — that must not be mistaken for the user scrolling up.
         #expect(ScrollFollowPresentation.shouldUnpin(isAtBottom: false, isProgrammaticScrollInFlight: true) == false)
     }
+
+    // MARK: - UIX-16: content-growth-aware unpinning
+
+    @Test("UIX-16: do not unpin when content grew (streaming delta pushed the bottom edge away)")
+    func doesNotUnpinWhenContentGrew() {
+        let previous = ScrollFollowState(isAtBottom: true, contentHeight: 500)
+        let current = ScrollFollowState(isAtBottom: false, contentHeight: 520)
+        #expect(ScrollFollowPresentation.shouldUnpin(
+            currentState: current,
+            previousState: previous,
+            isProgrammaticScrollInFlight: false
+        ) == false)
+    }
+
+    @Test("UIX-16: unpin when content is stable and the user scrolled up (genuine scroll)")
+    func unpinsWhenContentStableAndUserScrolled() {
+        let previous = ScrollFollowState(isAtBottom: true, contentHeight: 500)
+        let current = ScrollFollowState(isAtBottom: false, contentHeight: 500)
+        #expect(ScrollFollowPresentation.shouldUnpin(
+            currentState: current,
+            previousState: previous,
+            isProgrammaticScrollInFlight: false
+        ) == true)
+    }
+
+    @Test("UIX-16: do not unpin when content grew even if no programmatic scroll is in flight")
+    func doesNotUnpinWhenContentGrewEvenWithoutProgrammaticScroll() {
+        // The gap between the 100ms settle timer expiring and the next delta arriving:
+        // content grew, no programmatic scroll in flight, but still not a user scroll.
+        let previous = ScrollFollowState(isAtBottom: true, contentHeight: 500)
+        let current = ScrollFollowState(isAtBottom: false, contentHeight: 510)
+        #expect(ScrollFollowPresentation.shouldUnpin(
+            currentState: current,
+            previousState: previous,
+            isProgrammaticScrollInFlight: false
+        ) == false)
+    }
+
+    @Test("UIX-16: never unpin while at the bottom regardless of content growth")
+    func neverUnpinsWhileAtBottomWithContentGrowth() {
+        let previous = ScrollFollowState(isAtBottom: true, contentHeight: 500)
+        let current = ScrollFollowState(isAtBottom: true, contentHeight: 600)
+        #expect(ScrollFollowPresentation.shouldUnpin(
+            currentState: current,
+            previousState: previous,
+            isProgrammaticScrollInFlight: false
+        ) == false)
+    }
+
+    @Test("UIX-16: content shrank (e.g. turn cancelled, items removed) with user scroll still unpins")
+    func unpinsWhenContentShrankAndNotAtBottom() {
+        let previous = ScrollFollowState(isAtBottom: true, contentHeight: 500)
+        let current = ScrollFollowState(isAtBottom: false, contentHeight: 480)
+        #expect(ScrollFollowPresentation.shouldUnpin(
+            currentState: current,
+            previousState: previous,
+            isProgrammaticScrollInFlight: false
+        ) == true)
+    }
 }

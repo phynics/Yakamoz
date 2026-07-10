@@ -1,4 +1,5 @@
 import Foundation
+import JSONSchema
 import PKShared
 import PKTestSupport
 import SwiftData
@@ -10,13 +11,13 @@ struct ToolExplanationDecoratorTests {
     @Test("Decorated calculator schema includes optional explanation")
     func decoratedCalculatorSchemaIncludesExplanation() throws {
         let tool = CalculatorTool().toAnyTool().withExplanationParameter()
-        let properties = try #require(tool.parametersSchema["properties"]?.asDictionary)
+        let properties = try #require(tool.parametersSchema.asDictionary["properties"]?.asDictionary)
 
         #expect(properties["expression"] != nil)
         #expect(properties["explanation"]?.asDictionary?["type"]?.asString == "string")
         #expect(properties["explanation"]?.asDictionary?["description"]?.asString == ToolExplanationParameter.description)
-        #expect(tool.parametersSchema["required"]?.asArray?.contains(AnyCodable("explanation")) != true)
-        #expect(tool.id == "calculator")
+        #expect(tool.parametersSchema.asDictionary["required"]?.asArray?.contains(AnyCodable("explanation")) != true)
+        #expect(tool.callName == "calculator")
         #expect(tool.name == "Calculator")
         #expect(tool.requiresPermission == false)
     }
@@ -24,7 +25,7 @@ struct ToolExplanationDecoratorTests {
     @Test("Decorator skips tools that already reserve explanation")
     func skipsExistingExplanationProperty() {
         let base = StubTool(
-            parametersSchema: [
+            parametersSchema: JSONSchema.Schema([
                 "type": AnyCodable("object"),
                 "properties": AnyCodable([
                     "explanation": [
@@ -32,12 +33,12 @@ struct ToolExplanationDecoratorTests {
                         "description": "existing",
                     ],
                 ]),
-            ]
+            ])
         ).toAnyTool()
 
         let wrapped = base.withExplanationParameter()
 
-        #expect(wrapped.parametersSchema == base.parametersSchema)
+        #expect(wrapped.parametersSchema.asDictionary == base.parametersSchema.asDictionary)
     }
 
     @MainActor
@@ -49,10 +50,10 @@ struct ToolExplanationDecoratorTests {
 
         #expect(!tools.isEmpty)
         #expect(tools.allSatisfy { tool in
-            tool.parametersSchema["properties"]?.asDictionary?[ToolExplanationParameter.key] != nil
+            tool.parametersSchema.asDictionary["properties"]?.asDictionary?[ToolExplanationParameter.key] != nil
         })
         #expect(tools.allSatisfy { tool in
-            tool.parametersSchema["required"]?.asArray?.contains(AnyCodable(ToolExplanationParameter.key)) != true
+            tool.parametersSchema.asDictionary["required"]?.asArray?.contains(AnyCodable(ToolExplanationParameter.key)) != true
         })
     }
 
@@ -61,8 +62,8 @@ struct ToolExplanationDecoratorTests {
         let tool = RecordingTool().toAnyTool().withExplanationParameter()
 
         let result = try await tool.execute(parameters: [
-            "value": "payload",
-            "explanation": "Need this value for context.",
+            "value": AnyCodable("payload"),
+            "explanation": AnyCodable("Need this value for context."),
         ])
 
         #expect(result.success)
@@ -72,7 +73,7 @@ struct ToolExplanationDecoratorTests {
 
 @MainActor
 private func makeRuntime() throws -> YakamozRuntime {
-    let schema = Schema(YakamozSchema.models)
+    let schema = SwiftData.Schema(YakamozSchema.models)
     let container = try ModelContainer(for: schema, configurations: .init(isStoredInMemoryOnly: true))
     let suiteName = "ToolExplanationDecoratorTests.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!
@@ -90,9 +91,9 @@ private func makeRuntime() throws -> YakamozRuntime {
 }
 
 private struct StubTool: Tool {
-    let parametersSchema: [String: AnyCodable]
+    let parametersSchema: JSONSchema.Schema
 
-    var id: String { "stub" }
+    var callName: String { "stub" }
     var name: String { "Stub" }
     var description: String { "Stub tool" }
     var requiresPermission: Bool { false }
@@ -101,18 +102,18 @@ private struct StubTool: Tool {
         true
     }
 
-    func execute(parameters: [String: Any]) async throws -> ToolResult {
+    func execute(parameters: [String: AnyCodable]) async throws -> ToolResult {
         .success("")
     }
 }
 
 private struct RecordingTool: Tool {
-    var id: String { "recording" }
+    var callName: String { "recording" }
     var name: String { "Recording" }
     var description: String { "Records arguments" }
     var requiresPermission: Bool { false }
-    var parametersSchema: [String: AnyCodable] {
-        [
+    var parametersSchema: JSONSchema.Schema {
+        JSONSchema.Schema([
             "type": AnyCodable("object"),
             "properties": AnyCodable([
                 "value": [
@@ -120,16 +121,16 @@ private struct RecordingTool: Tool {
                 ],
             ]),
             "required": AnyCodable(["value"]),
-        ]
+        ])
     }
 
     func canExecute() async -> Bool {
         true
     }
 
-    func execute(parameters: [String: Any]) async throws -> ToolResult {
-        let value = parameters["value"] as? String ?? ""
-        let explanation = parameters[ToolExplanationParameter.key] as? String ?? ""
+    func execute(parameters: [String: AnyCodable]) async throws -> ToolResult {
+        let value = parameters["value"]?.asString ?? ""
+        let explanation = parameters[ToolExplanationParameter.key]?.asString ?? ""
         return .success("\(value)|\(explanation)")
     }
 }

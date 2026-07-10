@@ -290,7 +290,7 @@ public struct ChatTurnState: Sendable, Equatable {
             trace.name = reference.displayName
             trace.error = error
             trace.finishedAt = now
-        case let .failure(error):
+        case let .executionError(error):
             trace.state = .failed
             trace.error = error
             trace.finishedAt = now
@@ -318,7 +318,7 @@ public struct ChatTurnState: Sendable, Equatable {
     }
 
     /// Converts the accumulated state into the `ResponseDTO` shape persisted by the
-    /// turn inspector (Task 3's `SwiftDataTurnInspector.updateResponse`).
+    /// turn inspector (Task 3's `SwiftDataPromptInspector.updateResponse`).
     public var responseDTO: ResponseDTO {
         ResponseDTO(
             reconstructedText: response.reconstructedText,
@@ -388,32 +388,32 @@ public enum ChatEventReducer {
             state.response.reconstructedText += text
             state.appendTextSegment(text)
         }
-        if let thought = event.thinkingContent {
+        if let thought = event.reasoningContent {
             state.response.thinking += thought
             state.appendThinkingSegment(thought)
         }
 
         switch event {
-        case let .delta(event: .toolExecution(toolCallId: id, status: status)),
-             let .completion(event: .toolExecution(toolCallId: id, status: status)):
+        case let .delta(.toolExecution(toolCallId: id, status: status)),
+             let .completion(.toolExecution(toolCallId: id, status: status)):
             state.applyToolStatus(id: id, status: status, now: now)
 
-        case let .meta(event: .generationContext(metadata: metadata)):
+        case let .meta(.generationContext(metadata: metadata)):
             state.workspaceFiles = metadata.files
 
-        case let .delta(event: .toolCall(delta)):
+        case let .delta(.toolCall(delta)):
             state.applyToolCallDelta(delta)
 
-        case let .meta(event: .generationCompleted(message: _, metadata: metadata)):
+        case let .meta(.generationCompleted(message: _, metadata: metadata)):
             state.apply(metadata)
 
-        case let .completion(event: .generationCompleted(message: _, metadata: metadata)):
+        case let .completion(.generationCompleted(message: _, metadata: metadata)):
             state.apply(metadata)
 
-        case let .completion(event: .completedEmpty(finishReason: finishReason)):
+        case let .completion(.completedEmpty(finishReason: finishReason)):
             state.apply(completedEmptyFinishReason: finishReason)
 
-        case let .error(event: .toolCallError(toolCallId: id, name: name, error: error)):
+        case let .error(.toolCallError(toolCallId: id, name: name, error: error)):
             var trace = state.tools[id] ?? ToolTrace(id: id, name: name)
             if !state.tools.keys.contains(id) {
                 state.toolOrder.append(id)
@@ -425,26 +425,26 @@ public enum ChatEventReducer {
             trace.finishedAt = now
             state.tools[id] = trace
 
-        case .error(event: .generationCancelled):
+        case .error(.generationCancelled):
             state.isCancelled = true
 
-        case let .error(event: .error(message: message, identity: identity)):
+        case let .error(.error(message: message, identity: identity)):
             state.errorMessage = message
             state.errorIdentity = identity
 
-        case .completion(event: .streamCompleted):
+        case .completion(.streamCompleted):
             state.isComplete = true
 
         // Sidecar deltas are observed for potential future live-preview UI but do not
         // mutate `response` (they are a separate JSON field, never part of the
         // user-visible generation). Only the final, fully-parsed results are recorded.
-        case .delta(event: .sidecar):
+        case .delta(.sidecar):
             break
 
-        case let .completion(event: .sidecarsCompleted(results: results)):
+        case let .completion(.sidecarsCompleted(results: results)):
             state.sidecarResults = results
 
-        case .delta(event: .thinking), .delta(event: .generation):
+        case .delta(.reasoning), .delta(.generation):
             break
         }
     }

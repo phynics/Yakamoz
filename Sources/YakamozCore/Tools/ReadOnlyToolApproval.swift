@@ -1,3 +1,4 @@
+import JSONSchema
 import PKShared
 
 /// YAK-47: the read-only filesystem tool ids that Yakamoz auto-approves at its tool
@@ -40,22 +41,22 @@ public extension AnyTool {
 private struct UnpermissionedTool: Tool {
     let wrapped: AnyTool
 
-    var id: String { wrapped.id }
+    var callName: String { wrapped.callName }
     var name: String { wrapped.name }
     var description: String { wrapped.description }
     var requiresPermission: Bool { false }
     var usageExample: String? { wrapped.usageExample }
-    var parametersSchema: [String: AnyCodable] { wrapped.parametersSchema }
+    var parametersSchema: Schema { wrapped.parametersSchema }
 
     func canExecute() async -> Bool {
         await wrapped.canExecute()
     }
 
-    func execute(parameters: [String: Any]) async throws -> ToolResult {
+    func execute(parameters: [String: AnyCodable]) async throws -> ToolResult {
         try await wrapped.execute(parameters: parameters)
     }
 
-    func summarize(parameters: [String: Any], result: ToolResult) -> String {
+    func summarize(parameters: [String: AnyCodable], result: ToolResult) -> String {
         wrapped.summarize(parameters: parameters, result: result)
     }
 }

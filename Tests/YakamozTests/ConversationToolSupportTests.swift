@@ -87,7 +87,7 @@ struct ConversationToolSupportTests {
         var tool = CalculatorTool().toAnyTool()
         tool.provenance = .named("legacy")
         let options = ConversationToolSupport.toolOptions(for: [tool])
-        let option = try #require(options.first { $0.id == tool.id })
+        let option = try #require(options.first { $0.id == tool.callName })
         #expect(option.group == .builtIn)
     }
 

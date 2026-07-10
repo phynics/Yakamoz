@@ -23,17 +23,26 @@ public enum TurnTranscriptProjection {
     /// `.tool(id:)` marker against `turn.tools`. Returns `nil` when the turn has no
     /// `turnSegments` recorded at all (the reload/no-history fallback case) so callers can
     /// degrade to the legacy append-at-end rendering rather than showing an empty turn.
-    public static func segments(for turn: ChatTurnState) -> [TranscriptRowSegment]? {
+    ///
+    /// Each returned entry carries the segment's original `index` within
+    /// `turn.turnSegments` (before any empty/missing-trace entries are filtered out).
+    /// This index is stable across re-projections because `turnSegments` is append-only,
+    /// making it a safe `ForEach` id — the array-offset-based id previously used in
+    /// `MessageBubble` could shift when a previously-filtered segment (e.g. an empty text
+    /// segment receiving its first delta) appeared, causing SwiftUI to diff mismatched
+    /// view types and crash (UIX-17).
+    public static func indexedSegments(for turn: ChatTurnState) -> [(index: Int, segment: TranscriptRowSegment)]? {
         guard !turn.turnSegments.isEmpty else { return nil }
 
         let lastIndex = turn.turnSegments.count - 1
         return turn.turnSegments.enumerated().compactMap { index, segment in
             switch segment {
             case let .text(text):
-                return text.isEmpty ? nil : .text(text)
+                guard !text.isEmpty else { return nil }
+                return (index, .text(text))
             case let .tool(id):
                 guard let trace = turn.tools[id] else { return nil }
-                return .tool(trace)
+                return (index, .tool(trace))
             case let .thinking(thought):
                 guard !thought.isEmpty else { return nil }
                 // UIX-9: a thinking segment is still "live" only while it is the turn's
@@ -42,9 +51,16 @@ public enum TurnTranscriptProjection {
                 // later text/tool/thinking segment already follows — is never streaming,
                 // even if the turn overall is still in progress.
                 let isStreaming = index == lastIndex && !turn.isComplete
-                return .thinking(thought, isStreaming: isStreaming)
+                return (index, .thinking(thought, isStreaming: isStreaming))
             }
         }
+    }
+
+    /// Convenience wrapper that returns just the segments without their original indices.
+    /// Kept for callers/tests that don't need the stable `ForEach` id; delegates to
+    /// `indexedSegments(for:)` so the two are always consistent.
+    public static func segments(for turn: ChatTurnState) -> [TranscriptRowSegment]? {
+        indexedSegments(for: turn)?.map(\.segment)
     }
 }
 

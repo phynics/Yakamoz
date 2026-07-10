@@ -111,7 +111,7 @@ public struct JournalDTO: Codable, Sendable, Equatable {
 
 /// Codable projection of captured response metadata for a turn.
 ///
-/// Persisted via `SwiftDataTurnInspector` into `TurnInspectionModel.responseData`.
+/// Persisted via `SwiftDataPromptInspector` into `TurnInspectionModel.responseData`.
 /// `ChatEventReducer.responseDTO` produces the initial shape from accumulated
 /// `ChatTurnState`; `ChatViewModel` enriches it (e.g. typed-reply decoding results)
 /// before persisting. `InspectionPresentation.response` surfaces it to the
@@ -221,10 +221,19 @@ public extension ResponseDTO {
         sidecarResults.map { result in
             switch result.outcome {
             case let .value(value):
+                // SID-3: a `.value` for `title`/`section_title` is the per-directive
+                // payload sub-object (e.g. `{"title": "..."}`) wrapped in `AnyCodable`,
+                // i.e. a `.dictionary` — not a bare string. Decode via the directive's
+                // expected payload key (with a single-string fallback for off-schema
+                // providers) so the inspector shows `Riemann Conjecture Overview`, not
+                // `["text": "Riemann Conjecture Overview"]`. For directives without a
+                // registered payload key, fall back through to `String(describing:)` so
+                // a non-string value (e.g. a numeric `score`) still renders something.
+                let extracted = value.sidecarPayloadString(forKey: SidecarPayloadKey.forDirective(result.name))
                 return SidecarResultView(
                     id: result.name,
                     name: result.name,
-                    valueText: value.asString ?? String(describing: value.value),
+                    valueText: extracted ?? String(describing: value.value),
                     isDeclined: false,
                     failureReason: nil
                 )
@@ -361,7 +370,7 @@ public extension ChatTurnState {
     }
 }
 
-/// Converts a `TurnInspection` into a persistable `TurnInspectionModel` plus the
+/// Converts a `PromptInspection` into a persistable `TurnInspectionModel` plus the
 /// decoded DTOs used to build it, encoding the Codable projections to `Data`.
 public struct InspectionProjection {
     public let model: TurnInspectionModel
@@ -369,7 +378,7 @@ public struct InspectionProjection {
     public let sentMessages: [InspectionMessageDTO]
     public let journal: JournalDTO
 
-    public init(_ inspection: TurnInspection, encoder: JSONEncoder = JSONEncoder()) throws {
+    public init(_ inspection: PromptInspection, encoder: JSONEncoder = JSONEncoder()) throws {
         let sections = inspection.rendered.sections.map {
             InspectionSectionDTO(section: $0, rendered: inspection.rendered)
         }
@@ -402,7 +411,7 @@ public struct InspectionProjection {
 /// A `Sendable` value projection of a persisted `TurnInspectionModel`.
 ///
 /// `TurnInspectionModel` is a SwiftData `@Model` (not `Sendable`), so it must not
-/// cross the `SwiftDataTurnInspector` actor boundary. Reads decode the stored DTO
+/// cross the `SwiftDataPromptInspector` actor boundary. Reads decode the stored DTO
 /// `Data` inside the actor and return this immutable value instead.
 public struct PersistedTurnInspection: Sendable, Equatable {
     public let conversationId: UUID

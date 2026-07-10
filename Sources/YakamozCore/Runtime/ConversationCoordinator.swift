@@ -53,11 +53,16 @@ public struct ConversationCoordinator {
     }
 
     /// Applies a `title` sidecar directive's outcome (SID-1): a non-null value replaces
-    /// the conversation's title and resets the cadence counter; a decline or failure
-    /// leaves the title untouched but still advances the counter (the turn happened,
-    /// whether or not the model produced a better title). No-ops silently if
-    /// `result.name` is not `"title"` or the conversation cannot be found (a
+    /// the conversation's title and resets the cadence counter; a decline, failure, or an
+    /// unextractable payload leaves the title untouched but still advances the counter
+    /// (the turn happened, whether or not the model produced a better title). No-ops
+    /// silently if `result.name` is not `"title"` or the conversation cannot be found (a
     /// stale/cancelled turn racing conversation deletion — not an error worth surfacing).
+    ///
+    /// SID-3: the `.value` payload is the per-directive sub-object
+    /// `TitleDirectivePayload`'s encoded form (`{"title": "..."}`, an `AnyCodable.dictionary`),
+    /// not a bare string — so it is decoded via `sidecarPayloadString(forKey:)` with a
+    /// single-string fallback for off-schema provider responses (e.g. `{"text": "..."}`).
     public func applyTitleDirective(conversationId: UUID, result: SidecarResult) async throws {
         guard result.name == TitleDirective.name else { return }
         let descriptor = FetchDescriptor<ConversationModel>(
@@ -67,7 +72,9 @@ public struct ConversationCoordinator {
 
         switch result.outcome {
         case let .value(anyCodable):
-            if let title = anyCodable.asString, !title.isEmpty {
+            if let title = anyCodable.sidecarPayloadString(forKey: TitleDirective.payloadKey),
+               !title.isEmpty
+            {
                 conversation.title = title
                 conversation.hasReceivedTitleDirective = true
                 conversation.turnsSinceLastTitleDirective = 0
@@ -83,9 +90,15 @@ public struct ConversationCoordinator {
     /// Records a new navigation annotation for an accepted (non-null) section-title
     /// result (SID-2). No-ops on decline/failure — most turns are expected to decline,
     /// and that must not create noise in the navigation list. Also no-ops silently when
-    /// `result.name` is not `"section_title"` or the value cannot be read as a non-empty
-    /// string. `turnIndex` anchors the annotation to the transcript turn it occurred on,
-    /// so the navigation bar can map a chip tap back to a transcript turn.
+    /// `result.name` is not `"section_title"` or the payload cannot be decoded to a
+    /// non-empty string. `turnIndex` anchors the annotation to the transcript turn it
+    /// occurred on, so the navigation bar can map a chip tap back to a transcript turn.
+    ///
+    /// SID-3: the `.value` payload is the per-directive sub-object
+    /// `SectionTitleDirectivePayload`'s encoded form
+    /// (`{"sectionTitle": "..."}`, an `AnyCodable.dictionary`), not a bare string — so
+    /// it is decoded via `sidecarPayloadString(forKey:)` with a single-string fallback for
+    /// off-schema provider responses (e.g. `{"text": "..."}`).
     public func recordSectionTitleAnnotation(
         conversationId: UUID,
         turnIndex: Int,
@@ -93,7 +106,8 @@ public struct ConversationCoordinator {
     ) throws {
         guard result.name == SectionTitleDirective.name else { return }
         guard case let .value(anyCodable) = result.outcome,
-              let text = anyCodable.asString, !text.isEmpty else { return }
+              let text = anyCodable.sidecarPayloadString(forKey: SectionTitleDirective.payloadKey),
+              !text.isEmpty else { return }
         let annotation = TimelineAnnotationModel(
             conversationId: conversationId,
             turnIndex: turnIndex,

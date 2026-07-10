@@ -21,10 +21,10 @@ struct InspectionViewModelTests {
         return try ModelContainer(for: schema, configurations: .init(isStoredInMemoryOnly: true))
     }
 
-    /// Builds a `TurnInspection` for `conversationId`/`turnIndex` whose `profile` section
+    /// Builds a `PromptInspection` for `conversationId`/`turnIndex` whose `profile` section
     /// uses summarization (so compression totals are exercised) and whose journal marks
     /// `profile` as changed.
-    private func makeFixture(conversationId: UUID, turnIndex: Int) async throws -> TurnInspection {
+    private func makeFixture(conversationId: UUID, turnIndex: Int) async throws -> PromptInspection {
         let prompt = AnyPrompt.build {
             SystemPrompt("You are helpful")
             TextPrompt(
@@ -55,7 +55,7 @@ struct InspectionViewModelTests {
             didCompact: turnIndex == 1
         )
 
-        return TurnInspection(
+        return PromptInspection(
             timelineId: conversationId,
             agentInstanceId: nil,
             turnIndex: turnIndex,
@@ -67,18 +67,18 @@ struct InspectionViewModelTests {
         )
     }
 
-    // MARK: - Selection / projection through SwiftDataTurnInspector
+    // MARK: - Selection / projection through SwiftDataPromptInspector
 
     @Test("Selecting a turn fetches only the matching key and projects every DTO")
     func selectsMatchingTurn() async throws {
         let conversationId = UUID()
         let container = try makeContainer()
-        let inspector = SwiftDataTurnInspector(modelContainer: container)
+        let inspector = SwiftDataPromptInspector(modelContainer: container)
 
         let turn0 = try await makeFixture(conversationId: conversationId, turnIndex: 0)
         let turn1 = try await makeFixture(conversationId: conversationId, turnIndex: 1)
-        await inspector.didComposeTurn(turn0)
-        await inspector.didComposeTurn(turn1)
+        await inspector.didComposePrompt(turn0)
+        await inspector.didComposePrompt(turn1)
 
         let viewModel = await InspectionViewModel(repository: inspector)
         await viewModel.select(conversationId: conversationId, turnIndex: 1)
@@ -105,7 +105,7 @@ struct InspectionViewModelTests {
     @Test("A turn with no inspection row yields an explicit empty (nil) state")
     func missingTurnIsEmpty() async throws {
         let container = try makeContainer()
-        let inspector = SwiftDataTurnInspector(modelContainer: container)
+        let inspector = SwiftDataPromptInspector(modelContainer: container)
         let viewModel = await InspectionViewModel(repository: inspector)
 
         await viewModel.select(conversationId: UUID(), turnIndex: 7)
@@ -117,8 +117,8 @@ struct InspectionViewModelTests {
     func nilTurnIndexClears() async throws {
         let conversationId = UUID()
         let container = try makeContainer()
-        let inspector = SwiftDataTurnInspector(modelContainer: container)
-        try await inspector.didComposeTurn(await makeFixture(conversationId: conversationId, turnIndex: 0))
+        let inspector = SwiftDataPromptInspector(modelContainer: container)
+        try await inspector.didComposePrompt(await makeFixture(conversationId: conversationId, turnIndex: 0))
 
         let viewModel = await InspectionViewModel(repository: inspector)
         await viewModel.select(conversationId: conversationId, turnIndex: 0)

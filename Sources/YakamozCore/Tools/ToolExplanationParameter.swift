@@ -1,3 +1,5 @@
+import JSONSchema
+import JSONSchemaBuilder
 import PKShared
 
 public enum ToolExplanationParameter {
@@ -7,8 +9,8 @@ public enum ToolExplanationParameter {
 
 public extension AnyTool {
     func withExplanationParameter() -> AnyTool {
-        guard parametersSchema["properties"]?.asDictionary?[ToolExplanationParameter.key] == nil else {
-            assertionFailure("Yakamoz tool '\(id)' declares reserved parameter '\(ToolExplanationParameter.key)'")
+        guard parametersSchema.asDictionary["properties"]?.asDictionary?[ToolExplanationParameter.key] == nil else {
+            assertionFailure("Yakamoz tool '\(callName)' declares reserved parameter '\(ToolExplanationParameter.key)'")
             return self
         }
         return AnyTool(ExplainedTool(wrapped: self), provenance: provenance)
@@ -18,32 +20,32 @@ public extension AnyTool {
 private struct ExplainedTool: Tool {
     let wrapped: AnyTool
 
-    var id: String { wrapped.id }
+    var callName: String { wrapped.callName }
     var name: String { wrapped.name }
     var description: String { wrapped.description }
     var requiresPermission: Bool { wrapped.requiresPermission }
     var usageExample: String? { wrapped.usageExample }
 
-    var parametersSchema: [String: AnyCodable] {
-        var schema = wrapped.parametersSchema
+    var parametersSchema: Schema {
+        var schema = wrapped.parametersSchema.asDictionary
         var properties = schema["properties"]?.asDictionary ?? [:]
         properties[ToolExplanationParameter.key] = .dictionary([
             "type": .string("string"),
             "description": .string(ToolExplanationParameter.description),
         ])
         schema["properties"] = .dictionary(properties)
-        return schema
+        return Schema(schema)
     }
 
     func canExecute() async -> Bool {
         await wrapped.canExecute()
     }
 
-    func execute(parameters: [String: Any]) async throws -> ToolResult {
+    func execute(parameters: [String: AnyCodable]) async throws -> ToolResult {
         try await wrapped.execute(parameters: parameters)
     }
 
-    func summarize(parameters: [String: Any], result: ToolResult) -> String {
+    func summarize(parameters: [String: AnyCodable], result: ToolResult) -> String {
         wrapped.summarize(parameters: parameters, result: result)
     }
 }

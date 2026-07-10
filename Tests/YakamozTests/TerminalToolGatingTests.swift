@@ -84,15 +84,15 @@ struct TerminalToolGatingTests {
 
         // No terminals → no terminal tools.
         let none = await runtime.resolveTools(enabledToolIds: [], folder: nil, terminals: [])
-        #expect(!none.map(\.id).contains("terminal_run"))
+        #expect(!none.map(\.callName).contains("terminal_run"))
 
         // One terminal context → its five tools appear.
         let ctx = TerminalToolContext(workspaceId: UUID(), rootURL: URL(fileURLWithPath: "/tmp"))
         let withTerminal = await runtime.resolveTools(enabledToolIds: [], folder: nil, terminals: [ctx])
-        let ids = Set(withTerminal.map(\.id))
+        let ids = Set(withTerminal.map(\.callName))
         #expect(ids.isSuperset(of: ["terminal_run", "terminal_read", "terminal_send_input", "terminal_interrupt", "terminal_wait"]))
         #expect(withTerminal.contains { tool in
-            tool.id == "terminal_run" && tool.provenance == .terminal(id: ctx.workspaceId, name: "tmp")
+            tool.callName == "terminal_run" && tool.provenance == .terminal(id: ctx.workspaceId, name: "tmp")
         })
     }
 
@@ -105,7 +105,7 @@ struct TerminalToolGatingTests {
             folder: nil,
             terminals: [ctx]
         )
-        let ids = filtered.map(\.id)
+        let ids = filtered.map(\.callName)
         #expect(ids == ["terminal_run"])
     }
 
@@ -137,8 +137,8 @@ struct TerminalToolGatingTests {
         let first = await runtime.resolveTools(enabledToolIds: [], folder: folder, terminals: [])
         let second = await runtime.resolveTools(enabledToolIds: [], folder: folder, terminals: [])
 
-        let firstCat = try #require(first.first { $0.id == "cat" })
-        let secondCat = try #require(second.first { $0.id == "cat" })
+        let firstCat = try #require(first.first { $0.callName == "cat" })
+        let secondCat = try #require(second.first { $0.callName == "cat" })
 
         #expect(firstCat.provenance == .workspace(id: workspaceID, name: "workspace"))
         #expect(secondCat.provenance == firstCat.provenance)

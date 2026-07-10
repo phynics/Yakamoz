@@ -21,9 +21,9 @@ public protocol ChatRunning: Sendable {
 /// `PositronicKit.run` (through `ChatEngine`) already persists the user and assistant
 /// `ConversationMessage` rows itself (see `ChatEngine+ContextBuilding.saveConversationSteps`
 /// and `MessagePersistenceStage`); this view model does not duplicate that write. The
-/// one persistence gap it fills is `SwiftDataTurnInspector.updateResponse`, which
+/// one persistence gap it fills is `SwiftDataPromptInspector.updateResponse`, which
 /// records reconstructed text/thinking/model/finish-reason/token-usage onto the
-/// turn-inspection row that `didComposeTurn` created earlier in the same turn.
+/// turn-inspection row that `didComposePrompt` created earlier in the same turn.
 @MainActor
 @Observable
 public final class ChatViewModel {
@@ -39,7 +39,7 @@ public final class ChatViewModel {
     /// tab reads from in CP9's v1 (see `ToolsInspectorView`'s doc comment): tool traces
     /// are NOT persisted, so this is `nil`/empty again after the conversation reloads
     /// from disk, even though the turn's prompt/response data persists via
-    /// `SwiftDataTurnInspector`.
+    /// `SwiftDataPromptInspector`.
     public var selectedTurnState: ChatTurnState? {
         guard let selectedTurnIndex else { return nil }
         for item in transcript {
@@ -52,7 +52,7 @@ public final class ChatViewModel {
 
     private var sendTask: Task<Void, Never>?
     private let runner: any ChatRunning
-    private let inspector: SwiftDataTurnInspector?
+    private let inspector: SwiftDataPromptInspector?
     private let timelineId: UUID
     private let agentInstanceId: UUID?
     private var tools: [AnyTool]
@@ -104,7 +104,7 @@ public final class ChatViewModel {
     public init(
         timelineId: UUID,
         runner: any ChatRunning,
-        inspector: SwiftDataTurnInspector? = nil,
+        inspector: SwiftDataPromptInspector? = nil,
         agentInstanceId: UUID? = nil,
         tools: [AnyTool] = [],
         systemInstructions: String? = nil,

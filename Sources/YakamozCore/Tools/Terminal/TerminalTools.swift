@@ -1,4 +1,5 @@
 import Foundation
+import JSONSchema
 import JSONSchemaBuilder
 import Logging
 import PKShared
@@ -124,7 +125,7 @@ func renderRead(
 /// Only this tool consults the approver; `terminal_send_input`/`terminal_interrupt` steer an
 /// already-approved, already-running command and do not re-prompt.
 public struct TerminalRunTool: Tool, Sendable {
-    public let id = "terminal_run"
+    public let callName = "terminal_run"
     public let name = "Run Terminal Command"
     public let description = "Runs a shell command in the workspace's terminal session. Requires user approval unless the session was already allowed."
     public let requiresPermission = true
@@ -153,7 +154,7 @@ public struct TerminalRunTool: Tool, Sendable {
         true
     }
 
-    public var parametersSchema: [String: AnyCodable] {
+    public var parametersSchema: Schema {
         ToolParameterSchema.object {
             JSONProperty(key: "command") {
                 JSONString().description("The shell command to run.")
@@ -174,10 +175,10 @@ public struct TerminalRunTool: Tool, Sendable {
             JSONProperty(key: "grep") {
                 JSONString().description("Optional regex pattern to filter output to matching lines before truncation.")
             }
-        }.schema
+        }.schemaDefinition
     }
 
-    public func execute(parameters: [String: Any]) async throws -> ToolResult {
+    public func execute(parameters: [String: AnyCodable]) async throws -> ToolResult {
         let params = ToolParameters(parameters)
         let command: String
         do {
@@ -211,7 +212,7 @@ public struct TerminalRunTool: Tool, Sendable {
 /// Reads output accumulated since the last `read`/`wait`/`run` call on the workspace's
 /// terminal session, without prompting for approval.
 public struct TerminalReadTool: Tool, Sendable {
-    public let id = "terminal_read"
+    public let callName = "terminal_read"
     public let name = "Read Terminal Output"
     public let description = "Reads output accumulated since the last read/wait/run on the workspace's terminal session."
     public let requiresPermission = false
@@ -238,11 +239,11 @@ public struct TerminalReadTool: Tool, Sendable {
         true
     }
 
-    public var parametersSchema: [String: AnyCodable] {
-        ToolParameterSchema.object {}.schema
+    public var parametersSchema: Schema {
+        ToolParameterSchema.object {}.schemaDefinition
     }
 
-    public func execute(parameters _: [String: Any]) async throws -> ToolResult {
+    public func execute(parameters _: [String: AnyCodable]) async throws -> ToolResult {
         let session = try await registry.session(for: workspaceId, rootURL: rootURL)
         let result = await session.read()
         return .success(renderRead(result))
@@ -252,7 +253,7 @@ public struct TerminalReadTool: Tool, Sendable {
 /// Waits (up to a timeout) for the workspace's terminal session's pending command to finish,
 /// without prompting for approval.
 public struct TerminalWaitTool: Tool, Sendable {
-    public let id = "terminal_wait"
+    public let callName = "terminal_wait"
     public let name = "Wait For Terminal Command"
     public let description = "Waits up to a timeout for the workspace's terminal session's pending command to finish."
     public let requiresPermission = false
@@ -279,15 +280,15 @@ public struct TerminalWaitTool: Tool, Sendable {
         true
     }
 
-    public var parametersSchema: [String: AnyCodable] {
+    public var parametersSchema: Schema {
         ToolParameterSchema.object {
             JSONProperty(key: "timeout_ms") {
                 JSONInteger().description("Maximum time, in milliseconds, to wait for the pending command to finish. Defaults to 5000.")
             }
-        }.schema
+        }.schemaDefinition
     }
 
-    public func execute(parameters: [String: Any]) async throws -> ToolResult {
+    public func execute(parameters: [String: AnyCodable]) async throws -> ToolResult {
         let params = ToolParameters(parameters)
         let timeoutMs = params.optional("timeout_ms", as: Int.self) ?? 5000
 
@@ -301,7 +302,7 @@ public struct TerminalWaitTool: Tool, Sendable {
 /// prompting for approval (steering an already-approved, already-running command is part of
 /// that command's existing approval).
 public struct TerminalSendInputTool: Tool, Sendable {
-    public let id = "terminal_send_input"
+    public let callName = "terminal_send_input"
     public let name = "Send Terminal Input"
     public let description = "Sends text to the stdin of the workspace's terminal session's running command."
     public let requiresPermission = false
@@ -328,16 +329,16 @@ public struct TerminalSendInputTool: Tool, Sendable {
         true
     }
 
-    public var parametersSchema: [String: AnyCodable] {
+    public var parametersSchema: Schema {
         ToolParameterSchema.object {
             JSONProperty(key: "text") {
                 JSONString().description("The raw text to send to the running command's stdin, including any trailing newline it needs.")
             }
             .required()
-        }.schema
+        }.schemaDefinition
     }
 
-    public func execute(parameters: [String: Any]) async throws -> ToolResult {
+    public func execute(parameters: [String: AnyCodable]) async throws -> ToolResult {
         let params = ToolParameters(parameters)
         let text: String
         do {
@@ -367,7 +368,7 @@ public struct TerminalSendInputTool: Tool, Sendable {
 /// Sends an interrupt (Ctrl-C) to the workspace's terminal session's running command, without
 /// prompting for approval.
 public struct TerminalInterruptTool: Tool, Sendable {
-    public let id = "terminal_interrupt"
+    public let callName = "terminal_interrupt"
     public let name = "Interrupt Terminal Command"
     public let description = "Sends Ctrl-C to the workspace's terminal session's running command."
     public let requiresPermission = false
@@ -394,11 +395,11 @@ public struct TerminalInterruptTool: Tool, Sendable {
         true
     }
 
-    public var parametersSchema: [String: AnyCodable] {
-        ToolParameterSchema.object {}.schema
+    public var parametersSchema: Schema {
+        ToolParameterSchema.object {}.schemaDefinition
     }
 
-    public func execute(parameters _: [String: Any]) async throws -> ToolResult {
+    public func execute(parameters _: [String: AnyCodable]) async throws -> ToolResult {
         let session = try await registry.session(for: workspaceId, rootURL: rootURL)
         await session.interrupt()
         return .success("interrupt sent")
@@ -408,7 +409,7 @@ public struct TerminalInterruptTool: Tool, Sendable {
 /// Reads the full stored output of a previously-run command by its UUID.
 /// Does not require approval since it only reads output of an already-approved command.
 public struct TerminalReadOutputTool: Tool, Sendable {
-    public let id = "terminal_read_output"
+    public let callName = "terminal_read_output"
     public let name = "Read Full Terminal Output"
     public let description = "Reads the full stored output of a previously-run terminal command, supporting pagination via offset and limit."
     public let requiresPermission = false
@@ -435,7 +436,7 @@ public struct TerminalReadOutputTool: Tool, Sendable {
         true
     }
 
-    public var parametersSchema: [String: AnyCodable] {
+    public var parametersSchema: Schema {
         ToolParameterSchema.object {
             JSONProperty(key: "command_id") {
                 JSONString().description("The UUID of the command whose output to fetch.")
@@ -447,10 +448,10 @@ public struct TerminalReadOutputTool: Tool, Sendable {
             JSONProperty(key: "limit") {
                 JSONInteger().description("Maximum lines to return. Defaults to nil (all remaining lines).")
             }
-        }.schema
+        }.schemaDefinition
     }
 
-    public func execute(parameters: [String: Any]) async throws -> ToolResult {
+    public func execute(parameters: [String: AnyCodable]) async throws -> ToolResult {
         let params = ToolParameters(parameters)
         let commandIdStr: String
         do {

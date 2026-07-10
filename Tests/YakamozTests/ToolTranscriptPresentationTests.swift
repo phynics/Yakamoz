@@ -264,4 +264,59 @@ struct TurnTranscriptProjectionTests {
             .thinking("Second thought, still streaming.", isStreaming: true),
         ])
     }
+
+    // MARK: - UIX-17: indexedSegments provides stable original-index IDs
+
+    @Test("UIX-17: indexedSegments carries the original turnSegments index as a stable id")
+    func indexedSegmentsCarriesOriginalIndex() {
+        var turn = ChatTurnState(turnIndex: 0)
+        // turnSegments: [empty-text(filtered), text, tool(missing trace, filtered), text]
+        // → indexedSegments should return [(1, .text), (3, .text)] — indices 0 and 2
+        // are filtered out, but the remaining entries keep their original indices.
+        turn.turnSegments = [
+            .text(""),
+            .text("Hello"),
+            .tool(id: "missing"),
+            .text("World"),
+        ]
+
+        let indexed = TurnTranscriptProjection.indexedSegments(for: turn)
+
+        #expect(indexed?.count == 2)
+        #expect(indexed?[0].index == 1)
+        #expect(indexed?[0].segment == .text("Hello"))
+        #expect(indexed?[1].index == 3)
+        #expect(indexed?[1].segment == .text("World"))
+    }
+
+    @Test("UIX-17: indexedSegments returns nil when turnSegments is empty (mirrors segments)")
+    func indexedSegmentsReturnsNilWhenEmpty() {
+        let turn = ChatTurnState(turnIndex: 0)
+
+        #expect(TurnTranscriptProjection.indexedSegments(for: turn) == nil)
+    }
+
+    @Test("UIX-17: indexedSegments preserves original indices across filtering (stable ForEach ids)")
+    func indexedSegmentsIndicesAreStableAcrossFiltering() {
+        // Simulate the streaming transition that crashed with id: \.offset:
+        // a previously-empty thinking segment (filtered out, index 0) receives text,
+        // appearing in the filtered array and shifting subsequent offsets.
+        var before = ChatTurnState(turnIndex: 0)
+        before.turnSegments = [.thinking(""), .text("Hello")]
+        var after = ChatTurnState(turnIndex: 0)
+        after.turnSegments = [.thinking("Hmm"), .text("Hello")]
+
+        let beforeIndexed = TurnTranscriptProjection.indexedSegments(for: before)
+        let afterIndexed = TurnTranscriptProjection.indexedSegments(for: after)
+
+        // Before: only the text segment (original index 1) is present.
+        #expect(beforeIndexed?.count == 1)
+        #expect(beforeIndexed?[0].index == 1)
+
+        // After: thinking (original index 0) appears, but the text segment at index 1
+        // keeps the SAME id — no offset shift, no view-type mismatch crash.
+        #expect(afterIndexed?.count == 2)
+        #expect(afterIndexed?[0].index == 0)
+        #expect(afterIndexed?[1].index == 1)
+    }
 }

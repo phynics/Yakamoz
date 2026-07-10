@@ -19,7 +19,7 @@ struct TurnInspectionProjectionTests {
         return try ModelContainer(for: schema, configurations: .init(isStoredInMemoryOnly: true))
     }
 
-    private func makeFixture() async throws -> TurnInspection {
+    private func makeFixture() async throws -> PromptInspection {
         let prompt = AnyPrompt.build {
             SystemPrompt("You are helpful")
             TextPrompt(
@@ -50,7 +50,7 @@ struct TurnInspectionProjectionTests {
             didCompact: false
         )
 
-        return TurnInspection(
+        return PromptInspection(
             timelineId: UUID(),
             agentInstanceId: nil,
             turnIndex: 0,
@@ -62,13 +62,13 @@ struct TurnInspectionProjectionTests {
         )
     }
 
-    @Test("Projects and persists a TurnInspection, round-tripping every trait")
+    @Test("Projects and persists a PromptInspection, round-tripping every trait")
     func projectsAndPersists() async throws {
         let fixture = try await makeFixture()
         let container = try makeContainer()
-        let inspector = SwiftDataTurnInspector(modelContainer: container)
+        let inspector = SwiftDataPromptInspector(modelContainer: container)
 
-        await inspector.didComposeTurn(fixture)
+        await inspector.didComposePrompt(fixture)
 
         let saved = try await inspector.inspection(conversationId: fixture.timelineId, turnIndex: 0)
         let model = try #require(saved)
@@ -102,7 +102,7 @@ struct TurnInspectionProjectionTests {
     @Test("Missing inspections return nil")
     func missingInspectionReturnsNil() async throws {
         let container = try makeContainer()
-        let inspector = SwiftDataTurnInspector(modelContainer: container)
+        let inspector = SwiftDataPromptInspector(modelContainer: container)
 
         let saved = try await inspector.inspection(conversationId: UUID(), turnIndex: 99)
         #expect(saved == nil)
@@ -112,9 +112,9 @@ struct TurnInspectionProjectionTests {
     func toolTracesRoundTripThroughResponse() async throws {
         let fixture = try await makeFixture()
         let container = try makeContainer()
-        let inspector = SwiftDataTurnInspector(modelContainer: container)
+        let inspector = SwiftDataPromptInspector(modelContainer: container)
 
-        await inspector.didComposeTurn(fixture)
+        await inspector.didComposePrompt(fixture)
 
         // Enrich the row with a response that carries tool traces, the way
         // `ChatViewModel.persistResponse` does after a turn completes.

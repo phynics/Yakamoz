@@ -76,7 +76,6 @@ public actor TerminalWorkspace: WorkspaceProtocol {
     }
 
     public func executeTool(id toolId: String, parameters: [String: AnyCodable]) async throws -> ToolResult {
-        let rawParameters = parameters.toAnyDictionary
         let tool: any Tool
         switch toolId {
         case "terminal_run":
@@ -95,6 +94,6 @@ public actor TerminalWorkspace: WorkspaceProtocol {
             throw WorkspaceError.toolExecutionNotSupported
         }
 
-        return try await tool.execute(parameters: rawParameters)
+        return try await tool.execute(parameters: parameters)
     }
 }

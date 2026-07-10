@@ -7,16 +7,17 @@ import PKShared
 import PositronicKit
 import SwiftData
 
-/// Builds the `any LLMServiceProtocol` that `YakamozRuntime` hands to `PositronicKit`.
+/// Builds the narrow LLM-service seam (`LLMStreamClient & LLMConfigStore & LLMUtilityClient &
+/// HealthCheckable`) that `YakamozRuntime` hands to `PositronicKit`.
 ///
 /// Defaults to the real `PKOpenAIProvider`-registered `LLMService`. Tests substitute a factory
 /// that returns a mock (e.g. `PKTestSupport.MockLLMService`) so no network call ever happens
 /// during `make test`.
-public typealias LLMServiceFactory = @Sendable (LLMConfiguration) -> any LLMServiceProtocol
+public typealias LLMServiceFactory = @Sendable (LLMConfiguration) -> any LLMStreamClient & HealthCheckable & LLMConfigStore & LLMUtilityClient
 
 /// The default factory used in production: registers supported provider client factories and
 /// constructs a real `LLMService` from the given configuration.
-public func defaultLLMServiceFactory(configuration: LLMConfiguration) -> any LLMServiceProtocol {
+public func defaultLLMServiceFactory(configuration: LLMConfiguration) -> any LLMStreamClient & LLMConfigStore & LLMUtilityClient & HealthCheckable {
     PKOpenAIProvider.register()
     PKOpenRouterProvider.register()
     PKOllamaProvider.register()
@@ -45,16 +46,16 @@ public enum AppHealthStatus: String, Sendable, Equatable {
 }
 
 /// The single composition root for Yakamoz's runtime: wires SwiftData-backed persistence
-/// (`YakamozStores`), turn inspection (`SwiftDataTurnInspector`), provider settings/secrets, and
+/// (`YakamozStores`), turn inspection (`SwiftDataPromptInspector`), provider settings/secrets, and
 /// the `PositronicKit` facade together behind one `actor`.
 ///
 /// `llmServiceFactory` is the seam that keeps this testable without touching the network: pass a
-/// factory that returns `PKTestSupport.MockLLMService` (or any other `LLMServiceProtocol`) instead
-/// of relying on the default `PKOpenAIProvider`/`LLMService` wiring.
+/// factory that returns `PKTestSupport.MockLLMService` (or any other conformer of the same seam)
+/// instead of relying on the default `PKOpenAIProvider`/`LLMService` wiring.
 public actor YakamozRuntime: ChatRunning {
     public let kit: PositronicKit
     public let stores: YakamozStores
-    public let inspector: SwiftDataTurnInspector
+    public let inspector: SwiftDataPromptInspector
 
     /// Captured at init so the `@MainActor` `makeChatViewModel` can build a
     /// `ConversationCoordinator` for the post-turn sidecar-results hook without re-
@@ -94,8 +95,20 @@ public actor YakamozRuntime: ChatRunning {
         terminalApprover: any TerminalCommandApproving = DenyAllApprover(),
         toolApprovalGate: any ToolApprovalGate = DenyAllToolApprovalGate()
     ) throws {
+        // Structured-output preparation (PositronicKit 2.0's PKARCH-005) looks up a
+        // process-wide `StructuredOutputAdapterRegistry` keyed by `LLMProvider`, populated by
+        // each provider target's `register()`. That registry is independent of which
+        // `LLMStreamClient` a given `llmServiceFactory` actually returns, so tests that inject
+        // a mock client in place of `defaultLLMServiceFactory` would otherwise never register
+        // an adapter and silently fall back to the synthetic-tool-call path instead of a
+        // provider's native response format. Register unconditionally so structured-output
+        // routing reflects the configured preset regardless of which factory built the client.
+        PKOpenAIProvider.register()
+        PKOpenRouterProvider.register()
+        PKOllamaProvider.register()
+
         stores = YakamozStores(modelContainer: modelContainer)
-        inspector = SwiftDataTurnInspector(modelContainer: modelContainer)
+        inspector = SwiftDataPromptInspector(modelContainer: modelContainer)
         self.modelContainer = modelContainer
         settingsSnapshotProvider = { @MainActor in settings.snapshot }
         self.secrets = secrets
@@ -145,11 +158,11 @@ public actor YakamozRuntime: ChatRunning {
         // "everything except terminal".
         let autoApproved = ReadOnlyToolApproval.autoApprovedToolIds
         let unpermissioned = explained.map { tool in
-            autoApproved.contains(tool.id) ? tool.withoutPermissionRequirement() : tool
+            autoApproved.contains(tool.callName) ? tool.withoutPermissionRequirement() : tool
         }
         let enabled = Set(enabledToolIds)
         guard !enabled.isEmpty else { return unpermissioned }
-        return unpermissioned.filter { enabled.contains($0.id) }
+        return unpermissioned.filter { enabled.contains($0.callName) }
     }
 
     private nonisolated func makeToolProviders(
@@ -253,7 +266,7 @@ public actor YakamozRuntime: ChatRunning {
         currentSectionTitle: String? = nil,
         onTimelineStateChange: (@MainActor @Sendable (ConversationTimelineState) async -> Void)? = nil
     ) async -> ChatViewModel {
-        let turnInspector = inspector
+        let promptInspector = inspector
         let tools = await resolveTools(enabledToolIds: enabledToolIds, folder: folder, terminals: terminals)
         let loadedTranscript: LoadedTranscript
         do {
@@ -305,18 +318,17 @@ public actor YakamozRuntime: ChatRunning {
         return ChatViewModel(
             timelineId: timelineId,
             runner: self,
-            inspector: turnInspector,
+            inspector: promptInspector,
             agentInstanceId: agentInstanceId,
             tools: tools,
             systemInstructions: systemInstructions,
-            sidecars: PositronicKit.sidecarsIfEnabled(
-                Self.dueSidecarDirectives(
+            sidecars: sidecarDirectivesEnabled
+                ? Self.dueSidecarDirectives(
                     conversationTitle: conversationTitle,
                     turnsSinceLastTitleDirective: turnsSinceLastTitleDirective,
                     currentSectionTitle: currentSectionTitle
-                ),
-                when: sidecarDirectivesEnabled
-            ),
+                )
+                : [],
             onTimelineStateChange: onTimelineStateChange,
             onSidecarResults: onSidecarResults,
             initialTranscript: loadedTranscript.transcript
@@ -324,7 +336,7 @@ public actor YakamozRuntime: ChatRunning {
     }
 
     /// Builds an `InspectionViewModel` backed by this runtime's turn inspector, boxing
-    /// the `SwiftDataTurnInspector` into `any InspectionReading` inside `YakamozCore` so
+    /// the `SwiftDataPromptInspector` into `any InspectionReading` inside `YakamozCore` so
     /// the app target never names a `PositronicKit`-linked type (see `AppHealthStatus`).
     @MainActor
     public func makeInspectionViewModel() -> InspectionViewModel {
@@ -399,7 +411,7 @@ public actor YakamozRuntime: ChatRunning {
         await settingsSnapshotProvider()
     }
 
-    private func makeConfiguredLLMService() async throws -> any LLMServiceProtocol {
+    private func makeConfiguredLLMService() async throws -> any LLMStreamClient & LLMConfigStore & LLMUtilityClient & HealthCheckable {
         let settings = await currentSettingsSnapshot()
         let key = try ProviderSettings.storedAPIKey(for: settings.preset, secrets: secrets)
         return llmServiceFactory(settings.configuration(apiKey: key))
@@ -423,27 +435,33 @@ public actor YakamozRuntime: ChatRunning {
 
     private static func makeKit(
         stores: YakamozStores,
-        inspector: SwiftDataTurnInspector,
+        inspector: SwiftDataPromptInspector,
         settingsSnapshot: ProviderSettingsSnapshot,
         apiKey: String,
         llmServiceFactory: LLMServiceFactory,
         toolApprovalGate: any ToolApprovalGate
     ) -> PositronicKit {
-        let configuration = settingsSnapshot.configuration(apiKey: apiKey)
-        let llmService = llmServiceFactory(configuration)
+        let llmConfiguration = settingsSnapshot.configuration(apiKey: apiKey)
+        let llmService = llmServiceFactory(llmConfiguration)
         return PositronicKit(
-            llmService: llmService,
-            messageStore: stores.messages,
-            agentInstanceStore: stores.agents,
-            requestOriginStore: stores.origins,
-            timelinePersistence: stores.timelines,
-            workspacePersistence: stores.workspaces,
-            toolPersistence: stores.tools,
-            workspaceCreator: FileSystemWorkspaceFactory(),
-            sectionProviders: [CurrentTimeSectionProvider()],
-            turnInspector: inspector,
-            generationParameters: settingsSnapshot.generationParameters,
-            toolApprovalGate: toolApprovalGate
+            configuration: .init(
+                provider: .init(llmService: llmService),
+                persistence: .init(
+                    messageStore: stores.messages,
+                    timelinePersistence: stores.timelines,
+                    workspacePersistence: stores.workspaces,
+                    toolPersistence: stores.tools,
+                    agentInstanceStore: stores.agents,
+                    requestOriginStore: stores.origins
+                ),
+                runtime: .init(
+                    workspaceCreator: FileSystemWorkspaceFactory(),
+                    sectionProviders: [CurrentTimeSectionProvider()],
+                    promptInspector: inspector,
+                    toolApprovalGate: toolApprovalGate
+                ),
+                generationParameters: settingsSnapshot.generationParameters
+            )
         )
     }
 
@@ -497,7 +515,7 @@ public actor YakamozRuntime: ChatRunning {
             var turn = ChatTurnState(turnIndex: assistantTurnIndex)
             turn.inspectionTurnIndex = nextInspectionTurnIndex - 1
             turn.response.reconstructedText = lastMessage.content
-            turn.response.thinking = lastMessage.think ?? ""
+            turn.response.thinking = lastMessage.reasoning ?? ""
             turn.isComplete = true
 
             // Reconstruct tool calls (mirrors `applyToolCallDelta`): one trace per call,
@@ -674,5 +692,3 @@ private struct TerminalWorkspaceToolProvider: ToolProviding {
         ]
     }
 }
-
-

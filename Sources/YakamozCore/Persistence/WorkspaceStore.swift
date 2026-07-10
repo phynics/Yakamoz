@@ -5,12 +5,6 @@ import SwiftData
 
 extension WorkspaceReferenceModel {
     convenience init(_ workspace: WorkspaceReference) throws {
-        let metadataData: Data
-        do {
-            metadataData = try JSONEncoder().encode(workspace.metadata)
-        } catch {
-            throw PersistenceError.encoding("WorkspaceReference.metadata: \(error)")
-        }
         self.init(
             id: workspace.id,
             uriHost: workspace.uri.host,
@@ -21,7 +15,6 @@ extension WorkspaceReferenceModel {
             trustLevelRaw: workspace.trustLevel.rawValue,
             lastModifiedBy: workspace.lastModifiedBy,
             statusRaw: workspace.status.rawValue,
-            metadataData: metadataData,
             contextInjection: workspace.contextInjection,
             createdAt: workspace.createdAt
         )
@@ -39,12 +32,6 @@ extension WorkspaceReferenceModel {
         guard let status = WorkspaceReference.WorkspaceStatus(rawValue: statusRaw) else {
             throw PersistenceError.decoding("Unknown WorkspaceStatus raw value: \(statusRaw)")
         }
-        let metadata: [String: AnyCodable]
-        do {
-            metadata = try JSONDecoder().decode([String: AnyCodable].self, from: metadataData)
-        } catch {
-            throw PersistenceError.decoding("WorkspaceReference.metadata: \(error)")
-        }
         return WorkspaceReference(
             id: id,
             uri: WorkspaceURI(host: uriHost, path: uriPath),
@@ -55,19 +42,12 @@ extension WorkspaceReferenceModel {
             trustLevel: trustLevel,
             lastModifiedBy: lastModifiedBy,
             status: status,
-            metadata: metadata,
             contextInjection: contextInjection,
             createdAt: createdAt
         )
     }
 
     func update(from workspace: WorkspaceReference) throws {
-        let encodedMetadata: Data
-        do {
-            encodedMetadata = try JSONEncoder().encode(workspace.metadata)
-        } catch {
-            throw PersistenceError.encoding("WorkspaceReference.metadata: \(error)")
-        }
         uriHost = workspace.uri.host
         uriPath = workspace.uri.path
         locationRaw = workspace.location.rawValue
@@ -76,7 +56,6 @@ extension WorkspaceReferenceModel {
         trustLevelRaw = workspace.trustLevel.rawValue
         lastModifiedBy = workspace.lastModifiedBy
         statusRaw = workspace.status.rawValue
-        metadataData = encodedMetadata
         contextInjection = workspace.contextInjection
         createdAt = workspace.createdAt
     }

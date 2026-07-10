@@ -62,7 +62,7 @@ private final class ScriptedRunner: ChatRunning, @unchecked Sendable {
 @Suite("ChatViewModel")
 @MainActor
 struct ChatViewModelTests {
-    private func makeInspector() throws -> SwiftDataTurnInspector {
+    private func makeInspector() throws -> SwiftDataPromptInspector {
         let schema = Schema([
             ConversationModel.self,
             MessageModel.self,
@@ -71,7 +71,7 @@ struct ChatViewModelTests {
             WorkspaceModel.self,
         ])
         let container = try ModelContainer(for: schema, configurations: .init(isStoredInMemoryOnly: true))
-        return SwiftDataTurnInspector(modelContainer: container)
+        return SwiftDataPromptInspector(modelContainer: container)
     }
 
     @Test("Sending a message immediately inserts a user transcript item and sets isSending")
@@ -206,7 +206,7 @@ struct ChatViewModelTests {
         let prompt = AnyPrompt.build { SystemPrompt("You are helpful") }
         let assembled = try prompt.assemblePrompt()
         let rendered = await assembled.render()
-        await inspector.didComposeTurn(TurnInspection(
+        await inspector.didComposePrompt(PromptInspection(
             identity: TurnIdentity(sendId: sendId, roundTrip: 0),
             timelineId: timelineId,
             agentInstanceId: nil,
@@ -306,7 +306,7 @@ struct ChatViewModelTests {
         viewModel.send("hi")
         await runner.waitUntilContinuationCount(1)
 
-        // Seed a TurnInspectionModel row for turn 0 the way `didComposeTurn` would,
+        // Seed a TurnInspectionModel row for turn 0 the way `didComposePrompt` would,
         // so `updateResponse` has a row to enrich (Task 3 + Task 6 wiring). The row's
         // identity must match the sendId ChatViewModel generated for this send (visible
         // only once the runner has captured the request), since `persistResponse` looks
@@ -315,7 +315,7 @@ struct ChatViewModelTests {
         let prompt = AnyPrompt.build { SystemPrompt("You are helpful") }
         let assembled = try prompt.assemblePrompt()
         let rendered = await assembled.render()
-        let seedInspection = TurnInspection(
+        let seedInspection = PromptInspection(
             identity: TurnIdentity(sendId: sendId, roundTrip: 0),
             timelineId: timelineId,
             agentInstanceId: nil,
@@ -330,7 +330,7 @@ struct ChatViewModelTests {
             ),
             estimatedTokens: rendered.estimatedTokens
         )
-        await inspector.didComposeTurn(seedInspection)
+        await inspector.didComposePrompt(seedInspection)
 
         runner.continuation?.yield(.generation("hello back"))
         runner.continuation?.yield(.generationCompleted(
@@ -368,7 +368,7 @@ struct ChatViewModelTests {
         let prompt = AnyPrompt.build { SystemPrompt("You are helpful") }
         let assembled = try prompt.assemblePrompt()
         let rendered = await assembled.render()
-        await inspector.didComposeTurn(TurnInspection(
+        await inspector.didComposePrompt(PromptInspection(
             identity: TurnIdentity(sendId: sendId, roundTrip: 0),
             timelineId: timelineId,
             agentInstanceId: nil,

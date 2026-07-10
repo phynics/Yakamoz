@@ -190,7 +190,7 @@ struct TranscriptReloadToolTraceTests {
         let timelineId = UUID()
         let messages: [ConversationMessage] = [
             ConversationMessage(timelineId: timelineId, role: .user, content: "hi"),
-            ConversationMessage(timelineId: timelineId, role: .assistant, content: "hello!", think: "greeting"),
+            ConversationMessage(timelineId: timelineId, role: .assistant, content: "hello!", reasoning: "greeting"),
         ]
 
         let transcript = YakamozRuntime.transcriptItems(from: messages)

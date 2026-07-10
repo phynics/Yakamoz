@@ -1,4 +1,5 @@
 import Foundation
+import JSONSchema
 import PKShared
 import Testing
 @testable import YakamozCore
@@ -6,19 +7,19 @@ import Testing
 /// Minimal permissioned tool used to exercise `MainActorToolApprover` without standing up a real
 /// filesystem/terminal tool.
 private struct StubPermissionedTool: PKShared.Tool, @unchecked Sendable {
-    let id: String
+    let callName: String
     let name: String
     let description = "stub"
     let requiresPermission = true
-    var parametersSchema: [String: AnyCodable] {
-        [:]
+    var parametersSchema: JSONSchema.Schema {
+        Schema([:])
     }
 
     func canExecute() async -> Bool {
         true
     }
 
-    func execute(parameters _: [String: Any]) async throws -> ToolResult {
+    func execute(parameters _: [String: AnyCodable]) async throws -> ToolResult {
         .success("ok")
     }
 }
@@ -28,7 +29,7 @@ struct ToolApprovalTests {
     @Test("Enqueuing exposes a pending approval and approving completes the call with .approve")
     func approvingCompletesCall() async {
         let approver = MainActorToolApprover()
-        let tool = AnyTool(StubPermissionedTool(id: "read_file", name: "Read File"))
+        let tool = AnyTool(StubPermissionedTool(callName: "read_file", name: "Read File"))
 
         let child = Task {
             await approver.requestApproval(tool: tool, arguments: ["path": AnyCodable("/tmp/x")])
@@ -60,7 +61,7 @@ struct ToolApprovalTests {
     @Test("Denying a pending approval rejects the call with .deny")
     func denyingRejectsCall() async {
         let approver = MainActorToolApprover()
-        let tool = AnyTool(StubPermissionedTool(id: "grep", name: "grep"))
+        let tool = AnyTool(StubPermissionedTool(callName: "grep", name: "grep"))
 
         let child = Task {
             await approver.requestApproval(tool: tool, arguments: [:])
@@ -88,7 +89,7 @@ struct ToolApprovalTests {
     @Test("A self-gated tool (terminal_run) is auto-approved without enqueuing a prompt")
     func selfGatedToolAutoApproves() async {
         let approver = MainActorToolApprover()
-        let tool = AnyTool(StubPermissionedTool(id: "terminal_run", name: "Terminal Run"))
+        let tool = AnyTool(StubPermissionedTool(callName: "terminal_run", name: "Terminal Run"))
 
         let decision = await approver.requestApproval(tool: tool, arguments: ["command": AnyCodable("ls")])
 

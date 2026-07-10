@@ -174,7 +174,7 @@ public final class MessageModel {
     }
 }
 
-/// A persisted projection of a single `TurnInspection`, keyed by
+/// A persisted projection of a single `PromptInspection`, keyed by
 /// `(conversationId, turnIndex)`. The Codable projections (`sections`,
 /// `sentMessages`, `journal`, `response`) are stored as encoded `Data` so schema
 /// evolution of the underlying DTOs is explicit rather than implicit in the

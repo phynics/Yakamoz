@@ -1,4 +1,5 @@
 import Foundation
+import JSONSchema
 import JSONSchemaBuilder
 import PKShared
 
@@ -35,7 +36,7 @@ public enum CalculatorError: PKError, Sendable, Equatable {
 /// `NSExpression`, and never evaluates JavaScript — every character is parsed by hand so
 /// the tool's behavior is fully auditable and sandboxed.
 public struct CalculatorTool: Tool, Sendable {
-    public let id = "calculator"
+    public let callName = "calculator"
     public let name = "Calculator"
     public let description = "Evaluates a basic arithmetic expression (+, -, *, /, parentheses, decimals)."
     public let requiresPermission = false
@@ -54,16 +55,16 @@ public struct CalculatorTool: Tool, Sendable {
         true
     }
 
-    public var parametersSchema: [String: AnyCodable] {
+    public var parametersSchema: Schema {
         ToolParameterSchema.object {
             JSONProperty(key: "expression") {
                 JSONString().description("The arithmetic expression to evaluate, e.g. '2 + 3 * 4'")
             }
             .required()
-        }.schema
+        }.schemaDefinition
     }
 
-    public func execute(parameters: [String: Any]) async throws -> ToolResult {
+    public func execute(parameters: [String: AnyCodable]) async throws -> ToolResult {
         let params = ToolParameters(parameters)
         let expression: String
         do {
@@ -234,7 +235,7 @@ struct ArithmeticParser {
 /// `now` is injected (defaulting to `Date.init` in production) so tests can supply a
 /// fixed clock and assert an exact, reproducible output string.
 public struct CurrentDateTimeTool: Tool, Sendable {
-    public let id = "current_datetime"
+    public let callName = "current_datetime"
     public let name = "Current Date/Time"
     public let description = "Returns the current date and time as an ISO-8601 string."
     public let requiresPermission = false
@@ -257,11 +258,11 @@ public struct CurrentDateTimeTool: Tool, Sendable {
         true
     }
 
-    public var parametersSchema: [String: AnyCodable] {
-        ToolParameterSchema.object {}.schema
+    public var parametersSchema: Schema {
+        ToolParameterSchema.object {}.schemaDefinition
     }
 
-    public func execute(parameters _: [String: Any]) async throws -> ToolResult {
+    public func execute(parameters _: [String: AnyCodable]) async throws -> ToolResult {
         let formatter = ISO8601DateFormatter()
         return .success(formatter.string(from: now()))
     }

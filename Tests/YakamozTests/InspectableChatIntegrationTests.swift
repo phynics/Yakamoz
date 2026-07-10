@@ -15,7 +15,7 @@ import Testing
 ///
 /// It asserts the full pipeline: exact payloads sent to the provider, journal evolution,
 /// the persisted tool trace, the response metadata, the live selection, and — critically —
-/// that reopening the same container through a FRESH `SwiftDataTurnInspector` reconstructs
+/// that reopening the same container through a FRESH `SwiftDataPromptInspector` reconstructs
 /// the transcript, response text, and tool traces from disk alone.
 @Suite("InspectableChatIntegration")
 @MainActor
@@ -152,7 +152,7 @@ struct InspectableChatIntegrationTests {
 
         // --- Reopen from a FRESH inspector on the same container -------------------
 
-        let reopenedInspector = SwiftDataTurnInspector(modelContainer: container)
+        let reopenedInspector = SwiftDataPromptInspector(modelContainer: container)
         let reopened = try #require(
             try await reopenedInspector.presentation(conversationId: timelineId, turnIdentity: terminalIdentity)
         )
@@ -382,7 +382,7 @@ struct InspectableChatIntegrationTests {
 
     /// Loads each persisted inspection in turn order, stopping at the first missing turn.
     private func loadInspections(
-        _ inspector: SwiftDataTurnInspector,
+        _ inspector: SwiftDataPromptInspector,
         timelineId: UUID,
         upTo limit: Int
     ) async throws -> [PersistedTurnInspection] {

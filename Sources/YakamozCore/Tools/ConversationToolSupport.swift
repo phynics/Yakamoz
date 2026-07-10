@@ -83,9 +83,9 @@ public enum ConversationToolSupport {
     public static func toolOptions(for tools: [AnyTool]) -> [ConversationToolOption] {
         tools.map { tool in
             ConversationToolOption(
-                id: tool.id,
+                id: tool.callName,
                 title: title(for: tool),
-                systemImage: systemImage(for: tool.id),
+                systemImage: systemImage(for: tool.callName),
                 group: group(for: tool.provenance),
                 requiresWorkspace: tool.provenance.isWorkspaceScoped,
                 requiresTerminal: tool.provenance.isTerminalScoped
@@ -118,7 +118,7 @@ public enum ConversationToolSupport {
     }
 
     private static func title(for tool: AnyTool) -> String {
-        switch tool.id {
+        switch tool.callName {
         case "current_datetime":
             "Current Date/Time"
         default:

@@ -1,6 +1,9 @@
 .PHONY: generate build test verify
 
 SHELL := /bin/bash
+# Disable SwiftPM macro prebuilts to avoid incompatible SwiftSyntax prebuilt modules
+# on Xcode 26.6 / Swift 6.3.3 toolchains.
+export SWIFTPM_ENABLE_MACROS_PREBUILTS := NO
 TEST_DESTINATION = platform=macOS
 TEST_FILTER_ARG = $(if $(TEST_FILTER),-only-testing:YakamozTests/$(TEST_FILTER),)
 DERIVED_DATA_PATH = $(CURDIR)/DerivedData

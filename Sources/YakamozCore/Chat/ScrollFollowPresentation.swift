@@ -1,4 +1,20 @@
 import Foundation
+import CoreGraphics
+
+/// A snapshot of the scroll geometry relevant to follow/pin decisions, extracted by
+/// `onScrollGeometryChange` and passed to `ScrollFollowPresentation` (UIX-16). Carrying
+/// `contentHeight` alongside `isAtBottom` lets the unpin logic distinguish "content grew"
+/// (streaming deltas pushing the bottom edge away) from "the user scrolled up" — both
+/// present as `isAtBottom == false`, but only the latter should unpin.
+public struct ScrollFollowState: Equatable, Sendable {
+    public let isAtBottom: Bool
+    public let contentHeight: CGFloat
+
+    public init(isAtBottom: Bool, contentHeight: CGFloat) {
+        self.isAtBottom = isAtBottom
+        self.contentHeight = contentHeight
+    }
+}
 
 /// Pure decision logic for the transcript's "follow new content only while pinned to the
 /// bottom" behavior (UIX-8). `ChatView` owns the actual scroll-position observation
@@ -60,6 +76,27 @@ public enum ScrollFollowPresentation {
     /// into the sticky zone is never something we need to suppress.
     public static func shouldUnpin(isAtBottom: Bool, isProgrammaticScrollInFlight: Bool) -> Bool {
         guard !isAtBottom else { return false }
+        return !isProgrammaticScrollInFlight
+    }
+
+    /// UIX-16: an `onScrollGeometryChange` reading should *unpin* only when the distance
+    /// increase is from a genuine user scroll-up, not from content growth (streaming
+    /// deltas appending text/thinking/tool rows push the bottom edge away and read as
+    /// "not at bottom" with zero user input). This compares the current and previous
+    /// `ScrollFollowState`: if `contentHeight` grew, the distance change is from growth,
+    /// not scroll — suppress unpinning. Combined with the existing
+    /// `isProgrammaticScrollInFlight` guard, this covers both "content grew after a
+    /// `scrollTo`" and "content grew between deltas" (the 100ms settle window can expire
+    /// before the next delta arrives, leaving a gap where a plain distance check would
+    /// unpin on growth).
+    public static func shouldUnpin(
+        currentState: ScrollFollowState,
+        previousState: ScrollFollowState,
+        isProgrammaticScrollInFlight: Bool
+    ) -> Bool {
+        guard !currentState.isAtBottom else { return false }
+        let contentGrew = currentState.contentHeight > previousState.contentHeight
+        if contentGrew { return false }
         return !isProgrammaticScrollInFlight
     }
 }
