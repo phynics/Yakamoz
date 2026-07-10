@@ -31,10 +31,13 @@ struct AgentModelMigrationTests {
     @MainActor
     func seedBuiltInsIdempotently() throws {
         let container = try makeContainer()
+        let tempRoot = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+        let vaultFactory = AgentVaultFactory(baseDirectory: tempRoot)
 
         let vaultPath: (UUID) -> String = { id in "/tmp/\(id)" }
-        try AgentMigration.seedAndMigrate(modelContext: container.mainContext, vaultPath: vaultPath)
-        try AgentMigration.seedAndMigrate(modelContext: container.mainContext, vaultPath: vaultPath)
+        try AgentMigration.seedAndMigrate(modelContext: container.mainContext, vaultPath: vaultPath, vaultFactory: vaultFactory)
+        try AgentMigration.seedAndMigrate(modelContext: container.mainContext, vaultPath: vaultPath, vaultFactory: vaultFactory)
 
         let agents = try container.mainContext.fetch(FetchDescriptor<AgentModel>())
         #expect(agents.count == PersonaCatalog.builtIns.count)
@@ -59,7 +62,13 @@ struct AgentModelMigrationTests {
         container.mainContext.insert(builtInConversation)
         try container.mainContext.save()
 
-        try AgentMigration.seedAndMigrate(modelContext: container.mainContext, vaultPath: { id in "/tmp/\(id)" })
+        let tempRoot = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+        try AgentMigration.seedAndMigrate(
+            modelContext: container.mainContext,
+            vaultPath: { id in "/tmp/\(id)" },
+            vaultFactory: AgentVaultFactory(baseDirectory: tempRoot)
+        )
 
         let customAgent = try #require(try container.mainContext.fetch(FetchDescriptor<AgentModel>(predicate: #Predicate { $0.id == customPersonaID })).first)
         #expect(customAgent.name == "Custom")

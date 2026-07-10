@@ -7,7 +7,8 @@ import SwiftData
 public enum AgentMigration {
     public static func seedAndMigrate(
         modelContext: ModelContext,
-        vaultPath: (UUID) -> String = AgentVaultPath.path(for:)
+        vaultPath: (UUID) -> String = AgentVaultPath.path(for:),
+        vaultFactory: AgentVaultFactory = AgentVaultFactory()
     ) throws {
         let agents = try modelContext.fetch(FetchDescriptor<AgentModel>())
         var agentsBySeedSlug = Dictionary(uniqueKeysWithValues: agents.compactMap { agent in
@@ -24,24 +25,28 @@ public enum AgentMigration {
                 seedSlug: persona.id
             )
             modelContext.insert(agent)
+            try vaultFactory.createVault(for: agent)
             agentsBySeedSlug[persona.id] = agent
         }
 
         let personas = try modelContext.fetch(FetchDescriptor<PersonaModel>())
-        let existingAgentIDs = Set(try modelContext.fetch(FetchDescriptor<AgentModel>()).map(\.id))
+        let existingAgentIDs = try Set(modelContext.fetch(FetchDescriptor<AgentModel>()).map(\.id))
         for persona in personas where !persona.builtIn && !existingAgentIDs.contains(persona.id) {
-            modelContext.insert(AgentModel(
+            let agent = AgentModel(
                 id: persona.id,
                 name: persona.name,
                 instructions: persona.systemInstructions,
                 vaultPath: vaultPath(persona.id)
-            ))
+            )
+            modelContext.insert(agent)
+            try vaultFactory.createVault(for: agent)
         }
 
         let conversations = try modelContext.fetch(FetchDescriptor<ConversationModel>())
         for conversation in conversations where conversation.agentId == nil {
             if let personaID = conversation.personaId,
-               personas.contains(where: { $0.id == personaID && !$0.builtIn }) {
+               personas.contains(where: { $0.id == personaID && !$0.builtIn })
+            {
                 conversation.agentId = personaID
             } else if let slug = conversation.personaSlug {
                 conversation.agentId = agentsBySeedSlug[slug]?.id
