@@ -117,6 +117,10 @@ struct ChatView: View {
             }
 
             ToolbarItem(placement: .automatic) {
+                WorkspacePicker(conversation: conversation)
+            }
+
+            ToolbarItem(placement: .automatic) {
                 PersonaPicker(conversation: conversation)
             }
 
@@ -203,11 +207,13 @@ struct ChatView: View {
                         selectedTurnState: viewModel.selectedTurnState,
                         workspacePresentation: workspacePresentation,
                         availableTools: availableInspectorTools,
+                        hasTerminalWorkspace: hasTerminalWorkspace,
                         enabledToolIds: effectiveEnabledToolIds,
                         onRefreshWorkspace: { Task { await refreshWorkspacePresentation() } },
                         onAttachDocuments: attachDefaultWorkspace,
                         onChooseWorkspace: pickFolderForPrompt,
                         onDetachWorkspace: detachWorkspace,
+                        onCreateTerminalWorkspace: pickFolderForTerminal,
                         onSetToolEnabled: setToolEnabled,
                         isOpen: $isInspectorOpen,
                         selectedTabRaw: $selectedInspectorTabRaw,
@@ -372,6 +378,24 @@ struct ChatView: View {
         Task { await buildViewModelIfNeeded() }
     }
 
+    private func pickFolderForTerminal() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose Start Folder"
+        panel.message = "Choose the folder where the terminal should start."
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard confirmTerminalCreation(folderDescription: url.lastPathComponent) else { return }
+        _ = try? WorkspaceAttachmentSupport.attachTerminal(
+            to: conversation,
+            fromFolderURL: url,
+            modelContext: modelContext
+        )
+        Task { await buildViewModelIfNeeded() }
+    }
+
     /// Detaches the folder workspace currently shown in the inspector.
     ///
     /// The Workspace inspector presents only the first attached *folder* workspace
@@ -382,6 +406,18 @@ struct ChatView: View {
         guard let first = attachedFolderWorkspaces.first else { return }
         WorkspaceAttachmentSupport.detachWorkspace(id: first.id, from: conversation, modelContext: modelContext)
         Task { await buildViewModelIfNeeded() }
+    }
+
+    private func confirmTerminalCreation(folderDescription: String) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Create Terminal Workspace?"
+        alert.informativeText = """
+        The shell will start in \(folderDescription), but it is not jailed to that folder. Each command stays approval-gated unless you allow this terminal for the session.
+        """
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Create Terminal")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     private func setToolEnabled(id: String, isEnabled: Bool) {

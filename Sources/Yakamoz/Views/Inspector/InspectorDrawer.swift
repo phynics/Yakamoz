@@ -63,12 +63,14 @@ struct InspectorDrawer: View {
     /// The conversation's attached folder workspace, if any, for the Workspace tab.
     let workspacePresentation: WorkspacePresentation?
     let availableTools: [ConversationToolOption]
+    let hasTerminalWorkspace: Bool
     let enabledToolIds: Set<String>
     /// Re-fetches `workspacePresentation` (e.g. after files changed on disk).
     let onRefreshWorkspace: () -> Void
     let onAttachDocuments: () -> Void
     let onChooseWorkspace: () -> Void
     let onDetachWorkspace: () -> Void
+    let onCreateTerminalWorkspace: () -> Void
     let onSetToolEnabled: (String, Bool) -> Void
     @Binding var isOpen: Bool
     /// The selected inspector tab's raw value, owned by `ChatView` (via `@SceneStorage`)
@@ -166,7 +168,9 @@ struct InspectorDrawer: View {
                 persistedTools: viewModel.inspection?.response?.tools ?? [],
                 liveTurn: selectedTurnState,
                 availableTools: availableTools,
+                hasTerminalWorkspace: hasTerminalWorkspace,
                 enabledToolIds: enabledToolIds,
+                onCreateTerminalWorkspace: onCreateTerminalWorkspace,
                 onSetToolEnabled: onSetToolEnabled
             )
         case .workspace:

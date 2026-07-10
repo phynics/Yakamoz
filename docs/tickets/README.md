@@ -37,6 +37,7 @@ review items left for the next person.
 | [YAK-28](YAK-28-quick-model-switching.md) | Quick model switching with favorites and recency | Yakamoz + PositronicKit | Medium | Done |
 | [YAK-29](YAK-29-timeline-state-dots.md) | Timeline state dots in the chat list | Yakamoz + PositronicKit | Medium | Done |
 | [YAK-30](YAK-30-terminal-workspace-entrypoints.md) | Terminal workspace entrypoints | Yakamoz | Medium | Open |
+| [YAK-40](YAK-40-terminal-session-grace-window-flake.md) | [BUG] TerminalSession grace-window flake breaks verify | Yakamoz | Medium | Open |
 
 ## Terminal-workspace post-merge review (YAK-TF series)
 
@@ -60,7 +61,7 @@ reachable — now done), then TF2/TF3 (lifecycle + output correctness), then TF4
 Status legend: Open / Delayed / In progress / Done. Each ticket also carries its
 own **Status** line.
 
-**Open:** YAK-30 (Medium — terminal workspace entrypoints), YAK-22 (Low — settings polish, needs design direction).
+**Open:** YAK-30 (Medium — terminal workspace entrypoints), YAK-40 (Medium — terminal session grace-window flake), YAK-22 (Low — settings polish, needs design direction).
 **Delayed:** YAK-5 (phase 2). Note
 (YAK-23, FIXED): streamed tool calls were dropped for every
 model via OpenRouter because the SSE decoder ignored snake_case (`tool_calls`/`finish_reason`);

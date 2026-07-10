@@ -22,29 +22,37 @@ struct WorkspacePicker: View {
     var body: some View {
         HStack(spacing: 6) {
             if attachedWorkspaces.isEmpty {
-                Button {
-                    pickFolder()
-                } label: {
-                    Label("Attach Folder", systemImage: "folder.badge.plus")
-                }
-                .buttonStyle(.borderless)
-                .help("Attach a folder workspace to this conversation")
-                .accessibilityLabel("Attach folder workspace")
+                addWorkspaceMenu(label: Label("Add Workspace", systemImage: "folder.badge.plus"))
             } else {
                 ForEach(attachedWorkspaces) { workspace in
                     chip(for: workspace)
                 }
 
-                Button {
-                    pickFolder()
-                } label: {
-                    Image(systemName: "plus.circle")
-                }
-                .buttonStyle(.borderless)
-                .help("Attach another folder workspace")
-                .accessibilityLabel("Attach another folder workspace")
+                addWorkspaceMenu(label: Image(systemName: "plus.circle"))
             }
         }
+    }
+
+    @ViewBuilder
+    private func addWorkspaceMenu<L: View>(label: L) -> some View {
+        Menu {
+            Button {
+                pickFolder()
+            } label: {
+                Label("Folder Workspace", systemImage: "folder")
+            }
+
+            Button {
+                pickFolderForTerminal()
+            } label: {
+                Label("Terminal Workspace", systemImage: "terminal")
+            }
+        } label: {
+            label
+        }
+        .buttonStyle(.borderless)
+        .help("Add a folder or terminal workspace")
+        .accessibilityLabel("Add workspace")
     }
 
     /// A folder chip is a menu offering "Create Terminal" and "Detach"; a terminal chip shows a
@@ -55,10 +63,11 @@ struct WorkspacePicker: View {
         case .folder:
             Menu {
                 Button {
-                    createTerminal(from: workspace)
+                    confirmCreateTerminal(from: workspace)
                 } label: {
                     Label("Create Terminal", systemImage: "terminal")
                 }
+                .help("Create a terminal workspace rooted at \(workspace.displayName)")
                 Button(role: .destructive) {
                     detach(workspace)
                 } label: {
@@ -103,8 +112,38 @@ struct WorkspacePicker: View {
         WorkspaceAttachmentSupport.attachWorkspace(to: conversation, modelContext: modelContext, url: url)
     }
 
-    private func createTerminal(from folder: WorkspaceModel) {
+    private func pickFolderForTerminal() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose Start Folder"
+        panel.message = "Choose the folder where the terminal should start."
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard confirmTerminalCreation(folderDescription: url.lastPathComponent) else { return }
+        _ = try? WorkspaceAttachmentSupport.attachTerminal(
+            to: conversation,
+            fromFolderURL: url,
+            modelContext: modelContext
+        )
+    }
+
+    private func confirmCreateTerminal(from folder: WorkspaceModel) {
+        guard confirmTerminalCreation(folderDescription: folder.displayName) else { return }
         WorkspaceAttachmentSupport.attachTerminal(to: conversation, fromFolder: folder, modelContext: modelContext)
+    }
+
+    private func confirmTerminalCreation(folderDescription: String) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Create Terminal Workspace?"
+        alert.informativeText = """
+        The shell will start in \(folderDescription), but it is not jailed to that folder. Each command stays approval-gated unless you allow this terminal for the session.
+        """
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Create Terminal")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     private func detach(_ workspace: WorkspaceModel) {

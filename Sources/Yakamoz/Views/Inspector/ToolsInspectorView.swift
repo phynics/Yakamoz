@@ -17,7 +17,9 @@ struct ToolsInspectorView: View {
     /// streaming, before its response (and traces) have been persisted.
     let liveTurn: ChatTurnState?
     let availableTools: [ConversationToolOption]
+    let hasTerminalWorkspace: Bool
     let enabledToolIds: Set<String>
+    let onCreateTerminalWorkspace: () -> Void
     let onSetToolEnabled: (String, Bool) -> Void
 
     /// Persisted traces win when present; otherwise project the live turn's traces.
@@ -39,13 +41,18 @@ struct ToolsInspectorView: View {
 
     /// Built-in tools (always available, e.g. calculator, current date/time).
     private var builtInTools: [ConversationToolOption] {
-        availableTools.filter { !$0.requiresWorkspace }
+        availableTools.filter { !$0.requiresWorkspace && !$0.requiresTerminal }
     }
 
     /// Workspace tools (filesystem tools confined to the attached folder). Only non-empty
     /// when a workspace is attached — `availableTools` already excludes them otherwise.
     private var workspaceTools: [ConversationToolOption] {
         availableTools.filter(\.requiresWorkspace)
+    }
+
+    /// Terminal tools require an attached terminal workspace.
+    private var terminalTools: [ConversationToolOption] {
+        availableTools.filter(\.requiresTerminal)
     }
 
     /// YAK-18: groups the flat tool list into "Built-in" (always available) and
@@ -57,6 +64,11 @@ struct ToolsInspectorView: View {
             toolGroup(title: "Built-in", tools: builtInTools)
             if !workspaceTools.isEmpty {
                 toolGroup(title: "Workspace", tools: workspaceTools)
+            }
+            if hasTerminalWorkspace {
+                toolGroup(title: "Terminal", tools: terminalTools)
+            } else {
+                terminalWorkspaceCallout
             }
         }
     }
@@ -73,9 +85,34 @@ struct ToolsInspectorView: View {
                         .labelStyle(.titleAndIcon)
                 }
                 .disabled(enabledToolIds.count == 1 && enabledToolIds.contains(tool.id))
-                .help(tool.requiresWorkspace ? "Available because this conversation has a workspace attached." : "")
+                .help(toolHelpText(for: tool))
             }
         }
+    }
+
+    private var terminalWorkspaceCallout: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Terminal")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            Text("Terminal tools require an attached terminal workspace.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Text("The shell starts in the folder you choose, is not jailed to it, and each command is approval-gated unless you allow the terminal for this session.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Button {
+                onCreateTerminalWorkspace()
+            } label: {
+                Label("Create Terminal Workspace", systemImage: "terminal")
+            }
+            .accessibilityLabel("Create terminal workspace")
+        }
+        .padding(8)
+        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 6))
     }
 
     @ViewBuilder
@@ -161,5 +198,15 @@ struct ToolsInspectorView: View {
             get: { enabledToolIds.contains(toolID) },
             set: { onSetToolEnabled(toolID, $0) }
         )
+    }
+
+    private func toolHelpText(for tool: ConversationToolOption) -> String {
+        if tool.requiresTerminal {
+            return "Available because this conversation has a terminal workspace attached."
+        }
+        if tool.requiresWorkspace {
+            return "Available because this conversation has a workspace attached."
+        }
+        return ""
     }
 }

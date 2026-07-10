@@ -249,9 +249,43 @@ public enum WorkspaceAttachmentSupport {
     @discardableResult
     public static func attachTerminal(
         to conversation: ConversationModel,
+        fromFolderURL url: URL,
+        modelContext: ModelContext
+    ) throws -> WorkspaceModel {
+        let allWorkspaces = (try? modelContext.fetch(FetchDescriptor<WorkspaceModel>())) ?? []
+        let attached = WorkspaceResolutionHelper.attachedWorkspaces(for: conversation, in: allWorkspaces)
+        let folder = attached.first(where: { $0.kind == .folder && $0.folderPath == url.path })
+            ?? attachWorkspace(to: conversation, modelContext: modelContext, url: url)
+        return attachTerminal(to: conversation, fromFolder: folder, modelContext: modelContext)
+    }
+
+    /// Creates and attaches a terminal workspace to `conversation`, rooted at `folder`'s path.
+    /// Reuses an existing attached terminal for that folder path rather than creating duplicates.
+    @discardableResult
+    public static func attachTerminal(
+        to conversation: ConversationModel,
         fromFolder folder: WorkspaceModel,
         modelContext: ModelContext
     ) -> WorkspaceModel {
+        let allWorkspaces = (try? modelContext.fetch(FetchDescriptor<WorkspaceModel>())) ?? []
+        let attached = WorkspaceResolutionHelper.attachedWorkspaces(for: conversation, in: allWorkspaces)
+
+        if let existingTerminal = attached.first(where: { $0.kind == .terminal && $0.folderPath == folder.folderPath }) {
+            let hasFolder = attached.contains { $0.kind == .folder }
+            let selected = ConversationToolSupport.effectiveEnabledToolIDs(
+                conversation.enabledToolIds,
+                hasWorkspace: hasFolder,
+                hasTerminal: true
+            ).union(TerminalWorkspace.toolIds)
+            conversation.enabledToolIds = ConversationToolSupport.persistedEnabledToolIDs(
+                selected,
+                hasWorkspace: hasFolder,
+                hasTerminal: true
+            )
+            try? modelContext.save()
+            return existingTerminal
+        }
+
         let terminal = WorkspaceModel(
             displayName: "Terminal — \(folder.displayName)",
             folderPath: folder.folderPath,
@@ -262,9 +296,8 @@ public enum WorkspaceAttachmentSupport {
         conversation.attachedWorkspaceIds.append(terminal.id)
 
         // Whether a folder workspace remains attached governs whether folder tools stay offered.
-        let allWorkspaces = (try? modelContext.fetch(FetchDescriptor<WorkspaceModel>())) ?? []
-        let attached = WorkspaceResolutionHelper.attachedWorkspaces(for: conversation, in: allWorkspaces)
-        let hasFolder = attached.contains { $0.kind == .folder }
+        let attachedAfterInsert = attached + [terminal]
+        let hasFolder = attachedAfterInsert.contains { $0.kind == .folder }
 
         let selected = ConversationToolSupport.effectiveEnabledToolIDs(conversation.enabledToolIds, hasWorkspace: hasFolder, hasTerminal: false)
             .union(TerminalWorkspace.toolIds)

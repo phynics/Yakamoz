@@ -188,6 +188,98 @@ struct ConversationAttachmentTests {
         let effective = ConversationToolSupport.effectiveEnabledToolIDs(c.enabledToolIds, hasWorkspace: true, hasTerminal: true)
         #expect(effective.isSuperset(of: TerminalWorkspace.toolIds))
     }
+
+    @Test func attachTerminalFromFolderURLCreatesFolderAndTerminalAttachments() throws {
+        let container = try makeTestModelContainer()
+        let context = ModelContext(container)
+        let conversation = ConversationModel(title: "t")
+        context.insert(conversation)
+        try context.save()
+
+        let rootURL = FileManager.default.temporaryDirectory.appending(path: "yak-30-root-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let terminal = try WorkspaceAttachmentSupport.attachTerminal(
+            to: conversation,
+            fromFolderURL: rootURL,
+            modelContext: context
+        )
+
+        let workspaces = try context.fetch(FetchDescriptor<WorkspaceModel>())
+        let folders = workspaces.filter { $0.kind == .folder }
+        let terminals = workspaces.filter { $0.kind == .terminal }
+
+        #expect(folders.count == 1)
+        #expect(terminals.count == 1)
+        #expect(folders[0].folderPath == rootURL.path)
+        #expect(terminals[0].id == terminal.id)
+        #expect(terminals[0].folderPath == rootURL.path)
+        #expect(conversation.allAttachedWorkspaceIds == [folders[0].id, terminal.id])
+
+        let effective = ConversationToolSupport.effectiveEnabledToolIDs(
+            conversation.enabledToolIds,
+            hasWorkspace: true,
+            hasTerminal: true
+        )
+        #expect(effective.isSuperset(of: FileSystemWorkspace.toolIds))
+        #expect(effective.isSuperset(of: TerminalWorkspace.toolIds))
+    }
+
+    @Test func attachTerminalReusesExistingTerminalForAttachedFolder() throws {
+        let container = try makeTestModelContainer()
+        let context = ModelContext(container)
+
+        let folder = WorkspaceModel(displayName: "proj", folderPath: "/tmp/proj")
+        context.insert(folder)
+        let conversation = ConversationModel(title: "t")
+        conversation.attachedWorkspaceIds = [folder.id]
+        context.insert(conversation)
+        try context.save()
+
+        let first = WorkspaceAttachmentSupport.attachTerminal(to: conversation, fromFolder: folder, modelContext: context)
+        let second = WorkspaceAttachmentSupport.attachTerminal(to: conversation, fromFolder: folder, modelContext: context)
+
+        let workspaces = try context.fetch(FetchDescriptor<WorkspaceModel>())
+        let terminals = workspaces.filter { $0.kind == .terminal }
+
+        #expect(first.id == second.id)
+        #expect(terminals.count == 1)
+        #expect(conversation.allAttachedWorkspaceIds.filter { $0 == first.id }.count == 1)
+    }
+
+    @Test func attachTerminalFromFolderURLReusesExistingAttachedFolder() throws {
+        let container = try makeTestModelContainer()
+        let context = ModelContext(container)
+        let conversation = ConversationModel(title: "t")
+        context.insert(conversation)
+        try context.save()
+
+        let rootURL = FileManager.default.temporaryDirectory.appending(path: "yak-30-reuse-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let folder = WorkspaceAttachmentSupport.attachWorkspace(
+            to: conversation,
+            modelContext: context,
+            url: rootURL
+        )
+        let terminal = try WorkspaceAttachmentSupport.attachTerminal(
+            to: conversation,
+            fromFolderURL: rootURL,
+            modelContext: context
+        )
+
+        let workspaces = try context.fetch(FetchDescriptor<WorkspaceModel>())
+        let folders = workspaces.filter { $0.kind == .folder }
+        let terminals = workspaces.filter { $0.kind == .terminal }
+
+        #expect(folders.count == 1)
+        #expect(folders[0].id == folder.id)
+        #expect(terminals.count == 1)
+        #expect(terminals[0].id == terminal.id)
+        #expect(conversation.allAttachedWorkspaceIds == [folder.id, terminal.id])
+    }
 }
 
 // MARK: - Test Helpers
