@@ -4,6 +4,52 @@ import PKShared
 import PositronicKit
 import SwiftData
 
+/// SwiftData CRUD for Yakamoz's persistent agent rows. This deliberately stays
+/// separate from `SwiftDataAgentInstanceStore`, which adapts PositronicKit's runtime
+/// `AgentInstance` protocol model.
+@MainActor
+public final class SwiftDataAgentStore {
+    private let modelContext: ModelContext
+
+    public init(modelContainer: ModelContainer) {
+        modelContext = modelContainer.mainContext
+    }
+
+    public func saveAgent(_ agent: AgentModel) throws {
+        let id = agent.id
+        let descriptor = FetchDescriptor<AgentModel>(predicate: #Predicate { $0.id == id })
+        let existing = try modelContext.fetch(descriptor).first
+        if let existing, existing !== agent {
+            existing.name = agent.name
+            existing.instructions = agent.instructions
+            existing.vaultPath = agent.vaultPath
+            existing.homeTimelineId = agent.homeTimelineId
+            existing.seedSlug = agent.seedSlug
+            existing.defaultModel = agent.defaultModel
+            existing.defaultEnabledToolIds = agent.defaultEnabledToolIds
+            existing.createdAt = agent.createdAt
+        } else if existing == nil {
+            modelContext.insert(agent)
+        }
+        try modelContext.save()
+    }
+
+    public func fetchAgent(id: UUID) throws -> AgentModel? {
+        var descriptor = FetchDescriptor<AgentModel>(predicate: #Predicate { $0.id == id })
+        descriptor.fetchLimit = 1
+        return try modelContext.fetch(descriptor).first
+    }
+
+    public func fetchAllAgents() throws -> [AgentModel] {
+        try modelContext.fetch(FetchDescriptor<AgentModel>(sortBy: [SortDescriptor(\.createdAt)]))
+    }
+
+    public func deleteAgent(id: UUID) throws {
+        try modelContext.delete(model: AgentModel.self, where: #Predicate { $0.id == id })
+        try modelContext.save()
+    }
+}
+
 extension AgentInstanceModel {
     convenience init(_ instance: AgentInstance) throws {
         let metadataData: Data

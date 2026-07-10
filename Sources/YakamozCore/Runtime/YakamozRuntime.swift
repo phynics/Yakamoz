@@ -108,6 +108,7 @@ public actor YakamozRuntime: ChatRunning {
         PKOllamaProvider.register()
 
         stores = YakamozStores(modelContainer: modelContainer)
+        try AgentMigration.seedAndMigrate(modelContext: modelContainer.mainContext)
         inspector = SwiftDataPromptInspector(modelContainer: modelContainer)
         self.modelContainer = modelContainer
         settingsSnapshotProvider = { @MainActor in settings.snapshot }

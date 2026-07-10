@@ -10,6 +10,7 @@ public enum YakamozSchema {
         MessageModel.self,
         TurnInspectionModel.self,
         PersonaModel.self,
+        AgentModel.self,
         WorkspaceModel.self,
         TimelineModel.self,
         WorkspaceReferenceModel.self,
@@ -72,6 +73,9 @@ public final class ConversationModel {
     public var title: String
     public var createdAt: Date
     public var personaId: UUID?
+    /// The persisted operator for this timeline. `personaId` remains temporarily for
+    /// lightweight migration while persona-driven UI is retired in ATW-3.
+    public var agentId: UUID?
     public var enabledToolIds: [String]
     public var workspaceId: UUID?
     /// Stable persona slug ("helpful"/"reviewer"/...) for built-in personas, or the
@@ -113,6 +117,7 @@ public final class ConversationModel {
         title: String,
         createdAt: Date = .now,
         personaId: UUID? = nil,
+        agentId: UUID? = nil,
         enabledToolIds: [String] = [],
         workspaceId: UUID? = nil,
         attachedWorkspaceIds: [UUID] = [],
@@ -127,6 +132,7 @@ public final class ConversationModel {
         self.title = title
         self.createdAt = createdAt
         self.personaId = personaId
+        self.agentId = agentId
         self.enabledToolIds = enabledToolIds
         self.workspaceId = workspaceId
         self.attachedWorkspaceIds = attachedWorkspaceIds
@@ -240,6 +246,43 @@ public final class PersonaModel {
         self.name = name
         self.systemInstructions = systemInstructions
         self.builtIn = builtIn
+    }
+}
+
+/// A persistent operator. Seeded rows retain their stable catalog slug; user-created
+/// agents and migrated custom personas have no seed slug.
+@Model
+public final class AgentModel {
+    @Attribute(.unique) public var id: UUID
+    public var name: String
+    public var instructions: String
+    public var vaultPath: String
+    public var homeTimelineId: UUID?
+    public var seedSlug: String?
+    public var defaultModel: String?
+    public var defaultEnabledToolIds: [String]?
+    public var createdAt: Date
+
+    public init(
+        id: UUID = UUID(),
+        name: String,
+        instructions: String,
+        vaultPath: String,
+        homeTimelineId: UUID? = nil,
+        seedSlug: String? = nil,
+        defaultModel: String? = nil,
+        defaultEnabledToolIds: [String]? = nil,
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.name = name
+        self.instructions = instructions
+        self.vaultPath = vaultPath
+        self.homeTimelineId = homeTimelineId
+        self.seedSlug = seedSlug
+        self.defaultModel = defaultModel
+        self.defaultEnabledToolIds = defaultEnabledToolIds
+        self.createdAt = createdAt
     }
 }
 
