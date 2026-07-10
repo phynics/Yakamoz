@@ -332,7 +332,7 @@ public final class TimelineModel {
 /// A persisted `PositronicKit.WorkspaceReference` (runtime/virtual document workspace).
 ///
 /// Distinct from `WorkspaceModel` (Yakamoz's folder-backed workspace, Task 3): this
-/// entity stores the full `WorkspaceReference` surface (URI, trust level, metadata,
+/// entity stores the full `WorkspaceReference` surface (URI, trust level, status,
 /// origin attribution) needed by `WorkspacePersistenceProtocol`. Nested `tools` are
 /// stored separately as `ToolReferenceModel` rows keyed by `workspaceId`.
 @Model
@@ -346,8 +346,6 @@ public final class WorkspaceReferenceModel {
     public var trustLevelRaw: String
     public var lastModifiedBy: UUID?
     public var statusRaw: String
-    /// JSON-encoded `[String: AnyCodable]`.
-    public var metadataData: Data
     public var contextInjection: String?
     public var createdAt: Date
 
@@ -361,7 +359,6 @@ public final class WorkspaceReferenceModel {
         trustLevelRaw: String,
         lastModifiedBy: UUID? = nil,
         statusRaw: String,
-        metadataData: Data = Data("{}".utf8),
         contextInjection: String? = nil,
         createdAt: Date = .now
     ) {
@@ -374,7 +371,6 @@ public final class WorkspaceReferenceModel {
         self.trustLevelRaw = trustLevelRaw
         self.lastModifiedBy = lastModifiedBy
         self.statusRaw = statusRaw
-        self.metadataData = metadataData
         self.contextInjection = contextInjection
         self.createdAt = createdAt
     }
