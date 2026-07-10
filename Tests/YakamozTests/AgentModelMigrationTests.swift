@@ -32,8 +32,9 @@ struct AgentModelMigrationTests {
     func seedBuiltInsIdempotently() throws {
         let container = try makeContainer()
 
-        try AgentMigration.seedAndMigrate(modelContext: container.mainContext, vaultPath: { id in "/tmp/\(id)" })
-        try AgentMigration.seedAndMigrate(modelContext: container.mainContext, vaultPath: { id in "/tmp/\(id)" })
+        let vaultPath: (UUID) -> String = { id in "/tmp/\(id)" }
+        try AgentMigration.seedAndMigrate(modelContext: container.mainContext, vaultPath: vaultPath)
+        try AgentMigration.seedAndMigrate(modelContext: container.mainContext, vaultPath: vaultPath)
 
         let agents = try container.mainContext.fetch(FetchDescriptor<AgentModel>())
         #expect(agents.count == PersonaCatalog.builtIns.count)
@@ -41,6 +42,7 @@ struct AgentModelMigrationTests {
             let agent = try #require(agents.first { $0.seedSlug == persona.id })
             #expect(agent.name == persona.name)
             #expect(agent.instructions == persona.instructions)
+            #expect(agent.vaultPath == vaultPath(agent.id))
         }
     }
 

@@ -15,14 +15,14 @@ public enum AgentMigration {
         })
 
         for persona in PersonaCatalog.builtIns where agentsBySeedSlug[persona.id] == nil {
+            let id = UUID()
             let agent = AgentModel(
+                id: id,
                 name: persona.name,
                 instructions: persona.instructions,
-                vaultPath: vaultPath(UUID()),
+                vaultPath: vaultPath(id),
                 seedSlug: persona.id
             )
-            // The vault path must correspond to the persisted identity, not a throwaway UUID.
-            agent.vaultPath = vaultPath(agent.id)
             modelContext.insert(agent)
             agentsBySeedSlug[persona.id] = agent
         }

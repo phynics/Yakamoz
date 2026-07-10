@@ -43,13 +43,6 @@ struct PersonaPicker: View {
                 }
             }
 
-            Divider()
-            Button {
-                editingPersona = nil
-                isEditing = true
-            } label: {
-                Label("New Persona…", systemImage: "plus")
-            }
             if let editing = currentCustomPersona {
                 Button {
                     editingPersona = editing
@@ -78,8 +71,8 @@ struct PersonaPicker: View {
     }
 }
 
-/// Create/edit sheet for a custom `PersonaModel`. On save, inserts (or updates) the row and
-/// calls `onSave` with the persisted model so the caller can select it.
+/// Edit sheet for a migrated custom `PersonaModel`. New operators are persistent agents;
+/// ATW-3 will replace this legacy editor with the agent-facing UI.
 struct PersonaEditorView: View {
     let persona: PersonaModel?
     let onSave: (PersonaModel) -> Void
@@ -103,7 +96,7 @@ struct PersonaEditorView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(persona == nil ? "New Persona" : "Edit Persona")
+            Text("Edit Persona")
                 .font(.headline)
 
             Form {
@@ -130,23 +123,17 @@ struct PersonaEditorView: View {
     }
 
     private func save() {
-        let model: PersonaModel
-        if let persona {
-            persona.name = trimmedName
-            persona.systemInstructions = instructions
-            model = persona
-        } else {
-            model = PersonaModel(name: trimmedName, systemInstructions: instructions, builtIn: false)
-            modelContext.insert(model)
-        }
+        guard let persona else { return }
+        persona.name = trimmedName
+        persona.systemInstructions = instructions
         do {
             try modelContext.save()
         } catch {
             Log.appError("failed to save persona", metadata: [
-                "personaID": "\(model.id)",
+                "personaID": "\(persona.id)",
             ])
         }
-        onSave(model)
+        onSave(persona)
         dismiss()
     }
 }
