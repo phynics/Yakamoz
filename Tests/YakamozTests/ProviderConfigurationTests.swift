@@ -126,6 +126,57 @@ struct ProviderConfigurationTests {
         #expect(settings.model == "persisted-model")
     }
 
+    @Test("model catalog favorites and recents are scoped by provider and base URL")
+    func modelCatalogPreferencesAreScopedByProviderAndBaseURL() throws {
+        let defaults = makeDefaults()
+        let settings = ProviderSettings(defaults: defaults)
+        settings.applyPreset(.openAI)
+        settings.baseURL = try #require(URL(string: "https://api.openai.com/v1"))
+        settings.setModelFavorite("gpt-4o", isFavorite: true)
+        settings.recordRecentModelSelection("gpt-4o-mini")
+
+        settings.baseURL = try #require(URL(string: "https://custom-openai.example.com/v1"))
+        #expect(settings.isFavoriteModel("gpt-4o") == false)
+        #expect(settings.recentModelSelections() == [])
+
+        settings.applyPreset(.openRouter)
+        settings.baseURL = try #require(URL(string: "https://openrouter.ai/api/v1"))
+        #expect(settings.isFavoriteModel("gpt-4o") == false)
+        #expect(settings.recentModelSelections() == [])
+
+        settings.applyPreset(.openAI)
+        settings.baseURL = try #require(URL(string: "https://api.openai.com/v1"))
+        #expect(settings.isFavoriteModel("gpt-4o"))
+        #expect(settings.recentModelSelections() == ["gpt-4o-mini"])
+    }
+
+    @Test("ranked model catalog prefers favorites then recents and preserves the current model")
+    func rankedModelCatalogPrefersFavoritesThenRecentsAndPreservesCurrentModel() throws {
+        let defaults = makeDefaults()
+        let settings = ProviderSettings(defaults: defaults)
+        settings.applyPreset(.openAI)
+        settings.model = "custom-current-model"
+        settings.setModelFavorite("favorite-model", isFavorite: true)
+        settings.recordRecentModelSelection("recent-model")
+
+        let entries = ModelCatalogService.rankModels(
+            ["other-model", "favorite-model", "recent-model"],
+            currentModel: settings.model,
+            favorites: settings.favoriteModels(),
+            recents: settings.recentModelSelections()
+        )
+
+        #expect(entries.map(\.id) == [
+            "favorite-model",
+            "recent-model",
+            "custom-current-model",
+            "other-model",
+        ])
+        #expect(entries[0].isFavorite)
+        #expect(entries[1].isRecent)
+        #expect(entries[2].id == "custom-current-model")
+    }
+
     // MARK: - Generation / retry mapping
 
     @Test("generationParameters maps settings onto GenerationParameters")
