@@ -32,9 +32,16 @@ public struct ConversationCoordinator {
     }
     private let modelContext: ModelContext
     private let timelineStore: any TimelinePersistenceProtocol
-    public init(modelContext: ModelContext, timelineStore: any TimelinePersistenceProtocol) {
+    private let vaultFactory: AgentVaultFactory
+
+    public init(
+        modelContext: ModelContext,
+        timelineStore: any TimelinePersistenceProtocol,
+        vaultFactory: AgentVaultFactory = .init()
+    ) {
         self.modelContext = modelContext
         self.timelineStore = timelineStore
+        self.vaultFactory = vaultFactory
     }
 
     /// Inserts a new `ConversationModel` and a paired `Timeline` sharing the same id,
@@ -74,6 +81,48 @@ public struct ConversationCoordinator {
         }
 
         return conversation
+    }
+
+    /// Returns the agent's lazily-created private home conversation. A stale persisted id is
+    /// repaired by creating and storing a replacement conversation.
+    public func homeTimeline(for agentId: UUID) async throws -> ConversationModel {
+        guard let agent = try agentModel(id: agentId) else { throw OperatorError.agentNotFound }
+
+        if let homeTimelineId = agent.homeTimelineId {
+            let descriptor = FetchDescriptor<ConversationModel>(predicate: #Predicate { $0.id == homeTimelineId })
+            if let existing = try modelContext.fetch(descriptor).first,
+               existing.isHomeTimeline,
+               existing.agentId == agentId
+            {
+                return existing
+            }
+        }
+
+        let home = try await createConversation(agentId: agentId, isHomeTimeline: true)
+        agent.homeTimelineId = home.id
+        try modelContext.save()
+        return home
+    }
+
+    /// Deletes the agent-owned resources after the caller has obtained user confirmation.
+    /// Timelines the agent merely operated are retained but become unassigned.
+    public func deleteAgent(id: UUID) async throws {
+        guard let agent = try agentModel(id: id) else { throw OperatorError.agentNotFound }
+        let homeTimelineId = agent.homeTimelineId
+        let conversations = try modelContext.fetch(FetchDescriptor<ConversationModel>())
+        for conversation in conversations where conversation.agentId == id {
+            if conversation.id == homeTimelineId || conversation.isHomeTimeline {
+                modelContext.delete(conversation)
+                try await timelineStore.deleteTimeline(id: conversation.id)
+            } else {
+                conversation.agentId = nil
+                try await OperatorBackendBinding(modelContext: modelContext, timelineStore: timelineStore)
+                    .detachOperator(from: conversation.id)
+            }
+        }
+        modelContext.delete(agent)
+        try modelContext.save()
+        try vaultFactory.deleteVault(for: id)
     }
 
     public func setOperator(conversationId: UUID, agentId: UUID?) async throws {

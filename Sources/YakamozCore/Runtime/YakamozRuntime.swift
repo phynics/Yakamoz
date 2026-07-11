@@ -413,7 +413,9 @@ public actor YakamozRuntime: ChatRunning {
                 : [],
             onTimelineStateChange: onTimelineStateChange,
             onSidecarResults: onSidecarResults,
-            initialTranscript: loadedTranscript.transcript
+            initialTranscript: loadedTranscript.transcript,
+            turnScheduler: workspaceTurnScheduler,
+            turnKeys: turnKeys
         )
     }
 
@@ -482,6 +484,22 @@ public actor YakamozRuntime: ChatRunning {
     public func setOperator(modelContext: ModelContext, conversationId: UUID, agentId: UUID?) async throws {
         let coordinator = ConversationCoordinator(modelContext: modelContext, timelineStore: stores.timelines)
         try await coordinator.setOperator(conversationId: conversationId, agentId: agentId)
+    }
+
+    /// Returns the agent's home timeline, creating it only when its Chat tab is first opened.
+    @MainActor
+    public func homeTimeline(for agentId: UUID, modelContext: ModelContext) async throws -> ConversationModel {
+        let coordinator = ConversationCoordinator(modelContext: modelContext, timelineStore: stores.timelines)
+        return try await coordinator.homeTimeline(for: agentId)
+    }
+
+    /// Deletes an agent after the view has collected its destructive-action confirmation.
+    /// The cascade removes the home timeline and vault while retaining other timelines as
+    /// unassigned conversations.
+    @MainActor
+    public func deleteAgent(id: UUID, modelContext: ModelContext) async throws {
+        let coordinator = ConversationCoordinator(modelContext: modelContext, timelineStore: stores.timelines)
+        try await coordinator.deleteAgent(id: id)
     }
 
     /// ChatRunning conformance that resolves the latest settings and API key on each turn.
@@ -556,7 +574,8 @@ public actor YakamozRuntime: ChatRunning {
                     sectionProviders: [
                         CurrentTimeSectionProvider(),
                         AgentVaultPromptSectionProvider(
-                            agentForInstance: AgentVaultPromptSectionProvider.lookup(in: modelContainer)
+                            agentForInstance: AgentVaultPromptSectionProvider.lookup(in: modelContainer),
+                            isHomeTimeline: AgentVaultPromptSectionProvider.homeTimelineLookup(in: modelContainer)
                         ),
                     ],
                     promptInspector: inspector,

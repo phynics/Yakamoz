@@ -100,6 +100,7 @@ public final class ConversationModel {
         get { agentId }
         set { agentId = newValue }
     }
+
     public var enabledToolIds: [String]
     /// When `true`, sidecar directives (title, section_title) ride on each turn.
     public var sidecarDirectivesEnabled: Bool
@@ -120,7 +121,9 @@ public final class ConversationModel {
     public var timelineStateUpdatedAt: Date = Date()
 
     /// Compatibility spelling retained for callers that need the complete attachment list.
-    public var allAttachedWorkspaceIds: [UUID] { attachedWorkspaceIds }
+    public var allAttachedWorkspaceIds: [UUID] {
+        attachedWorkspaceIds
+    }
 
     public var timelineState: ConversationTimelineState {
         get { ConversationTimelineState(rawValue: timelineStateRaw) ?? .idle }

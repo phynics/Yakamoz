@@ -303,6 +303,7 @@ public enum WorkspaceAttachmentSupport {
     /// the ids of pruned terminal workspaces so the caller can terminate their live sessions.
     @discardableResult
     public static func deleteConversation(_ conversation: ConversationModel, modelContext: ModelContext) -> [UUID] {
+        guard !conversation.isHomeTimeline else { return [] }
         modelContext.delete(conversation)
         do {
             try modelContext.save()

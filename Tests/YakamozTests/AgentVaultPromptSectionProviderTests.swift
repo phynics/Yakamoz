@@ -73,6 +73,30 @@ struct AgentVaultPromptSectionProviderTests {
         #expect(byID["yakamoz.agent-vault.index"] == "index-body")
     }
 
+    @Test("home timelines include principal framing beside the vault sections")
+    func homeTimelineIncludesPrincipalFraming() async throws {
+        let root = try makeVault(workflow: "workflow-body", notes: "notes-body", index: "index-body")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let agentID = UUID()
+        let timelineID = UUID()
+        let provider = AgentVaultPromptSectionProvider(
+            agentForInstance: { _ in AgentVaultSnapshot(id: agentID, instructions: "You are a test agent.") },
+            rootForAgent: { _ in root },
+            isHomeTimeline: { $0 == timelineID }
+        )
+
+        let sections = await provider.sections(for: .init(timelineId: timelineID, agentInstanceId: agentID, message: "hi"))
+
+        #expect(ids(sections) == [
+            "yakamoz.agent-vault.instructions",
+            "yakamoz.agent-vault.home",
+            "yakamoz.agent-vault.workflow",
+            "yakamoz.agent-vault.notes",
+            "yakamoz.agent-vault.index",
+        ])
+        #expect((await renderedText(for: sections))["yakamoz.agent-vault.home"]?.contains("principal") == true)
+    }
+
     @Test("no agentInstanceId injects nothing and does not throw")
     func noAgentInstanceInjectsNothing() async throws {
         let root = try makeVault(workflow: "w", notes: "n", index: "i")

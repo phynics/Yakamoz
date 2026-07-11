@@ -38,6 +38,7 @@ public struct AgentVaultPromptSectionProvider: PromptSectionProviding {
 
     private let agentForInstance: @Sendable (UUID) async -> AgentVaultSnapshot?
     private let rootForAgent: @Sendable (UUID) -> URL
+    private let isHomeTimeline: @Sendable (UUID) async -> Bool
 
     /// - Parameters:
     ///   - agentForInstance: Resolves a backend instance id to the owning agent snapshot
@@ -49,10 +50,12 @@ public struct AgentVaultPromptSectionProvider: PromptSectionProviding {
     ///     `AgentVaultFactory().vaultRoot(for:)`.
     public init(
         agentForInstance: @escaping @Sendable (UUID) async -> AgentVaultSnapshot? = { _ in nil },
-        rootForAgent: @escaping @Sendable (UUID) -> URL = { AgentVaultFactory().vaultRoot(for: $0) }
+        rootForAgent: @escaping @Sendable (UUID) -> URL = { AgentVaultFactory().vaultRoot(for: $0) },
+        isHomeTimeline: @escaping @Sendable (UUID) async -> Bool = { _ in false }
     ) {
         self.agentForInstance = agentForInstance
         self.rootForAgent = rootForAgent
+        self.isHomeTimeline = isHomeTimeline
     }
 
     public func sections(for context: PromptBuildContext) async -> [any Prompt] {
@@ -69,6 +72,18 @@ public struct AgentVaultPromptSectionProvider: PromptSectionProviding {
                 TextPrompt(
                     agent.instructions,
                     id: Self.sectionPrefix + "instructions",
+                    priority: PromptPriority.high.rawValue,
+                    compression: .keep,
+                    cachePolicy: .volatile
+                )
+            )
+        }
+
+        if await isHomeTimeline(context.timelineId) {
+            sections.append(
+                TextPrompt(
+                    AgentVaultFactory.homeTimelineTemplate,
+                    id: Self.sectionPrefix + "home",
                     priority: PromptPriority.high.rawValue,
                     compression: .keep,
                     cachePolicy: .volatile
@@ -121,6 +136,16 @@ public struct AgentVaultPromptSectionProvider: PromptSectionProviding {
             )
             guard let agent = try? context.fetch(descriptor).first else { return nil }
             return AgentVaultSnapshot(id: agent.id, instructions: agent.instructions)
+        }
+    }
+
+    /// Resolves whether a prompt's timeline is an agent home timeline without sharing a
+    /// `ModelContext` across concurrency domains.
+    public static func homeTimelineLookup(in container: ModelContainer) -> @Sendable (UUID) async -> Bool {
+        { timelineID in
+            let context = ModelContext(container)
+            let descriptor = FetchDescriptor<ConversationModel>(predicate: #Predicate { $0.id == timelineID })
+            return (try? context.fetch(descriptor).first?.isHomeTimeline) ?? false
         }
     }
 }
