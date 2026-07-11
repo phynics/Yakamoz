@@ -495,7 +495,10 @@ public actor YakamozRuntime: ChatRunning {
                 ),
                 runtime: .init(
                     workspaceCreator: FileSystemWorkspaceFactory(),
-                    sectionProviders: [CurrentTimeSectionProvider()],
+                    sectionProviders: [
+                        CurrentTimeSectionProvider(),
+                        AgentVaultPromptSectionProvider(),
+                    ],
                     promptInspector: inspector,
                     toolApprovalGate: toolApprovalGate
                 ),
