@@ -125,6 +125,14 @@ struct MessageBubble: View {
                     onSelectPromptOption(id, option)
                 }
             }
+
+        case let .system(_, text, _):
+            TranscriptRowFrame(presentation: TranscriptRowPresentation(role: .system, isSelected: false)) {
+                Text(text)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 }
@@ -521,7 +529,7 @@ private extension TranscriptRowPresentation {
             Color.orange.opacity(0.82)
         case .error:
             Color.red
-        case .prompt:
+        case .prompt, .system:
             Color.secondary.opacity(0.85)
         }
     }

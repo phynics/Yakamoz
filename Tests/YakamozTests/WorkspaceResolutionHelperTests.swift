@@ -21,17 +21,6 @@ struct WorkspaceResolutionHelperTests {
         #expect(resolved.map(\.id) == [w2.id, w1.id])
     }
 
-    @Test func legacySingleAttachIdAppearsFirst() {
-        let c = ConversationModel(title: "t")
-        let legacy = WorkspaceModel(displayName: "legacy", folderPath: "/legacy")
-        let extra = WorkspaceModel(displayName: "extra", folderPath: "/extra")
-        c.workspaceId = legacy.id
-        c.attachedWorkspaceIds = [extra.id]
-
-        let resolved = WorkspaceResolutionHelper.attachedWorkspaces(for: c, in: [extra, legacy])
-        #expect(resolved.map(\.id) == [legacy.id, extra.id])
-    }
-
     @Test func missingIdsAreFilteredOut() {
         let c = ConversationModel(title: "t")
         let present = WorkspaceModel(displayName: "present", folderPath: "/present")
@@ -42,14 +31,4 @@ struct WorkspaceResolutionHelperTests {
         #expect(resolved.map(\.id) == [present.id])
     }
 
-    @Test func legacyWorkspaceIdAlreadyInAttachedListIsNotDuplicated() {
-        let c = ConversationModel(title: "t")
-        let shared = WorkspaceModel(displayName: "shared", folderPath: "/shared")
-        c.workspaceId = shared.id
-        c.attachedWorkspaceIds = [shared.id]
-
-        let resolved = WorkspaceResolutionHelper.attachedWorkspaces(for: c, in: [shared])
-        #expect(resolved.map(\.id) == [shared.id])
-        #expect(resolved.count == 1)
-    }
 }

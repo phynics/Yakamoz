@@ -40,7 +40,6 @@ struct ConversationToolSupportTests {
         _ = WorkspaceAttachmentSupport.attachWorkspace(to: conversation, modelContext: modelContext, url: url)
 
         let effective = ConversationToolSupport.effectiveEnabledToolIDs(conversation.enabledToolIds, hasWorkspace: true)
-        #expect(conversation.workspaceId != nil)
         #expect(effective.contains("calculator"))
         #expect(!effective.contains("current_datetime"))
         #expect(Set(FileSystemWorkspace.toolIds).isSubset(of: effective))
@@ -58,7 +57,6 @@ struct ConversationToolSupportTests {
         _ = WorkspaceAttachmentSupport.attachWorkspace(to: conversation, modelContext: modelContext, url: url)
         WorkspaceAttachmentSupport.detachWorkspace(from: conversation, modelContext: modelContext)
 
-        #expect(conversation.workspaceId == nil)
         #expect(conversation.enabledToolIds == ["calculator"])
     }
 

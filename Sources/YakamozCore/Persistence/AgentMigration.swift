@@ -42,16 +42,13 @@ public enum AgentMigration {
             try vaultFactory.createVault(for: agent)
         }
 
-        let conversations = try modelContext.fetch(FetchDescriptor<ConversationModel>())
-        for conversation in conversations where conversation.agentId == nil {
-            if let personaID = conversation.personaId,
-               personas.contains(where: { $0.id == personaID && !$0.builtIn })
-            {
-                conversation.agentId = personaID
-            } else if let slug = conversation.personaSlug {
-                conversation.agentId = agentsBySeedSlug[slug]?.id
-            }
+        // A schema migration may have created a seeded agent before the runtime's normal
+        // seeding pass. Ensure those already-persisted agents receive the same idempotent
+        // vault initialization as newly created rows.
+        for agent in try modelContext.fetch(FetchDescriptor<AgentModel>()) {
+            try vaultFactory.createVault(for: agent)
         }
+
         try modelContext.save()
     }
 }

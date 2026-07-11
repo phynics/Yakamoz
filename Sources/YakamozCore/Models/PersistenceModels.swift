@@ -19,7 +19,24 @@ public enum YakamozSchema {
         AgentTemplateModel.self,
         RequestOriginModel.self,
         TimelineAnnotationModel.self,
+        ConversationMigrationPayload.self,
     ]
+}
+
+/// Durable, per-store bridge used only while migrating legacy conversation columns.
+@Model
+public final class ConversationMigrationPayload {
+    @Attribute(.unique) public var conversationId: UUID
+    public var personaId: UUID?
+    public var workspaceId: UUID?
+    public var personaSlug: String?
+
+    public init(conversationId: UUID, personaId: UUID?, workspaceId: UUID?, personaSlug: String?) {
+        self.conversationId = conversationId
+        self.personaId = personaId
+        self.workspaceId = workspaceId
+        self.personaSlug = personaSlug
+    }
 }
 
 /// Sidebar-facing conversation activity state (YAK-29).
@@ -55,8 +72,7 @@ public enum ConversationTimelineState: String, Codable, Sendable, CaseIterable {
 /// conversation pairs on one shared `UUID` (see `ConversationCoordinator`):
 /// - `ConversationModel` (this type) is the **UI shell** and is the source of truth
 ///   for the user-facing conversation surface the app drives directly: `title`,
-///   `createdAt`, persona/tool selection (`personaId`, `personaSlug`, `enabledToolIds`),
-///   attached `workspaceId`, and the typed-reply / autonomous-follow-up toggles.
+///   `createdAt`, operator/tool selection, attached workspaces, and timeline state.
 /// - `TimelineModel` is the **PositronicKit-protocol surface** (`TimelinePersistenceProtocol`)
 ///   and owns the runtime timeline lifecycle: `isArchived`, `workingDirectory`,
 ///   attached workspace/agent ids, `isPrivate`, and `updatedAt`.
@@ -72,16 +88,13 @@ public final class ConversationModel {
     @Attribute(.unique) public var id: UUID
     public var title: String
     public var createdAt: Date
-    public var personaId: UUID?
-    /// The persisted operator for this timeline. `personaId` remains temporarily for
-    /// lightweight migration while persona-driven UI is retired in ATW-3.
     public var agentId: UUID?
+    /// Preferred domain spelling; `agentId` remains the persisted compatibility slot.
+    public var operatorId: UUID? {
+        get { agentId }
+        set { agentId = newValue }
+    }
     public var enabledToolIds: [String]
-    public var workspaceId: UUID?
-    /// Stable persona slug ("helpful"/"reviewer"/...) for built-in personas, or the
-    /// `UUID` string of a custom `PersonaModel`. Distinct from `personaId` (the
-    /// agent-instance linkage); this drives the toolbar persona picker selection.
-    public var personaSlug: String?
     /// When `true`, sidecar directives (title, section_title) ride on each turn.
     public var sidecarDirectivesEnabled: Bool
     /// SID-1 cadence state: `false` until the `title` sidecar directive first returns a
@@ -92,20 +105,16 @@ public final class ConversationModel {
     /// Turns elapsed since the last accepted title directive (reset to 0 on acceptance,
     /// incremented once per completed turn). Feeds `TitleSidecarSchedule.isDue`.
     public var turnsSinceLastTitleDirective: Int = 0
-    /// Multi-attach workspace ids (YAK-T1). `workspaceId` is the deprecated single-attach
-    /// predecessor, retained only so existing stores migrate without a versioned schema.
+    /// Workspace ids in attachment order.
     public var attachedWorkspaceIds: [UUID] = []
+    public var isHomeTimeline: Bool = false
     /// Persisted list-facing state (YAK-29). Stored as a raw string for lightweight migration.
     public var timelineStateRaw: String = ConversationTimelineState.idle.rawValue
     /// Timestamp of the last state transition used for sidebar prioritization among peers.
     public var timelineStateUpdatedAt: Date = Date()
 
-    /// Legacy single id folded with the new array; the rest of the app reads this.
-    public var allAttachedWorkspaceIds: [UUID] {
-        var ids = attachedWorkspaceIds
-        if let legacy = workspaceId, !ids.contains(legacy) { ids.insert(legacy, at: 0) }
-        return ids
-    }
+    /// Compatibility spelling retained for callers that need the complete attachment list.
+    public var allAttachedWorkspaceIds: [UUID] { attachedWorkspaceIds }
 
     public var timelineState: ConversationTimelineState {
         get { ConversationTimelineState(rawValue: timelineStateRaw) ?? .idle }
@@ -116,12 +125,10 @@ public final class ConversationModel {
         id: UUID = UUID(),
         title: String,
         createdAt: Date = .now,
-        personaId: UUID? = nil,
         agentId: UUID? = nil,
         enabledToolIds: [String] = [],
-        workspaceId: UUID? = nil,
         attachedWorkspaceIds: [UUID] = [],
-        personaSlug: String? = nil,
+        isHomeTimeline: Bool = false,
         sidecarDirectivesEnabled: Bool = false,
         hasReceivedTitleDirective: Bool = false,
         turnsSinceLastTitleDirective: Int = 0,
@@ -131,12 +138,10 @@ public final class ConversationModel {
         self.id = id
         self.title = title
         self.createdAt = createdAt
-        self.personaId = personaId
         self.agentId = agentId
         self.enabledToolIds = enabledToolIds
-        self.workspaceId = workspaceId
         self.attachedWorkspaceIds = attachedWorkspaceIds
-        self.personaSlug = personaSlug
+        self.isHomeTimeline = isHomeTimeline
         self.sidecarDirectivesEnabled = sidecarDirectivesEnabled
         self.hasReceivedTitleDirective = hasReceivedTitleDirective
         self.turnsSinceLastTitleDirective = turnsSinceLastTitleDirective
@@ -262,6 +267,8 @@ public final class AgentModel {
     public var defaultModel: String?
     public var defaultEnabledToolIds: [String]?
     public var createdAt: Date
+    /// PositronicKit runtime instance used by the active local backend.
+    public var backendInstanceId: UUID?
 
     public init(
         id: UUID = UUID(),
@@ -272,7 +279,8 @@ public final class AgentModel {
         seedSlug: String? = nil,
         defaultModel: String? = nil,
         defaultEnabledToolIds: [String]? = nil,
-        createdAt: Date = Date()
+        createdAt: Date = Date(),
+        backendInstanceId: UUID? = nil
     ) {
         self.id = id
         self.name = name
@@ -283,8 +291,13 @@ public final class AgentModel {
         self.defaultModel = defaultModel
         self.defaultEnabledToolIds = defaultEnabledToolIds
         self.createdAt = createdAt
+        self.backendInstanceId = backendInstanceId
     }
 }
+
+/// Yakamoz's user-facing operator identity. PositronicKit's `AgentInstance` remains
+/// the backend runtime identity and is linked through `backendInstanceId`.
+public typealias OperatorModel = AgentModel
 
 /// A persisted folder-backed workspace reference.
 /// Discriminates a `WorkspaceModel` between a plain folder workspace and a terminal

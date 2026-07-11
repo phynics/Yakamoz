@@ -17,9 +17,21 @@ import SwiftData
 /// e.g. `fetchAllTimelines`) expects every conversation to have a corresponding row.
 @MainActor
 public struct ConversationCoordinator {
+    public enum OperatorError: Error, Equatable, LocalizedError {
+        case conversationNotFound
+        case agentNotFound
+        case homeTimelineOperatorIsFixed
+
+        public var errorDescription: String? {
+            switch self {
+            case .conversationNotFound: "Conversation not found."
+            case .agentNotFound: "Operator not found."
+            case .homeTimelineOperatorIsFixed: "A home timeline's operator cannot be changed."
+            }
+        }
+    }
     private let modelContext: ModelContext
     private let timelineStore: any TimelinePersistenceProtocol
-
     public init(modelContext: ModelContext, timelineStore: any TimelinePersistenceProtocol) {
         self.modelContext = modelContext
         self.timelineStore = timelineStore
@@ -30,9 +42,13 @@ public struct ConversationCoordinator {
     @discardableResult
     public func createConversation(
         title: String = "New Chat",
-        personaId: UUID? = nil,
-        workspaceId: UUID? = nil
+        agentId: UUID? = nil,
+        attachedWorkspaceIds: [UUID] = [],
+        isHomeTimeline: Bool = false
     ) async throws -> ConversationModel {
+        if let agentId, try agentName(id: agentId) == nil {
+            throw OperatorError.agentNotFound
+        }
         let id = UUID()
         let now = Date()
 
@@ -40,16 +56,73 @@ public struct ConversationCoordinator {
             id: id,
             title: title,
             createdAt: now,
-            personaId: personaId,
-            workspaceId: workspaceId
+            agentId: agentId,
+            attachedWorkspaceIds: attachedWorkspaceIds,
+            isHomeTimeline: isHomeTimeline
         )
         modelContext.insert(conversation)
         try modelContext.save()
 
-        let timeline = Timeline(id: id, title: title, createdAt: now, updatedAt: now)
+        let timeline = Timeline(id: id, title: title, createdAt: now, updatedAt: now, attachedWorkspaceIds: attachedWorkspaceIds)
         try await timelineStore.saveTimeline(timeline)
 
+        if let agentId,
+           let operatorModel = try agentModel(id: agentId)
+        {
+            let binding = OperatorBackendBinding(modelContext: modelContext, timelineStore: timelineStore)
+            try await binding.attachOperator(operatorModel, to: id)
+        }
+
         return conversation
+    }
+
+    public func setOperator(conversationId: UUID, agentId: UUID?) async throws {
+        let descriptor = FetchDescriptor<ConversationModel>(predicate: #Predicate { $0.id == conversationId })
+        guard let conversation = try modelContext.fetch(descriptor).first else { throw OperatorError.conversationNotFound }
+        guard !conversation.isHomeTimeline else { throw OperatorError.homeTimelineOperatorIsFixed }
+        let previousId = conversation.agentId
+        guard previousId != agentId else { return }
+        let oldName = try agentName(id: previousId) ?? "none"
+        let newName: String
+        if let agentId {
+            guard let resolved = try agentName(id: agentId) else { throw OperatorError.agentNotFound }
+            newName = resolved
+        } else {
+            newName = "none"
+        }
+        let binding = OperatorBackendBinding(modelContext: modelContext, timelineStore: timelineStore)
+        if previousId != nil { try await binding.detachOperator(from: conversationId) }
+        if let agentId, let operatorModel = try agentModel(id: agentId) {
+            try await binding.attachOperator(operatorModel, to: conversationId)
+        }
+        conversation.agentId = agentId
+        modelContext.insert(MessageModel(
+            conversationId: conversationId,
+            role: "system",
+            content: "Operator changed: \(oldName) → \(newName)"
+        ))
+        try modelContext.save()
+    }
+
+    private func agentName(id: UUID?) throws -> String? {
+        guard let id else { return nil }
+        var descriptor = FetchDescriptor<AgentModel>(predicate: #Predicate { $0.id == id })
+        descriptor.fetchLimit = 1
+        return try modelContext.fetch(descriptor).first?.name
+    }
+
+    private func agentModel(id: UUID) throws -> OperatorModel? {
+        var descriptor = FetchDescriptor<OperatorModel>(predicate: #Predicate { $0.id == id })
+        descriptor.fetchLimit = 1
+        return try modelContext.fetch(descriptor).first
+    }
+
+    public func fetchStandardConversations() throws -> [ConversationModel] {
+        let descriptor = FetchDescriptor<ConversationModel>(
+            predicate: #Predicate { !$0.isHomeTimeline },
+            sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
+        )
+        return try modelContext.fetch(descriptor)
     }
 
     /// Applies a `title` sidecar directive's outcome (SID-1): a non-null value replaces

@@ -51,10 +51,11 @@ struct ToolWorkspaceSecurityTests {
             secrets: secrets,
             llmServiceFactory: { _ in mock }
         )
+        let agentID = try #require(try container.mainContext.fetch(FetchDescriptor<AgentModel>()).first?.id)
 
         let conversation = try await runtime.createConversation(
             modelContext: ModelContext(container),
-            title: "YAK-33-regression"
+            title: "YAK-33-regression", agentId: agentID
         )
         let timelineId = conversation.id
 

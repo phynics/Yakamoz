@@ -35,6 +35,10 @@ struct InspectableChatIntegrationTests {
         return settings
     }
 
+    private func seededAgentID(in container: ModelContainer) throws -> UUID {
+        try #require(try container.mainContext.fetch(FetchDescriptor<AgentModel>()).first?.id)
+    }
+
     @Test("A full user→tool→assistant turn is inspectable live and after reopening from disk")
     func fullTurnIsInspectableAndReopenable() async throws {
         let container = try makeModelContainer()
@@ -65,7 +69,7 @@ struct InspectableChatIntegrationTests {
 
         let conversation = try await runtime.createConversation(
             modelContext: ModelContext(container),
-            title: "E2E"
+            title: "E2E", agentId: try seededAgentID(in: container)
         )
         let timelineId = conversation.id
 
@@ -211,7 +215,7 @@ struct InspectableChatIntegrationTests {
 
         let conversation = try await runtime.createConversation(
             modelContext: ModelContext(container),
-            title: "YAK-19"
+            title: "YAK-19", agentId: try seededAgentID(in: container)
         )
         let timelineId = conversation.id
 
@@ -268,7 +272,7 @@ struct InspectableChatIntegrationTests {
 
         let conversation = try await runtime.createConversation(
             modelContext: ModelContext(container),
-            title: "YAK-15"
+            title: "YAK-15", agentId: try seededAgentID(in: container)
         )
         let timelineId = conversation.id
 
@@ -340,7 +344,7 @@ struct InspectableChatIntegrationTests {
 
         let conversation = try await runtime.createConversation(
             modelContext: ModelContext(container),
-            title: "YAK-16"
+            title: "YAK-16", agentId: try seededAgentID(in: container)
         )
         let timelineId = conversation.id
 

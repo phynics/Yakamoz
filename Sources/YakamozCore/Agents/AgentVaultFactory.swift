@@ -8,7 +8,9 @@ import Foundation
 /// Injecting `baseDirectory` (rather than hardcoding `FileManager`'s application-support
 /// lookup) is what lets tests point the factory at a temp directory instead of the real
 /// `~/Library/Application Support`.
-public struct AgentVaultFactory: Sendable {
+/// `FileManager` is thread-safe; this immutable wrapper documents the unchecked boundary.
+/// Without it Swift 6 diagnoses the stored `FileManager` as non-Sendable.
+public struct AgentVaultFactory: @unchecked Sendable {
     private let baseDirectory: URL
     private let fileManager: FileManager
 

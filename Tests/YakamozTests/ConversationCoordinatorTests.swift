@@ -36,7 +36,7 @@ struct ConversationCoordinatorTests {
         #expect(timeline?.title == "Hello World")
     }
 
-    @Test("createConversation propagates personaId and workspaceId onto the ConversationModel")
+    @Test("createConversation propagates agent and workspace associations")
     func propagatesOptionalAssociations() async throws {
         let container = try makeContainer()
         let stores = YakamozStores(modelContainer: container)
@@ -44,17 +44,117 @@ struct ConversationCoordinatorTests {
             modelContext: container.mainContext,
             timelineStore: stores.timelines
         )
-        let personaId = UUID()
+        let agent = AgentModel(name: "Ada", instructions: "A", vaultPath: "/tmp/a")
+        container.mainContext.insert(agent)
+        try container.mainContext.save()
         let workspaceId = UUID()
 
         let conversation = try await coordinator.createConversation(
             title: "Scoped Chat",
-            personaId: personaId,
-            workspaceId: workspaceId
+            agentId: agent.id,
+            attachedWorkspaceIds: [workspaceId]
         )
 
-        #expect(conversation.personaId == personaId)
-        #expect(conversation.workspaceId == workspaceId)
+        #expect(conversation.agentId == agent.id)
+        #expect(conversation.attachedWorkspaceIds == [workspaceId])
+        #expect(agent.backendInstanceId == agent.id)
+        let timeline = try #require(await stores.timelines.fetchTimeline(id: conversation.id))
+        #expect(timeline.attachedAgentInstanceId == agent.id)
+    }
+
+    @Test("operator swap updates the agent and appends one named system marker")
+    func operatorSwapPersistsHandoffMarker() async throws {
+        let container = try makeContainer()
+        let stores = YakamozStores(modelContainer: container)
+        let first = AgentModel(name: "Ada", instructions: "A", vaultPath: "/tmp/a")
+        let second = AgentModel(name: "Grace", instructions: "B", vaultPath: "/tmp/b")
+        container.mainContext.insert(first)
+        container.mainContext.insert(second)
+        try container.mainContext.save()
+        let coordinator = ConversationCoordinator(
+            modelContext: container.mainContext,
+            timelineStore: stores.timelines
+        )
+        let conversation = try await coordinator.createConversation(title: "Swap", agentId: first.id)
+        container.mainContext.insert(MessageModel(conversationId: conversation.id, role: "user", content: "existing"))
+        try container.mainContext.save()
+
+        try await coordinator.setOperator(conversationId: conversation.id, agentId: second.id)
+
+        #expect(conversation.agentId == second.id)
+        let messages = try await stores.messages.fetchMessages(for: conversation.id)
+        #expect(messages.count == 2)
+        #expect(messages.first?.content == "existing")
+        #expect(messages.last?.role == "system")
+        #expect(messages.last?.content == "Operator changed: Ada → Grace")
+        #expect(first.backendInstanceId == first.id)
+        #expect(second.backendInstanceId == second.id)
+        let timeline = try #require(await stores.timelines.fetchTimeline(id: conversation.id))
+        #expect(timeline.attachedAgentInstanceId == second.id)
+    }
+
+    @Test("createConversation persists workspace order and home timeline flag")
+    func persistsWorkspaceOrderAndHomeFlag() async throws {
+        let container = try makeContainer()
+        let stores = YakamozStores(modelContainer: container)
+        let coordinator = ConversationCoordinator(modelContext: container.mainContext, timelineStore: stores.timelines)
+        let ids = [UUID(), UUID()]
+
+        let conversation = try await coordinator.createConversation(
+            attachedWorkspaceIds: ids,
+            isHomeTimeline: true
+        )
+
+        #expect(conversation.attachedWorkspaceIds == ids)
+        #expect(conversation.isHomeTimeline)
+        #expect(try await stores.timelines.fetchTimeline(id: conversation.id)?.attachedWorkspaceIds == ids)
+    }
+
+    @Test("operator transitions to and from none each append exactly one marker")
+    func nilOperatorTransitions() async throws {
+        let container = try makeContainer()
+        let stores = YakamozStores(modelContainer: container)
+        let agent = AgentModel(name: "Ada", instructions: "A", vaultPath: "/tmp/a")
+        container.mainContext.insert(agent)
+        try container.mainContext.save()
+        let coordinator = ConversationCoordinator(modelContext: container.mainContext, timelineStore: stores.timelines)
+        let conversation = try await coordinator.createConversation()
+        try await coordinator.setOperator(conversationId: conversation.id, agentId: agent.id)
+        try await coordinator.setOperator(conversationId: conversation.id, agentId: nil)
+        let messages = try await stores.messages.fetchMessages(for: conversation.id)
+        #expect(messages.map(\.content) == ["Operator changed: none → Ada", "Operator changed: Ada → none"])
+    }
+
+    @Test("home timeline operator cannot be swapped")
+    func homeOperatorIsFixed() async throws {
+        let container = try makeContainer()
+        let stores = YakamozStores(modelContainer: container)
+        let coordinator = ConversationCoordinator(modelContext: container.mainContext, timelineStore: stores.timelines)
+        let conversation = try await coordinator.createConversation(isHomeTimeline: true)
+        await #expect(throws: ConversationCoordinator.OperatorError.homeTimelineOperatorIsFixed) {
+            try await coordinator.setOperator(conversationId: conversation.id, agentId: nil)
+        }
+    }
+
+    @Test("standard conversation query excludes home timelines")
+    func standardQueryExcludesHomes() async throws {
+        let container = try makeContainer()
+        let stores = YakamozStores(modelContainer: container)
+        let coordinator = ConversationCoordinator(modelContext: container.mainContext, timelineStore: stores.timelines)
+        let standard = try await coordinator.createConversation(title: "Standard")
+        _ = try await coordinator.createConversation(title: "Home", isHomeTimeline: true)
+        #expect(try coordinator.fetchStandardConversations().map(\.id) == [standard.id])
+    }
+
+    @Test("runtime refuses to run an unassigned conversation")
+    func unassignedRunThrows() async throws {
+        let container = try makeContainer()
+        let defaults = try #require(UserDefaults(suiteName: "ConversationCoordinatorTests.\(UUID())"))
+        let runtime = try YakamozRuntime(modelContainer: container, settings: ProviderSettings(defaults: defaults), secrets: FakeSecretStore(), llmServiceFactory: { _ in MockLLMService() })
+        let conversation = try await runtime.createConversation(modelContext: container.mainContext)
+        await #expect(throws: ConversationRunError.operatorRequired) {
+            _ = try await runtime.run(ChatRunRequest(timelineId: conversation.id, message: "hello", tools: []))
+        }
     }
 
     @Test("YakamozRuntime.createConversation delegates to the same pairing logic")

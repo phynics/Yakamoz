@@ -49,33 +49,78 @@ struct AgentModelMigrationTests {
         }
     }
 
-    @Test("Migration preserves custom identity and maps built-in conversation")
+    @Test("Seeding repairs the vault for an already-migrated built-in agent")
     @MainActor
-    func migratesPersonasAndConversationReferences() throws {
+    func seedBuiltInsRepairsExistingAgentVault() throws {
         let container = try makeContainer()
-        let customPersona = PersonaModel(name: "Custom", systemInstructions: "Use diagrams.")
-        let customPersonaID = customPersona.id
-        let customConversation = ConversationModel(title: "Custom", personaId: customPersonaID)
-        let builtInConversation = ConversationModel(title: "Built in", personaSlug: "reviewer")
-        container.mainContext.insert(customPersona)
-        container.mainContext.insert(customConversation)
-        container.mainContext.insert(builtInConversation)
-        try container.mainContext.save()
-
         let tempRoot = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        let vaultFactory = AgentVaultFactory(baseDirectory: tempRoot)
+        let reviewer = try #require(PersonaCatalog.builtIn(id: "reviewer"))
+        let id = UUID()
+        let agent = AgentModel(
+            id: id,
+            name: reviewer.name,
+            instructions: reviewer.instructions,
+            vaultPath: vaultFactory.vaultRoot(for: id).path,
+            seedSlug: reviewer.id
+        )
+        container.mainContext.insert(agent)
+        try container.mainContext.save()
+
         try AgentMigration.seedAndMigrate(
             modelContext: container.mainContext,
-            vaultPath: { id in "/tmp/\(id)" },
-            vaultFactory: AgentVaultFactory(baseDirectory: tempRoot)
+            vaultPath: { agentID in vaultFactory.vaultRoot(for: agentID).path },
+            vaultFactory: vaultFactory
         )
 
-        let customAgent = try #require(try container.mainContext.fetch(FetchDescriptor<AgentModel>(predicate: #Predicate { $0.id == customPersonaID })).first)
-        #expect(customAgent.name == "Custom")
-        #expect(customAgent.instructions == "Use diagrams.")
-        #expect(customConversation.agentId == customPersonaID)
+        #expect(FileManager.default.fileExists(atPath: agent.vaultPath))
+        #expect(FileManager.default.fileExists(atPath: URL(filePath: agent.vaultPath).appending(path: "WORKFLOW.md").path))
+    }
 
-        let reviewer = try #require(try container.mainContext.fetch(FetchDescriptor<AgentModel>(predicate: #Predicate { $0.seedSlug == "reviewer" })).first)
-        #expect(builtInConversation.agentId == reviewer.id)
+    @Test("Versioned schema migration preserves legacy operator and workspace references")
+    @MainActor
+    func migratesPersonasAndConversationReferences() throws {
+        let storeURL = FileManager.default.temporaryDirectory.appending(path: "YakamozMigration-\(UUID()).store")
+        defer { try? FileManager.default.removeItem(at: storeURL) }
+        let customPersonaID = UUID()
+        let legacyWorkspaceID = UUID()
+        do {
+            let schema = Schema(versionedSchema: YakamozSchemaV1.self)
+            let container = try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, url: storeURL))
+            container.mainContext.insert(YakamozSchemaV1.ConversationModel(
+                title: "Legacy", personaId: customPersonaID, workspaceId: legacyWorkspaceID,
+                attachedWorkspaceIds: [UUID()]
+            ))
+            try container.mainContext.save()
+        }
+        let schema = Schema(versionedSchema: YakamozSchemaV2.self)
+        let migrated = try ModelContainer(for: schema, migrationPlan: YakamozMigrationPlan.self,
+                                          configurations: ModelConfiguration(schema: schema, url: storeURL))
+        let conversation = try #require(try migrated.mainContext.fetch(FetchDescriptor<ConversationModel>()).first)
+        #expect(conversation.agentId == customPersonaID)
+        #expect(conversation.attachedWorkspaceIds.first == legacyWorkspaceID)
+    }
+
+    @Test("Versioned migration seeds and resolves a built-in persona slug")
+    @MainActor
+    func migratesBuiltInSlugWithoutExistingAgents() throws {
+        let storeURL = FileManager.default.temporaryDirectory.appending(path: "YakamozSlugMigration-\(UUID()).store")
+        defer { try? FileManager.default.removeItem(at: storeURL) }
+        do {
+            let schema = Schema(versionedSchema: YakamozSchemaV1.self)
+            let container = try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, url: storeURL))
+            container.mainContext.insert(YakamozSchemaV1.ConversationModel(title: "Review", personaSlug: "reviewer"))
+            try container.mainContext.save()
+        }
+        let schema = Schema(versionedSchema: YakamozSchemaV2.self)
+        let migrated = try ModelContainer(for: schema, migrationPlan: YakamozMigrationPlan.self,
+                                          configurations: ModelConfiguration(schema: schema, url: storeURL))
+        let reviewer = try #require(try migrated.mainContext.fetch(
+            FetchDescriptor<AgentModel>(predicate: #Predicate { $0.seedSlug == "reviewer" })
+        ).first)
+        let conversation = try #require(try migrated.mainContext.fetch(FetchDescriptor<ConversationModel>()).first)
+        #expect(conversation.agentId == reviewer.id)
+        #expect(reviewer.name == "Terse Code Reviewer")
     }
 }

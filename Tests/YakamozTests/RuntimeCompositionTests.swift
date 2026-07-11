@@ -10,20 +10,6 @@ import Testing
 
 @Suite("RuntimeComposition")
 struct RuntimeCompositionTests {
-    private actor MockModelCatalogService: ModelCatalogListing {
-        private(set) var captured: [(settings: ProviderSettingsSnapshot, apiKey: String, forceRefresh: Bool)] = []
-        var nextEntries: [ModelCatalogEntry] = []
-
-        func fetchModels(
-            settings: ProviderSettingsSnapshot,
-            apiKey: String,
-            forceRefresh: Bool
-        ) async throws -> [ModelCatalogEntry] {
-            captured.append((settings: settings, apiKey: apiKey, forceRefresh: forceRefresh))
-            return nextEntries
-        }
-    }
-
     private final class ScriptedRunner: ChatRunning, @unchecked Sendable {
         private(set) var capturedMessages: [String] = []
         private(set) var capturedToolIds: [[String]] = []
@@ -57,6 +43,7 @@ struct RuntimeCompositionTests {
             TimelineModel.self,
             WorkspaceReferenceModel.self,
             ToolReferenceModel.self,
+            AgentModel.self,
             AgentInstanceModel.self,
             AgentTemplateModel.self,
             RequestOriginModel.self,
@@ -93,19 +80,26 @@ struct RuntimeCompositionTests {
         settings: ProviderSettings,
         secrets: any SecretStoring,
         mock: MockLLMService,
-        modelCatalogService: any ModelCatalogListing = ModelCatalogService(),
+        modelContainer: ModelContainer? = nil,
         capturedConfiguration: @escaping @Sendable (LLMConfiguration) -> Void
     ) throws -> YakamozRuntime {
         try YakamozRuntime(
-            modelContainer: makeModelContainer(),
+            modelContainer: try modelContainer ?? makeModelContainer(),
             settings: settings,
             secrets: secrets,
-            modelCatalogService: modelCatalogService,
             llmServiceFactory: { configuration in
                 capturedConfiguration(configuration)
                 return mock
             }
         )
+    }
+
+    @MainActor
+    private func makeOperator(in container: ModelContainer) throws -> AgentModel {
+        let agent = AgentModel(name: "Test Operator", instructions: "Help with tests.", vaultPath: "/tmp/test-operator")
+        container.mainContext.insert(agent)
+        try container.mainContext.save()
+        return agent
     }
 
     @Test("The injected factory receives the chosen base URL, model, and API key")
@@ -174,37 +168,6 @@ struct RuntimeCompositionTests {
         let configuration = try #require(captured)
         #expect(configuration.activeProvider == .openRouter)
         #expect(configuration.apiKey == "sk-or-v1-openrouter-secret")
-    }
-
-
-    @Test("fetchModelCatalog() uses the latest provider scope and provider-specific API key")
-    @MainActor
-    func fetchModelCatalogUsesLatestConfiguration() async throws {
-        let settings = makeSettings()
-        let secrets = FakeSecretStore()
-        try secrets.write("sk-openai-secret", account: ProviderSettings.apiKeyAccount(for: .openAI))
-        try secrets.write("sk-or-v1-openrouter-secret", account: ProviderSettings.apiKeyAccount(for: .openRouter))
-        let mock = MockLLMService()
-        let catalog = MockModelCatalogService()
-        await catalog.nextEntries = [ModelCatalogEntry(id: "gpt-4o", isFavorite: false, isRecent: false)]
-
-        let runtime = try makeRuntime(settings: settings, secrets: secrets, mock: mock, modelCatalogService: catalog) { _ in }
-
-        _ = try await runtime.fetchModelCatalog()
-
-        settings.applyPreset(.openRouter)
-        settings.baseURL = try #require(URL(string: "https://openrouter.ai/api/v1"))
-        settings.model = "openai/gpt-4o-mini"
-        _ = try await runtime.fetchModelCatalog(forceRefresh: true)
-
-        let captured = await catalog.captured
-        #expect(captured.count == 2)
-        #expect(captured[0].settings.preset == .openAI)
-        #expect(captured[0].apiKey == "sk-openai-secret")
-        #expect(captured[0].forceRefresh == false)
-        #expect(captured[1].settings.preset == .openRouter)
-        #expect(captured[1].apiKey == "sk-or-v1-openrouter-secret")
-        #expect(captured[1].forceRefresh)
     }
 
 
@@ -284,11 +247,14 @@ struct RuntimeCompositionTests {
         try secrets.write("sk-secret-runtime-key", account: ProviderSettings.apiKeyAccount)
         let mock = MockLLMService()
         mock.nextResponse = #"{"tags":["a"]}"#
+        let container = try makeModelContainer()
 
-        let runtime = try makeRuntime(settings: settings, secrets: secrets, mock: mock) { _ in }
+        let runtime = try makeRuntime(settings: settings, secrets: secrets, mock: mock, modelContainer: container) { _ in }
+        let operatorID = try #require(try container.mainContext.fetch(FetchDescriptor<AgentModel>()).first?.id)
+        let conversation = try await runtime.createConversation(modelContext: container.mainContext, agentId: operatorID)
 
         let stream = try await runtime.run(ChatRunRequest(
-            timelineId: UUID(),
+            timelineId: conversation.id,
             message: "tag this",
             tools: [],
             structuredOutput: .jsonSchema(StructuredOutputFixtures.tagSchemaDefinition())
@@ -308,11 +274,14 @@ struct RuntimeCompositionTests {
         let settings = makeSettings() // openAI preset: requiresAPIKey == true
         let secrets = FakeSecretStore() // no key written
         let mock = MockLLMService()
-        let runtime = try makeRuntime(settings: settings, secrets: secrets, mock: mock) { _ in }
+        let container = try makeModelContainer()
+        let runtime = try makeRuntime(settings: settings, secrets: secrets, mock: mock, modelContainer: container) { _ in }
+        let operatorID = try #require(try container.mainContext.fetch(FetchDescriptor<AgentModel>()).first?.id)
+        let conversation = try await runtime.createConversation(modelContext: container.mainContext, agentId: operatorID)
 
         await #expect(throws: ProviderSettingsError.missingAPIKey) {
             _ = try await runtime.run(ChatRunRequest(
-                timelineId: UUID(),
+                timelineId: conversation.id,
                 message: "hi",
                 tools: []
             ))
@@ -326,8 +295,10 @@ struct RuntimeCompositionTests {
         let secrets = FakeSecretStore()
         try secrets.write("sk-secret-runtime-key", account: ProviderSettings.apiKeyAccount)
         let mock = MockLLMService()
-        let runtime = try makeRuntime(settings: settings, secrets: secrets, mock: mock) { _ in }
-        let timelineId = UUID()
+        let container = try makeModelContainer()
+        let runtime = try makeRuntime(settings: settings, secrets: secrets, mock: mock, modelContainer: container) { _ in }
+        let operatorID = try #require(try container.mainContext.fetch(FetchDescriptor<AgentModel>()).first?.id)
+        let timelineId = try await runtime.createConversation(modelContext: container.mainContext, agentId: operatorID).id
 
         await #expect(throws: ToolError.self) {
             _ = try await runtime.run(ChatRunRequest(

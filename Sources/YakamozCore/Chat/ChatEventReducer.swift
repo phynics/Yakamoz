@@ -363,6 +363,10 @@ public enum TranscriptItem: Sendable, Identifiable, Equatable {
     case assistant(id: UUID, turn: ChatTurnState)
     case error(id: UUID, message: String, retryPrompt: String?)
     case prompt(id: UUID, prompt: ChatPrompt)
+    /// An app-generated info/system row (ATW-3), e.g. "Operator changed: X -> Y".
+    /// Rendered distinctly from chat bubbles (see `TranscriptRowRole.system` /
+    /// `TranscriptRowPresentation`), never as a chat bubble.
+    case system(id: UUID, text: String, timestamp: Date)
 
     public var id: UUID {
         switch self {
@@ -370,6 +374,7 @@ public enum TranscriptItem: Sendable, Identifiable, Equatable {
         case let .assistant(id, _): id
         case let .error(id, _, _): id
         case let .prompt(id, _): id
+        case let .system(id, _, _): id
         }
     }
 }

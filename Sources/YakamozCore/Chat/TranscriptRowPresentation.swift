@@ -5,6 +5,9 @@ public enum TranscriptRowRole: Equatable, Sendable {
     case tool
     case error
     case prompt
+    /// An app-generated info/system row (ATW-3), e.g. an operator-swap handoff
+    /// marker. Never rendered as a chat bubble.
+    case system
 }
 
 public enum TranscriptRowLayout: Equatable, Sendable {
@@ -60,6 +63,8 @@ public struct TranscriptRowPresentation: Equatable, Sendable {
             "exclamationmark.triangle.fill"
         case .prompt:
             "questionmark.circle"
+        case .system:
+            "arrow.left.arrow.right.circle"
         }
     }
 
@@ -76,6 +81,8 @@ public struct TranscriptRowPresentation: Equatable, Sendable {
         case .error:
             .error
         case .prompt:
+            .neutral
+        case .system:
             .neutral
         }
     }

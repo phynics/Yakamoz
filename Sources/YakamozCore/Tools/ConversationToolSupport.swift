@@ -169,8 +169,6 @@ public enum WorkspaceAttachmentSupport {
     /// and enabling its folder-backed tools. Safe to call repeatedly with different URLs;
     /// each call appends a new workspace id.
     ///
-    /// For backward compatibility during transition from single-attach to multi-attach, also sets
-    /// `workspaceId` to the first/only attached workspace id (this field is deprecated).
     @discardableResult
     public static func attachWorkspace(to conversation: ConversationModel, modelContext: ModelContext, url: URL) -> WorkspaceModel {
         let bookmark = try? url.bookmarkData(options: .withSecurityScope)
@@ -180,11 +178,6 @@ public enum WorkspaceAttachmentSupport {
         // Add to the multi-attach array
         if !conversation.attachedWorkspaceIds.contains(workspace.id) {
             conversation.attachedWorkspaceIds.append(workspace.id)
-        }
-
-        // Also set the legacy single-attach field for backward compat (only if not already set)
-        if conversation.workspaceId == nil {
-            conversation.workspaceId = workspace.id
         }
 
         // Enable folder tools (at least one workspace now exists)
@@ -205,23 +198,13 @@ public enum WorkspaceAttachmentSupport {
 
     /// Detaches a specific workspace by id from the conversation, removing it from `attachedWorkspaceIds`.
     /// Also removes its folder tools from `enabledToolIds` if no other workspace remains attached.
-    /// Also nils `workspaceId` if the detached id matches it (legacy single-attach cleanup).
     /// Safe to call multiple times; if the id is not attached, this is a no-op.
     @discardableResult
     public static func detachWorkspace(id: UUID, from conversation: ConversationModel, modelContext: ModelContext) -> [UUID] {
         conversation.attachedWorkspaceIds.removeAll { $0 == id }
 
-        // Also clean up legacy single-attach field if it matches
-        if conversation.workspaceId == id {
-            conversation.workspaceId = nil
-        }
-
         // Resolve the workspaces still attached after removal, so reconcileEnabledTools can
         // recompute enabledToolIds from the actual remaining attachments rather than just a count.
-        // Drive resolution off `allAttachedWorkspaceIds` (folds in the legacy `workspaceId`) so
-        // this short-circuit agrees with WorkspaceResolutionHelper's source of truth: a
-        // non-matching legacy id left on `workspaceId` still counts as an attachment even when
-        // `attachedWorkspaceIds` is empty.
         let allWorkspaces: [WorkspaceModel]
         do {
             allWorkspaces = try modelContext.fetch(FetchDescriptor<WorkspaceModel>())
@@ -263,36 +246,19 @@ public enum WorkspaceAttachmentSupport {
         )
     }
 
-    /// Detaches the first (or legacy single) attached workspace from the conversation.
+    /// Detaches the first attached workspace from the conversation.
     /// This is a backward-compatibility overload for existing UI code that detaches without specifying an id.
     /// (Task 4 will update UI to work with multi-attach, at which point this can be removed.)
     @discardableResult
     public static func detachWorkspace(from conversation: ConversationModel, modelContext: ModelContext) -> [UUID] {
-        // Prefer the legacy single-attach field if set (for backward compat with existing data)
-        if let legacyId = conversation.workspaceId {
-            return detachWorkspace(id: legacyId, from: conversation, modelContext: modelContext)
-        } else if let firstId = conversation.attachedWorkspaceIds.first {
-            // Otherwise detach the first workspace in the array
+        if let firstId = conversation.attachedWorkspaceIds.first {
             return detachWorkspace(id: firstId, from: conversation, modelContext: modelContext)
         }
         return []
     }
 
-    /// Idempotent backfill: moves a non-nil `workspaceId` into `attachedWorkspaceIds` and nils
-    /// the legacy field. Safe to call every time a conversation loads; repeated calls are no-ops.
-    ///
-    /// If `workspaceId` is nil, this is a no-op. If the legacy id is already present in
-    /// `attachedWorkspaceIds`, it is not duplicated.
-    public static func backfillLegacyAttachment(_ conversation: ConversationModel) {
-        guard let legacyId = conversation.workspaceId else { return }
-        if !conversation.attachedWorkspaceIds.contains(legacyId) {
-            conversation.attachedWorkspaceIds.append(legacyId)
-        }
-        conversation.workspaceId = nil
-    }
-
     /// Deletes any `WorkspaceModel` rows that are not referenced by any conversation's
-    /// `allAttachedWorkspaceIds` (which folds in the legacy `workspaceId` field). Safe to call
+    /// `allAttachedWorkspaceIds`. Safe to call
     /// repeatedly — workspaces still referenced by at least one conversation are left untouched,
     /// and calling this with no orphans present is a no-op.
     ///

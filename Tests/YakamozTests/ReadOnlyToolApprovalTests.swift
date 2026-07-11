@@ -106,6 +106,9 @@ struct ReadOnlyToolApprovalTests {
         let settings = makeSettings()
         let secrets = FakeSecretStore()
         try secrets.write("sk-e2e-key", account: ProviderSettings.apiKeyAccount)
+        let operatorAgent = AgentModel(name: "Tool Test Operator", instructions: "Use tools.", vaultPath: "/tmp/tool-test-operator")
+        container.mainContext.insert(operatorAgent)
+        try container.mainContext.save()
 
         let mock = MockLLMService()
         mock.mockClient.nextResponses = ["", "Done reading"]
@@ -137,7 +140,8 @@ struct ReadOnlyToolApprovalTests {
 
         let conversation = try await runtime.createConversation(
             modelContext: ModelContext(container),
-            title: "YAK-47"
+            title: "YAK-47",
+            agentId: operatorAgent.id
         )
         let viewModel = await runtime.makeChatViewModel(
             timelineId: conversation.id,

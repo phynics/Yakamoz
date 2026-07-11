@@ -114,7 +114,7 @@ struct YakamozApp: App {
             Self.migrateLegacyBundleIdStoreIfNeeded(to: storeURL)
             let schema = Schema(YakamozSchema.models)
             let configuration = ModelConfiguration(schema: schema, url: storeURL)
-            let container = try ModelContainer(for: schema, configurations: configuration)
+            let container = try ModelContainer(for: schema, migrationPlan: YakamozMigrationPlan.self, configurations: configuration)
             WorkspaceAttachmentSupport.pruneOrphanWorkspaces(modelContext: container.mainContext)
             let rt = try YakamozRuntime(
                 modelContainer: container,

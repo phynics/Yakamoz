@@ -60,7 +60,7 @@ struct ConversationListView: View {
     }
 
     private var prioritizedConversations: [ConversationModel] {
-        conversations.sorted { lhs, rhs in
+        conversations.filter { !$0.isHomeTimeline }.sorted { lhs, rhs in
             if lhs.timelineState.sortPriority != rhs.timelineState.sortPriority {
                 return lhs.timelineState.sortPriority < rhs.timelineState.sortPriority
             }
@@ -134,10 +134,10 @@ private struct ConversationRow: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            if conversation.personaId != nil {
+            if conversation.agentId != nil {
                 Image(systemName: "person.crop.circle")
                     .foregroundStyle(.secondary)
-                    .accessibilityLabel("Has Persona")
+                    .accessibilityLabel("Has Operator")
             }
             if !conversation.allAttachedWorkspaceIds.isEmpty {
                 let count = conversation.allAttachedWorkspaceIds.count

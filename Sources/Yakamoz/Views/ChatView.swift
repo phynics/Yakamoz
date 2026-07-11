@@ -68,17 +68,12 @@ struct ChatView: View {
     @SceneStorage("inspector.tab") private var selectedInspectorTabRaw = "prompt"
 
     @Query private var workspaces: [WorkspaceModel]
-    @Query private var customPersonas: [PersonaModel]
+    @Query private var agents: [AgentModel]
 
-    /// Resolves the conversation's `personaSlug` to system instructions: a built-in persona's
-    /// instructions, a custom `PersonaModel`'s instructions, or `nil` for the default persona.
+    /// Resolves the assigned operator's persisted instructions.
     private var resolvedSystemInstructions: String? {
-        guard let slug = conversation.personaSlug else { return nil }
-        if let builtIn = PersonaCatalog.builtIn(id: slug) { return builtIn.instructions }
-        if let custom = customPersonas.first(where: { $0.id.uuidString == slug }) {
-            return custom.systemInstructions
-        }
-        return nil
+        guard let id = conversation.agentId else { return nil }
+        return agents.first(where: { $0.id == id })?.instructions
     }
 
     private var attachedWorkspacesList: [WorkspaceModel] {
@@ -237,7 +232,7 @@ struct ChatView: View {
     /// A composite key over the settings that influence how the `ChatViewModel` is built.
     /// Changing any of them re-triggers `buildViewModelIfNeeded`.
     private var rebuildKey: String {
-        "\(conversation.personaSlug ?? "-")|\(conversation.sidecarDirectivesEnabled)"
+        "\(conversation.agentId?.uuidString ?? "-")|\(conversation.sidecarDirectivesEnabled)"
     }
 
     /// Tracks the conversation state that affects which tools the view model should
@@ -506,8 +501,6 @@ struct ChatView: View {
         // in flight and safe to run again from `.onDisappear` on window close.
         viewModel?.cancel()
         workspacePromptId = nil
-        // Idempotent backfill: move legacy single-workspace attachment into the array on rebuild.
-        WorkspaceAttachmentSupport.backfillLegacyAttachment(conversation)
         // SID-2: feed the last accepted section-title annotation as the "current section"
         // context for the upcoming turn's `section_title` directive (mirrors SID-1's
         // current-title feed). Fetched via the runtime so the app target does not need

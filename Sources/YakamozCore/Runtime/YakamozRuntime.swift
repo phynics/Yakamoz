@@ -45,6 +45,12 @@ public enum AppHealthStatus: String, Sendable, Equatable {
     }
 }
 
+public enum ConversationRunError: Error, Sendable, Equatable, LocalizedError {
+    case operatorRequired
+
+    public var errorDescription: String? { "Assign an operator first." }
+}
+
 /// The single composition root for Yakamoz's runtime: wires SwiftData-backed persistence
 /// (`YakamozStores`), turn inspection (`SwiftDataPromptInspector`), provider settings/secrets, and
 /// the `PositronicKit` facade together behind one `actor`.
@@ -389,15 +395,29 @@ public actor YakamozRuntime: ChatRunning {
     public func createConversation(
         modelContext: ModelContext,
         title: String = "New Chat",
-        personaId: UUID? = nil,
-        workspaceId: UUID? = nil
+        agentId: UUID? = nil,
+        attachedWorkspaceIds: [UUID] = [],
+        isHomeTimeline: Bool = false
     ) async throws -> ConversationModel {
         let coordinator = ConversationCoordinator(modelContext: modelContext, timelineStore: stores.timelines)
-        return try await coordinator.createConversation(title: title, personaId: personaId, workspaceId: workspaceId)
+        return try await coordinator.createConversation(title: title, agentId: agentId, attachedWorkspaceIds: attachedWorkspaceIds, isHomeTimeline: isHomeTimeline)
+    }
+
+    @MainActor
+    public func setOperator(modelContext: ModelContext, conversationId: UUID, agentId: UUID?) async throws {
+        let coordinator = ConversationCoordinator(modelContext: modelContext, timelineStore: stores.timelines)
+        try await coordinator.setOperator(conversationId: conversationId, agentId: agentId)
     }
 
     /// ChatRunning conformance that resolves the latest settings and API key on each turn.
     public func run(_ request: ChatRunRequest) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+        let timelineId = request.timelineId
+        let hasOperator = try await MainActor.run {
+            var descriptor = FetchDescriptor<ConversationModel>(predicate: #Predicate { $0.id == timelineId })
+            descriptor.fetchLimit = 1
+            return try modelContainer.mainContext.fetch(descriptor).first?.agentId != nil
+        }
+        guard hasOperator else { throw ConversationRunError.operatorRequired }
         try Self.rejectExternalToolOutputs(request.toolOutputs)
         let kit = try await makeConfiguredKit()
         return try await kit.run(request)
@@ -610,7 +630,13 @@ public actor YakamozRuntime: ChatRunning {
                 if let callId = message.toolCallId {
                     pendingToolResults[callId] = message
                 }
-            case .system, .summary:
+            case .system:
+                // ATW-3: app-generated info rows (e.g. operator-swap handoff markers)
+                // render as their own distinct transcript item, never folded into an
+                // assistant/user bubble.
+                appendPendingAssistantIfNeeded()
+                transcript.append(.system(id: message.id, text: message.content, timestamp: message.timestamp))
+            case .summary:
                 continue
             }
         }

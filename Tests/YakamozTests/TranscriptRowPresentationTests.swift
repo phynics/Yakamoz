@@ -3,6 +3,14 @@ import YakamozCore
 
 @Suite("TranscriptRowPresentation")
 struct TranscriptRowPresentationTests {
+    @Test("System rows use a distinct neutral non-bubble presentation")
+    func systemRowsAreDistinct() {
+        let system = TranscriptRowPresentation(role: .system, isSelected: false)
+        #expect(system.layout == .fullWidthLeading)
+        #expect(system.usesBubbleBackground == false)
+        #expect(system.iconSystemName == "arrow.left.arrow.right.circle")
+        #expect(system.gutterAccent == .neutral)
+    }
     @Test("User and assistant rows render full-width with role icons and gutter accents")
     func roleRowsUseGutterTranscriptStyle() {
         let user = TranscriptRowPresentation(role: .user, isSelected: false)
