@@ -79,6 +79,12 @@ public actor YakamozRuntime: ChatRunning {
     /// command run and a status read see the same shell. Torn down via `terminateAll()` on quit.
     public let terminalRegistry = TerminalSessionRegistry()
 
+    /// ATW-6: process-wide scheduler that serializes turns contending for the same attached
+    /// workspace or the same agent vault. Shared by every `ChatViewModel` this runtime builds so
+    /// turns across *all* timelines contend through one FIFO queue per key. Terminal sessions
+    /// are not serialized here (spec §5.3) — only the turns.
+    public let workspaceTurnScheduler = WorkspaceTurnScheduler()
+
     /// Gate consulted before each `terminal_run`. Defaults to `DenyAllApprover()` (default-deny)
     /// so the terminal backend is never an un-gated arbitrary-exec primitive when unwired; the
     /// app injects a concrete UI-bridging approver (YAK-T5).
@@ -330,6 +336,20 @@ public actor YakamozRuntime: ChatRunning {
             workspaceRoots: workspaceRoots ?? folder.map { [$0.rootURL] } ?? [],
             terminals: terminals
         )
+        // ATW-6: compute the turn's workspace/vault contention keys — attached workspace ids
+        // plus the operator agent id (the vault is contended between the home timeline and any
+        // other timeline run by the same agent). Read from the persisted conversation so the
+        // view model's scheduler wiring reflects live attachment state, not a snapshot. A
+        // missing conversation yields no keys (no serialization, matching current behavior).
+        var turnKeys: [UUID] = []
+        var descriptor = FetchDescriptor<ConversationModel>(predicate: #Predicate { $0.id == timelineId })
+        descriptor.fetchLimit = 1
+        if let conversation = try? modelContainer.mainContext.fetch(descriptor).first {
+            turnKeys = conversation.attachedWorkspaceIds
+            if let agentId = conversation.agentId {
+                turnKeys.append(agentId)
+            }
+        }
         let loadedTranscript: LoadedTranscript
         do {
             loadedTranscript = try await loadTranscript(for: timelineId)

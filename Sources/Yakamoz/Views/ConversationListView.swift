@@ -163,6 +163,8 @@ private struct ConversationRow: View {
             .green
         case .blocked:
             .yellow
+        case .waitingForWorkspace:
+            .yellow
         case .failed:
             .red
         case .cancelled:

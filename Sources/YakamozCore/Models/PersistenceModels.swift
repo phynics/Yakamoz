@@ -51,6 +51,11 @@ public enum ConversationTimelineState: String, Codable, Sendable, CaseIterable {
     case blocked
     case failed
     case cancelled
+    /// ATW-6: the turn is queued behind another timeline holding a shared workspace or the
+    /// agent vault. Persisted as a raw string on `ConversationModel.timelineStateRaw`, so this
+    /// case is lightweight — no SwiftData migration (existing rows store valid raw values; the
+    /// `init(rawValue:)` fallback tolerates unknown strings).
+    case waitingForWorkspace
 
     /// Lower numbers sort earlier in the sidebar when conversations are prioritized.
     public var sortPriority: Int {
@@ -58,6 +63,7 @@ public enum ConversationTimelineState: String, Codable, Sendable, CaseIterable {
         case .tooling: 0
         case .running: 1
         case .blocked: 2
+        case .waitingForWorkspace: 2
         case .failed: 3
         case .cancelled: 4
         case .completed: 5
