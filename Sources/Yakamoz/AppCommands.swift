@@ -10,7 +10,7 @@ import SwiftUI
 @MainActor
 @Observable
 final class UICoordinator {
-    /// Bumped by Command-N. `ConversationListView` observes it to create a new chat.
+    /// Bumped by Command-N. `AgentSidebarView` observes it to create a new (unassigned) timeline.
     var newChatToken = 0
     /// Bumped by Command-I. `ChatView` observes it to toggle the inspector drawer.
     var toggleInspectorToken = 0

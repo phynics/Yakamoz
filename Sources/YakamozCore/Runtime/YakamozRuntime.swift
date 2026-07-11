@@ -480,6 +480,25 @@ public actor YakamozRuntime: ChatRunning {
         return try await coordinator.createConversation(title: title, agentId: agentId, attachedWorkspaceIds: attachedWorkspaceIds, isHomeTimeline: isHomeTimeline)
     }
 
+    /// Creates a new `AgentModel` and initializes its vault directory (ATW-8: "New Agent"
+    /// sidebar action). The vault path is deterministic from the agent's id
+    /// (`AgentVaultFactory.vaultRoot(for:)`), matching how `AgentVaultPromptSectionProvider`
+    /// and `homeTimeline(for:modelContext:)` resolve it later.
+    @MainActor
+    public func createAgent(
+        modelContext: ModelContext,
+        name: String = "New Agent",
+        instructions: String = ""
+    ) throws -> AgentModel {
+        let factory = AgentVaultFactory()
+        let agent = AgentModel(name: name, instructions: instructions, vaultPath: "")
+        agent.vaultPath = factory.vaultRoot(for: agent.id).path
+        try factory.createVault(for: agent)
+        modelContext.insert(agent)
+        try modelContext.save()
+        return agent
+    }
+
     @MainActor
     public func setOperator(modelContext: ModelContext, conversationId: UUID, agentId: UUID?) async throws {
         let coordinator = ConversationCoordinator(modelContext: modelContext, timelineStore: stores.timelines)

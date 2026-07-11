@@ -177,7 +177,7 @@ struct ChatView: View {
             }
 
             ToolbarItem(placement: .automatic) {
-                PersonaPicker(conversation: conversation)
+                OperatorChip(conversation: conversation)
             }
 
             ToolbarItem(placement: .automatic) {
@@ -288,7 +288,9 @@ struct ChatView: View {
                         isSending: viewModel.isSending,
                         onSend: { send(viewModel: viewModel) },
                         onCancel: { viewModel.cancel() },
-                        focusToken: composerFocusToken
+                        focusToken: composerFocusToken,
+                        isDisabled: AgentSidebarPresentation.isSendDisabled(agentId: conversation.agentId),
+                        disabledReason: "Assign an operator before sending."
                     )
                 }
 

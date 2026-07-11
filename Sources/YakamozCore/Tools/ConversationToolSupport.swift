@@ -257,6 +257,64 @@ public enum WorkspaceAttachmentSupport {
         return []
     }
 
+    /// Attaches an already-persisted `WorkspaceModel` (chosen from the workspace library) to
+    /// `conversation`, without creating a new row or touching the filesystem. No-ops if
+    /// already attached. Reconciles `enabledToolIds` the same way `attachWorkspace` does, so
+    /// the workspace's tool kind (folder/terminal) is offered on the next send.
+    public static func attachExisting(_ workspace: WorkspaceModel, to conversation: ConversationModel, modelContext: ModelContext) {
+        guard !conversation.attachedWorkspaceIds.contains(workspace.id) else { return }
+        conversation.attachedWorkspaceIds.append(workspace.id)
+
+        let allWorkspaces: [WorkspaceModel]
+        do {
+            allWorkspaces = try modelContext.fetch(FetchDescriptor<WorkspaceModel>())
+        } catch {
+            Log.workspace.warning("failed to fetch workspaces during existing-workspace attachment", metadata: [
+                "conversationID": "\(conversation.id)",
+            ])
+            allWorkspaces = [workspace]
+        }
+        let attached = WorkspaceResolutionHelper.attachedWorkspaces(for: conversation, in: allWorkspaces)
+        reconcileEnabledTools(for: conversation, attachedWorkspaces: attached)
+
+        do {
+            try modelContext.save()
+        } catch {
+            Log.workspace.error("failed to save existing-workspace attachment", metadata: [
+                "conversationID": "\(conversation.id)",
+                "workspaceID": "\(workspace.id)",
+            ])
+        }
+    }
+
+    /// Deletes `workspace` from the library and removes it from every timeline that
+    /// referenced it (ATW-8 requirement 6: the workspace library's delete action). The
+    /// caller is responsible for obtaining user confirmation before invoking this.
+    public static func deleteWorkspace(_ workspace: WorkspaceModel, modelContext: ModelContext) {
+        let conversations: [ConversationModel]
+        do {
+            conversations = try modelContext.fetch(FetchDescriptor<ConversationModel>())
+        } catch {
+            Log.workspace.warning("failed to fetch conversations during workspace deletion", metadata: [
+                "workspaceID": "\(workspace.id)",
+            ])
+            conversations = []
+        }
+        let allWorkspaces = (try? modelContext.fetch(FetchDescriptor<WorkspaceModel>())) ?? []
+        for conversation in conversations where conversation.attachedWorkspaceIds.contains(workspace.id) {
+            conversation.attachedWorkspaceIds.removeAll { $0 == workspace.id }
+            let remaining = WorkspaceResolutionHelper.attachedWorkspaces(for: conversation, in: allWorkspaces)
+                .filter { $0.id != workspace.id }
+            reconcileEnabledTools(for: conversation, attachedWorkspaces: remaining)
+        }
+        modelContext.delete(workspace)
+        do {
+            try modelContext.save()
+        } catch {
+            Log.workspace.error("failed to save workspace deletion", metadata: ["workspaceID": "\(workspace.id)"])
+        }
+    }
+
     /// Deletes any `WorkspaceModel` rows that are not referenced by any conversation's
     /// `allAttachedWorkspaceIds`. Safe to call
     /// repeatedly — workspaces still referenced by at least one conversation are left untouched,
