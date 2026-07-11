@@ -150,10 +150,10 @@ public actor YakamozRuntime: ChatRunning {
     /// is stable across refreshes rather than minted per call (PKPOST-004c).
     public nonisolated func resolveTools(
         enabledToolIds: [String],
-        folder: FolderToolContext?,
+        workspaceRoots: [URL],
         terminals: [TerminalToolContext] = []
     ) async -> [AnyTool] {
-        let providers = makeToolProviders(folder: folder, terminals: terminals)
+        let providers = makeToolProviders(workspaceRoots: workspaceRoots, terminals: terminals)
         var available: [AnyTool] = []
         for provider in providers {
             available.append(contentsOf: await provider.resolvedTools())
@@ -172,13 +172,26 @@ public actor YakamozRuntime: ChatRunning {
         return unpermissioned.filter { enabled.contains($0.callName) }
     }
 
-    private nonisolated func makeToolProviders(
+    /// Compatibility overload for callers that still have a single persisted workspace.
+    public nonisolated func resolveTools(
+        enabledToolIds: [String],
         folder: FolderToolContext?,
+        terminals: [TerminalToolContext] = []
+    ) async -> [AnyTool] {
+        await resolveTools(
+            enabledToolIds: enabledToolIds,
+            workspaceRoots: folder.map { [$0.rootURL] } ?? [],
+            terminals: terminals
+        )
+    }
+
+    private nonisolated func makeToolProviders(
+        workspaceRoots: [URL],
         terminals: [TerminalToolContext]
     ) -> [any ToolProviding] {
         var providers: [any ToolProviding] = [BuiltInToolProvider()]
-        if let folder {
-            providers.append(FileWorkspaceToolProvider(folder: folder))
+        for root in workspaceRoots {
+            providers.append(FileWorkspaceToolProvider(folder: FolderToolContext(workspaceID: UUID(), rootURL: root)))
         }
         providers.append(contentsOf: terminals.map {
             TerminalWorkspaceToolProvider(
@@ -266,6 +279,7 @@ public actor YakamozRuntime: ChatRunning {
         systemInstructions: String? = nil,
         enabledToolIds: [String] = [],
         folder: FolderToolContext? = nil,
+        workspaceRoots: [URL]? = nil,
         terminals: [TerminalToolContext] = [],
         sidecarDirectivesEnabled: Bool = false,
         conversationTitle: String? = nil,
@@ -274,7 +288,11 @@ public actor YakamozRuntime: ChatRunning {
         onTimelineStateChange: (@MainActor @Sendable (ConversationTimelineState) async -> Void)? = nil
     ) async -> ChatViewModel {
         let promptInspector = inspector
-        let tools = await resolveTools(enabledToolIds: enabledToolIds, folder: folder, terminals: terminals)
+        let tools = await resolveTools(
+            enabledToolIds: enabledToolIds,
+            workspaceRoots: workspaceRoots ?? folder.map { [$0.rootURL] } ?? [],
+            terminals: terminals
+        )
         let loadedTranscript: LoadedTranscript
         do {
             loadedTranscript = try await loadTranscript(for: timelineId)
