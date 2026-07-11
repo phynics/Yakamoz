@@ -19,49 +19,47 @@ struct WorkspacePicker: View {
         WorkspaceResolutionHelper.attachedWorkspaces(for: conversation, in: workspaces)
     }
 
+    /// Library workspaces not yet attached to this conversation (ATW-8 requirement 4: the
+    /// workspaces chip's attach UI is backed by all `WorkspaceModel` rows, not just
+    /// newly-picked folders).
+    private var attachableLibraryWorkspaces: [WorkspaceModel] {
+        let attachedIds = Set(attachedWorkspaces.map(\.id))
+        return workspaces
+            .filter { !attachedIds.contains($0.id) }
+            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+    }
+
     var body: some View {
         HStack(spacing: 6) {
-            if attachedWorkspaces.isEmpty {
-                Menu {
-                    Button {
-                        pickFolder()
-                    } label: {
-                        Label("Folder", systemImage: "folder.badge.plus")
-                    }
-                    Button {
-                        pickFolderForTerminal()
-                    } label: {
-                        Label("Terminal Workspace", systemImage: "terminal")
-                    }
-                } label: {
-                    Label("Add Workspace", systemImage: "plus.circle")
-                }
-                .buttonStyle(.borderless)
-                .help("Add a workspace to this conversation: a folder or a terminal")
-                .accessibilityLabel("Add workspace")
-            } else {
-                ForEach(attachedWorkspaces) { workspace in
-                    chip(for: workspace)
-                }
-
-                Menu {
-                    Button {
-                        pickFolder()
-                    } label: {
-                        Label("Folder", systemImage: "folder.badge.plus")
-                    }
-                    Button {
-                        pickFolderForTerminal()
-                    } label: {
-                        Label("Terminal Workspace", systemImage: "terminal")
-                    }
-                } label: {
-                    Image(systemName: "plus.circle")
-                }
-                .buttonStyle(.borderless)
-                .help("Add another workspace: a folder or a terminal")
-                .accessibilityLabel("Add another workspace")
+            ForEach(attachedWorkspaces) { workspace in
+                chip(for: workspace)
             }
+
+            Menu {
+                Button {
+                    pickFolder()
+                } label: {
+                    Label("New Folder…", systemImage: "folder.badge.plus")
+                }
+                Button {
+                    pickFolderForTerminal()
+                } label: {
+                    Label("New Terminal Workspace…", systemImage: "terminal")
+                }
+                if !attachableLibraryWorkspaces.isEmpty {
+                    Divider()
+                    Menu("Attach from Library") {
+                        ForEach(attachableLibraryWorkspaces) { workspace in
+                            Button(workspace.displayName) { attachExisting(workspace) }
+                        }
+                    }
+                }
+            } label: {
+                Label("Add Workspace", systemImage: "plus.circle")
+            }
+            .buttonStyle(.borderless)
+            .help("Attach a workspace to this conversation: a folder, a terminal, or one from the library")
+            .accessibilityLabel(attachedWorkspaces.isEmpty ? "Add workspace" : "Add another workspace")
         }
     }
 
@@ -136,6 +134,10 @@ struct WorkspacePicker: View {
 
     private func attachWorkspace(at url: URL) {
         WorkspaceAttachmentSupport.attachWorkspace(to: conversation, modelContext: modelContext, url: url)
+    }
+
+    private func attachExisting(_ workspace: WorkspaceModel) {
+        WorkspaceAttachmentSupport.attachExisting(workspace, to: conversation, modelContext: modelContext)
     }
 
     private func createTerminal(from folder: WorkspaceModel) {
