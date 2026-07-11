@@ -48,7 +48,9 @@ public enum AppHealthStatus: String, Sendable, Equatable {
 public enum ConversationRunError: Error, Sendable, Equatable, LocalizedError {
     case operatorRequired
 
-    public var errorDescription: String? { "Assign an operator first." }
+    public var errorDescription: String? {
+        "Assign an operator first."
+    }
 }
 
 /// The single composition root for Yakamoz's runtime: wires SwiftData-backed persistence
@@ -127,6 +129,7 @@ public actor YakamozRuntime: ChatRunning {
         kit = try Self.makeKit(
             stores: stores,
             inspector: inspector,
+            modelContainer: modelContainer,
             settingsSnapshot: settingsSnapshot,
             apiKey: ProviderSettings.storedAPIKey(for: settingsSnapshot.preset, secrets: secrets),
             llmServiceFactory: llmServiceFactory,
@@ -475,6 +478,7 @@ public actor YakamozRuntime: ChatRunning {
     private static func makeKit(
         stores: YakamozStores,
         inspector: SwiftDataPromptInspector,
+        modelContainer: ModelContainer,
         settingsSnapshot: ProviderSettingsSnapshot,
         apiKey: String,
         llmServiceFactory: LLMServiceFactory,
@@ -497,7 +501,9 @@ public actor YakamozRuntime: ChatRunning {
                     workspaceCreator: FileSystemWorkspaceFactory(),
                     sectionProviders: [
                         CurrentTimeSectionProvider(),
-                        AgentVaultPromptSectionProvider(),
+                        AgentVaultPromptSectionProvider(
+                            agentForInstance: AgentVaultPromptSectionProvider.lookup(in: modelContainer)
+                        ),
                     ],
                     promptInspector: inspector,
                     toolApprovalGate: toolApprovalGate
