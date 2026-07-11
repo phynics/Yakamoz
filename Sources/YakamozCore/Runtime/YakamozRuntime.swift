@@ -156,7 +156,12 @@ public actor YakamozRuntime: ChatRunning {
         workspaceRoots: [URL],
         terminals: [TerminalToolContext] = []
     ) async -> [AnyTool] {
-        let providers = makeToolProviders(workspaceRoots: workspaceRoots, terminals: terminals)
+        // Derive a stable provenance id per root so the same root yields the same id across
+        // refreshes (PKPOST-004c). Callers that already hold a persisted `WorkspaceModel.id`
+        // (via `FolderToolContext`) should use the `folder:` overload, which carries that
+        // id through unchanged rather than re-deriving it.
+        let folders = workspaceRoots.map { FolderToolContext(workspaceID: Self.stableWorkspaceID(for: $0), rootURL: $0) }
+        let providers = makeToolProviders(folders: folders, terminals: terminals)
         var available: [AnyTool] = []
         for provider in providers {
             available.append(contentsOf: await provider.resolvedTools())
@@ -176,25 +181,36 @@ public actor YakamozRuntime: ChatRunning {
     }
 
     /// Compatibility overload for callers that still have a single persisted workspace.
+    /// Carries the folder's persisted `workspaceID` through so provenance is stable across
+    /// refreshes (PKPOST-004c).
     public nonisolated func resolveTools(
         enabledToolIds: [String],
         folder: FolderToolContext?,
         terminals: [TerminalToolContext] = []
     ) async -> [AnyTool] {
-        await resolveTools(
-            enabledToolIds: enabledToolIds,
-            workspaceRoots: folder.map { [$0.rootURL] } ?? [],
-            terminals: terminals
-        )
+        let folders = folder.map { [$0] } ?? []
+        let providers = makeToolProviders(folders: folders, terminals: terminals)
+        var available: [AnyTool] = []
+        for provider in providers {
+            available.append(contentsOf: await provider.resolvedTools())
+        }
+        let explained = available.map { $0.withExplanationParameter() }
+        let autoApproved = ReadOnlyToolApproval.autoApprovedToolIds
+        let unpermissioned = explained.map { tool in
+            autoApproved.contains(tool.callName) ? tool.withoutPermissionRequirement() : tool
+        }
+        let enabled = Set(enabledToolIds)
+        guard !enabled.isEmpty else { return unpermissioned }
+        return unpermissioned.filter { enabled.contains($0.callName) }
     }
 
     private nonisolated func makeToolProviders(
-        workspaceRoots: [URL],
+        folders: [FolderToolContext],
         terminals: [TerminalToolContext]
     ) -> [any ToolProviding] {
         var providers: [any ToolProviding] = [BuiltInToolProvider()]
-        for root in workspaceRoots {
-            providers.append(FileWorkspaceToolProvider(folder: FolderToolContext(workspaceID: UUID(), rootURL: root)))
+        for folder in folders {
+            providers.append(FileWorkspaceToolProvider(folder: folder))
         }
         providers.append(contentsOf: terminals.map {
             TerminalWorkspaceToolProvider(
@@ -204,6 +220,24 @@ public actor YakamozRuntime: ChatRunning {
             )
         })
         return providers
+    }
+
+    /// A deterministic `UUID` derived from a workspace root's resolved path, so the same
+    /// root yields the same provenance id across `resolveTools` calls. Fills the 16 UUID
+    /// bytes by cycling through the path's UTF-8 bytes — a stable, seed-independent
+    /// mapping (only needs to be stable per root within a process, not globally unique).
+    private static func stableWorkspaceID(for root: URL) -> UUID {
+        let bytes = Array(root.standardizedFileURL.resolvingSymlinksInPath().path.utf8)
+        var uuidBytes = [UInt8](repeating: 0, count: 16)
+        for (i, byte) in bytes.enumerated() {
+            uuidBytes[i % 16] ^= byte
+        }
+        return UUID(uuid: (
+            uuidBytes[0], uuidBytes[1], uuidBytes[2], uuidBytes[3],
+            uuidBytes[4], uuidBytes[5], uuidBytes[6], uuidBytes[7],
+            uuidBytes[8], uuidBytes[9], uuidBytes[10], uuidBytes[11],
+            uuidBytes[12], uuidBytes[13], uuidBytes[14], uuidBytes[15]
+        ))
     }
 
     /// Computes the sidecar-directive list due for the upcoming turn (SID-1/SID-2).
