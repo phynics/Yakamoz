@@ -5,7 +5,11 @@ import YakamozCore
 /// `MonadChatViewModel` (which wraps `ChatViewModel` + `MonadYakamozBackend`),
 /// renders the transcript with `MessageBubble`, and integrates workspace
 /// attachment UI from `MonadWorkspaceViewModel`. Simpler than local `ChatView`:
-/// no SwiftData, no inspector drawer, no sidecar/annotation wiring.
+/// no SwiftData, no sidecar/annotation wiring.
+///
+/// YAK-MON-8: includes a limited inspector panel (`MonadInspectorView`) that shows
+/// response metadata, tool traces, and workspace files from the live `ChatTurnState`,
+/// with explicit unavailable states for prompt/sent/journal tabs.
 struct MonadChatView: View {
     let timelineId: UUID
     let profile: MonadProfile?
@@ -14,6 +18,8 @@ struct MonadChatView: View {
     @State private var viewModel: MonadChatViewModel?
     @State private var workspaceViewModel: MonadWorkspaceViewModel?
     @State private var draft = ""
+    @State private var inspectorIsOpen = false
+    @SceneStorage("monad.inspector.tab") private var inspectorTabRaw = MonadInspectorTab.response.rawValue
 
     private var taskID: String {
         "\(timelineId)-\(profile?.id.uuidString ?? "")"
@@ -70,6 +76,45 @@ struct MonadChatView: View {
 
     @ViewBuilder
     private func chatBody(viewModel: MonadChatViewModel) -> some View {
+        HStack(spacing: 0) {
+            transcriptPane(viewModel: viewModel)
+
+            if inspectorIsOpen {
+                Divider()
+                MonadInspectorView(
+                    turnState: viewModel.chatViewModel.selectedTurnState,
+                    selectedTab: inspectorTabBinding,
+                    onClose: { inspectorIsOpen = false }
+                )
+                .frame(width: 340)
+                .transition(.move(edge: .trailing))
+            }
+        }
+        .navigationTitle(workspaceViewModel?.timelineSummary?.title ?? "Timeline")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    withAnimation { inspectorIsOpen.toggle() }
+                } label: {
+                    Label(
+                        inspectorIsOpen ? "Hide Inspector" : "Show Inspector",
+                        systemImage: inspectorIsOpen ? "sidebar.trailing" : "sidebar.trailing"
+                    )
+                }
+                .help(inspectorIsOpen ? "Hide inspector" : "Show inspector")
+            }
+        }
+    }
+
+    private var inspectorTabBinding: Binding<MonadInspectorTab> {
+        Binding(
+            get: { MonadInspectorTab(rawValue: inspectorTabRaw) ?? .response },
+            set: { inspectorTabRaw = $0.rawValue }
+        )
+    }
+
+    @ViewBuilder
+    private func transcriptPane(viewModel: MonadChatViewModel) -> some View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
@@ -119,7 +164,7 @@ struct MonadChatView: View {
                 onCancel: { viewModel.cancel() }
             )
         }
-        .navigationTitle(workspaceViewModel?.timelineSummary?.title ?? "Timeline")
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func isSelected(_ item: TranscriptItem, viewModel: MonadChatViewModel) -> Bool {
