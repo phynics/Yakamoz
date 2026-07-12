@@ -55,6 +55,18 @@ struct MonadProfileStatusViewModelTests {
         func getAgentTimelines(agentId _: UUID) async throws -> [TimelineResponse] {
             []
         }
+
+        func listWorkspaces() async throws -> [WorkspaceReference] {
+            []
+        }
+
+        func attachWorkspace(_: UUID, to _: UUID) async throws {}
+
+        func detachWorkspace(_: UUID, from _: UUID) async throws {}
+
+        func listTimelineWorkspaces(timelineId _: UUID) async throws -> (primary: WorkspaceReference?, attached: [WorkspaceReference]) {
+            (primary: nil, attached: [])
+        }
     }
 
     private func makeSUT(

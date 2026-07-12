@@ -31,6 +31,13 @@ public protocol MonadClientTransport: Sendable {
     func listAgentInstances() async throws -> [AgentInstance]
     func listAgentTemplates() async throws -> [AgentTemplate]
     func getAgentTimelines(agentId: UUID) async throws -> [TimelineResponse]
+
+    // MARK: - YAK-MON-6: server workspace management
+
+    func listWorkspaces() async throws -> [WorkspaceReference]
+    func attachWorkspace(_ workspaceId: UUID, to timelineId: UUID) async throws
+    func detachWorkspace(_ workspaceId: UUID, from timelineId: UUID) async throws
+    func listTimelineWorkspaces(timelineId: UUID) async throws -> (primary: WorkspaceReference?, attached: [WorkspaceReference])
 }
 
 /// Live `MonadClientTransport` wrapping a real `MonadClient` actor.
@@ -83,5 +90,23 @@ public struct LiveMonadClientTransport: MonadClientTransport {
 
     public func getAgentTimelines(agentId: UUID) async throws -> [TimelineResponse] {
         try await client.chat.getAgentTimelines(agentId: agentId)
+    }
+
+    // MARK: - YAK-MON-6: server workspace management
+
+    public func listWorkspaces() async throws -> [WorkspaceReference] {
+        try await client.workspace.listWorkspaces()
+    }
+
+    public func attachWorkspace(_ workspaceId: UUID, to timelineId: UUID) async throws {
+        try await client.workspace.attachWorkspace(workspaceId, to: timelineId)
+    }
+
+    public func detachWorkspace(_ workspaceId: UUID, from timelineId: UUID) async throws {
+        try await client.workspace.detachWorkspace(workspaceId, from: timelineId)
+    }
+
+    public func listTimelineWorkspaces(timelineId: UUID) async throws -> (primary: WorkspaceReference?, attached: [WorkspaceReference]) {
+        try await client.workspace.listTimelineWorkspaces(timelineId: timelineId)
     }
 }
