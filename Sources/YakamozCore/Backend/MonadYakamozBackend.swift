@@ -48,7 +48,11 @@ import PositronicKit
 ///     surfaces the distinction with a typed `MonadBackendHealthError.authenticationFailed`
 ///     for callers that need it).
 public struct MonadYakamozBackend: Sendable {
-    private let transport: any MonadClientTransport
+    /// `internal`, not `private`, so `MonadConnectionStatus.swift`'s
+    /// `MonadYakamozBackend.fetchConnectionStatus()` extension (YAK-MON-9) can read it —
+    /// matching the `ChatEngine`-adjacent convention of internal (not private) injected
+    /// dependency fields for same-module extension files.
+    let transport: any MonadClientTransport
 
     public init(transport: any MonadClientTransport) {
         self.transport = transport
