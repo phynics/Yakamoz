@@ -235,3 +235,58 @@ private extension MonadAgentSummary {
         self.init(id: template.id, kind: .template, name: template.name, description: template.description)
     }
 }
+
+// MARK: - BackendWorkspaceManaging (YAK-MON-6)
+
+extension MonadYakamozBackend: BackendWorkspaceManaging {
+    public func listWorkspaces() async throws -> [BackendWorkspaceSummary] {
+        do {
+            let workspaces = try await transport.listWorkspaces()
+            return workspaces.map(BackendWorkspaceSummary.init(workspace:))
+        } catch let error as MonadClientError {
+            throw MonadBackendHealthError(clientError: error)
+        }
+    }
+
+    public func attachWorkspace(_ workspaceId: UUID, toTimeline timelineId: UUID) async throws {
+        do {
+            try await transport.attachWorkspace(workspaceId, to: timelineId)
+        } catch let error as MonadClientError {
+            throw MonadBackendHealthError(clientError: error)
+        }
+    }
+
+    public func detachWorkspace(_ workspaceId: UUID, fromTimeline timelineId: UUID) async throws {
+        do {
+            try await transport.detachWorkspace(workspaceId, from: timelineId)
+        } catch let error as MonadClientError {
+            throw MonadBackendHealthError(clientError: error)
+        }
+    }
+
+    /// Monad-specific: fetches the primary and attached workspaces for one timeline from
+    /// the server. Returns the full `WorkspaceReference` shape (not the minimal
+    /// `BackendWorkspaceSummary`) so the UI can display status, root path, and terminal
+    /// availability — data the narrow `BackendWorkspaceManaging` protocol intentionally
+    /// drops. Server is authoritative; nothing is cached locally.
+    public func listTimelineWorkspaces(timelineId: UUID) async throws -> (primary: WorkspaceReference?, attached: [WorkspaceReference]) {
+        do {
+            return try await transport.listTimelineWorkspaces(timelineId: timelineId)
+        } catch let error as MonadClientError {
+            throw MonadBackendHealthError(clientError: error)
+        }
+    }
+}
+
+private extension BackendWorkspaceSummary {
+    init(workspace: WorkspaceReference) {
+        let name: String
+        if let rootPath = workspace.rootPath, !rootPath.isEmpty {
+            name = (rootPath as NSString).lastPathComponent
+        } else {
+            let pathComponent = (workspace.uri.path as NSString).lastPathComponent
+            name = pathComponent.isEmpty ? workspace.uri.description : pathComponent
+        }
+        self.init(id: workspace.id, displayName: name)
+    }
+}

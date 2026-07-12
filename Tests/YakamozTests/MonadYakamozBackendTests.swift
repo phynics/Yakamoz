@@ -26,6 +26,16 @@ struct MonadYakamozBackendTests {
         var agentTimelinesResult: Result<[TimelineResponse], Error> = .success([])
         var lastAgentTimelinesRequest: UUID?
 
+        var allWorkspaces: [WorkspaceReference] = []
+        var timelineWorkspaces: [UUID: (primary: WorkspaceReference?, attached: [WorkspaceReference])] = [:]
+        var attachedWorkspaceIds: [UUID: [UUID]] = [:]
+        var lastAttachRequest: (workspaceId: UUID, timelineId: UUID)?
+        var lastDetachRequest: (workspaceId: UUID, timelineId: UUID)?
+        var workspacesResult: Result<[WorkspaceReference], Error> = .success([])
+        var timelineWorkspacesResult: ((UUID) -> Result<(primary: WorkspaceReference?, attached: [WorkspaceReference]), Error>)?
+        var attachError: Error?
+        var detachError: Error?
+
         func getStatus() async throws -> StatusResponse {
             try statusResult.get()
         }
@@ -78,6 +88,47 @@ struct MonadYakamozBackendTests {
         func getAgentTimelines(agentId: UUID) async throws -> [TimelineResponse] {
             lastAgentTimelinesRequest = agentId
             return try agentTimelinesResult.get()
+        }
+
+        // MARK: - YAK-MON-6: workspace methods
+
+        func listWorkspaces() async throws -> [WorkspaceReference] {
+            if case let .failure(error) = workspacesResult { throw error }
+            return allWorkspaces
+        }
+
+        func attachWorkspace(_ workspaceId: UUID, to timelineId: UUID) async throws {
+            if let attachError { throw attachError }
+            lastAttachRequest = (workspaceId, timelineId)
+            var ids = attachedWorkspaceIds[timelineId] ?? []
+            if !ids.contains(workspaceId) { ids.append(workspaceId) }
+            attachedWorkspaceIds[timelineId] = ids
+
+            if let workspace = allWorkspaces.first(where: { $0.id == workspaceId }) {
+                var entry = timelineWorkspaces[timelineId] ?? (primary: nil, attached: [])
+                entry.attached.append(workspace)
+                timelineWorkspaces[timelineId] = entry
+            }
+        }
+
+        func detachWorkspace(_ workspaceId: UUID, from timelineId: UUID) async throws {
+            if let detachError { throw detachError }
+            lastDetachRequest = (workspaceId, timelineId)
+            var ids = attachedWorkspaceIds[timelineId] ?? []
+            ids.removeAll { $0 == workspaceId }
+            attachedWorkspaceIds[timelineId] = ids
+
+            if var entry = timelineWorkspaces[timelineId] {
+                entry.attached.removeAll { $0.id == workspaceId }
+                timelineWorkspaces[timelineId] = entry
+            }
+        }
+
+        func listTimelineWorkspaces(timelineId: UUID) async throws -> (primary: WorkspaceReference?, attached: [WorkspaceReference]) {
+            if let result = timelineWorkspacesResult {
+                return try result(timelineId).get()
+            }
+            return timelineWorkspaces[timelineId] ?? (primary: nil, attached: [])
         }
     }
 
@@ -294,6 +345,171 @@ struct MonadYakamozBackendTests {
         #expect(summaries.map(\.title) == ["Agent timeline"])
         #expect(await transport.lastAgentTimelinesRequest == agentId)
     }
+
+    // MARK: - Workspace management (YAK-MON-6)
+
+    @Test("listWorkspaces maps WorkspaceReference to BackendWorkspaceSummary using rootPath")
+    func listWorkspacesMapsRootPath() async throws {
+        let transport = FakeTransport()
+        let workspace = WorkspaceReference(
+            uri: .requestOriginProject(hostname: "macbook", path: "/Users/dev/project"),
+            location: .attached,
+            rootPath: "/Users/dev/project"
+        )
+        await transport.seedWorkspace(workspace)
+        let backend = MonadYakamozBackend(transport: transport)
+
+        let summaries = try await backend.listWorkspaces()
+        #expect(summaries.count == 1)
+        #expect(summaries.first?.id == workspace.id)
+        #expect(summaries.first?.displayName == "project")
+    }
+
+    @Test("listWorkspaces falls back to URI path when rootPath is nil")
+    func listWorkspacesFallsBackToURI() async throws {
+        let transport = FakeTransport()
+        let workspace = WorkspaceReference(
+            uri: .requestOriginProject(hostname: "macbook", path: "/Users/dev/another"),
+            location: .attached,
+            rootPath: nil
+        )
+        await transport.seedWorkspace(workspace)
+        let backend = MonadYakamozBackend(transport: transport)
+
+        let summaries = try await backend.listWorkspaces()
+        #expect(summaries.first?.displayName == "another")
+    }
+
+    @Test("listWorkspaces maps a transport error to a typed MonadBackendHealthError")
+    func listWorkspacesMapsError() async throws {
+        let transport = FakeTransport()
+        await transport.setWorkspacesResult(.failure(MonadClientError.unauthorized))
+        let backend = MonadYakamozBackend(transport: transport)
+
+        await #expect(throws: MonadBackendHealthError.self) {
+            _ = try await backend.listWorkspaces()
+        }
+    }
+
+    @Test("attachWorkspace forwards the workspace and timeline ids to the transport")
+    func attachWorkspaceForwards() async throws {
+        let transport = FakeTransport()
+        let workspaceId = UUID()
+        let timelineId = UUID()
+        let backend = MonadYakamozBackend(transport: transport)
+
+        try await backend.attachWorkspace(workspaceId, toTimeline: timelineId)
+
+        let lastAttach = await transport.lastAttachRequest
+        #expect(lastAttach?.workspaceId == workspaceId)
+        #expect(lastAttach?.timelineId == timelineId)
+    }
+
+    @Test("attachWorkspace maps a transport error to a typed MonadBackendHealthError")
+    func attachWorkspaceMapsError() async throws {
+        let transport = FakeTransport()
+        await transport.setAttachError(MonadClientError.unauthorized)
+        let backend = MonadYakamozBackend(transport: transport)
+
+        await #expect(throws: MonadBackendHealthError.self) {
+            try await backend.attachWorkspace(UUID(), toTimeline: UUID())
+        }
+    }
+
+    @Test("detachWorkspace forwards the workspace and timeline ids to the transport")
+    func detachWorkspaceForwards() async throws {
+        let transport = FakeTransport()
+        let workspaceId = UUID()
+        let timelineId = UUID()
+        let backend = MonadYakamozBackend(transport: transport)
+
+        try await backend.detachWorkspace(workspaceId, fromTimeline: timelineId)
+
+        let lastDetach = await transport.lastDetachRequest
+        #expect(lastDetach?.workspaceId == workspaceId)
+        #expect(lastDetach?.timelineId == timelineId)
+    }
+
+    @Test("detachWorkspace maps a transport error to a typed MonadBackendHealthError")
+    func detachWorkspaceMapsError() async throws {
+        let transport = FakeTransport()
+        await transport.setDetachError(MonadClientError.unauthorized)
+        let backend = MonadYakamozBackend(transport: transport)
+
+        await #expect(throws: MonadBackendHealthError.self) {
+            try await backend.detachWorkspace(UUID(), fromTimeline: UUID())
+        }
+    }
+
+    @Test("listTimelineWorkspaces returns the primary and attached workspaces from the server")
+    func listTimelineWorkspacesReturnsServerData() async throws {
+        let transport = FakeTransport()
+        let timelineId = UUID()
+        let primary = WorkspaceReference(
+            uri: .timelineWorkspace(timelineId),
+            location: .runtime,
+            rootPath: "/tmp/primary"
+        )
+        let attached = WorkspaceReference(
+            uri: .requestOriginProject(hostname: "macbook", path: "/Users/dev/project"),
+            location: .attached,
+            rootPath: "/Users/dev/project"
+        )
+        await transport.seedTimelineWorkspaces(timelineId: timelineId, primary: primary, attached: [attached])
+        let backend = MonadYakamozBackend(transport: transport)
+
+        let result = try await backend.listTimelineWorkspaces(timelineId: timelineId)
+        #expect(result.primary?.id == primary.id)
+        #expect(result.attached.count == 1)
+        #expect(result.attached.first?.id == attached.id)
+    }
+
+    @Test("listTimelineWorkspaces returns empty attached list for a timeline with no attached workspaces")
+    func listTimelineWorkspacesEmpty() async throws {
+        let transport = FakeTransport()
+        let backend = MonadYakamozBackend(transport: transport)
+
+        let result = try await backend.listTimelineWorkspaces(timelineId: UUID())
+        #expect(result.primary == nil)
+        #expect(result.attached.isEmpty)
+    }
+
+    @Test("listTimelineWorkspaces maps a transport error to a typed MonadBackendHealthError")
+    func listTimelineWorkspacesMapsError() async throws {
+        let transport = FakeTransport()
+        await transport.setTimelineWorkspacesResult { _ in
+            .failure(MonadClientError.notFound)
+        }
+        let backend = MonadYakamozBackend(transport: transport)
+
+        await #expect(throws: MonadBackendHealthError.self) {
+            _ = try await backend.listTimelineWorkspaces(timelineId: UUID())
+        }
+    }
+
+    @Test("attach then detach round-trips through the transport's timeline workspace state")
+    func attachDetachRoundTrip() async throws {
+        let transport = FakeTransport()
+        let timelineId = UUID()
+        let workspace = WorkspaceReference(
+            uri: .requestOriginProject(hostname: "macbook", path: "/Users/dev/project"),
+            location: .attached,
+            rootPath: "/Users/dev/project"
+        )
+        await transport.seedWorkspace(workspace)
+        let backend = MonadYakamozBackend(transport: transport)
+
+        try await backend.attachWorkspace(workspace.id, toTimeline: timelineId)
+
+        let afterAttach = try await backend.listTimelineWorkspaces(timelineId: timelineId)
+        #expect(afterAttach.attached.count == 1)
+        #expect(afterAttach.attached.first?.id == workspace.id)
+
+        try await backend.detachWorkspace(workspace.id, fromTimeline: timelineId)
+
+        let afterDetach = try await backend.listTimelineWorkspaces(timelineId: timelineId)
+        #expect(afterDetach.attached.isEmpty)
+    }
 }
 
 private struct DummyError: Error {}
@@ -321,5 +537,31 @@ private extension MonadYakamozBackendTests.FakeTransport {
 
     func setAgentTimelinesResult(_ result: Result<[TimelineResponse], Error>) {
         agentTimelinesResult = result
+    }
+
+    // MARK: - YAK-MON-6: workspace helpers
+
+    func seedWorkspace(_ workspace: WorkspaceReference) {
+        allWorkspaces.append(workspace)
+    }
+
+    func seedTimelineWorkspaces(timelineId: UUID, primary: WorkspaceReference?, attached: [WorkspaceReference]) {
+        timelineWorkspaces[timelineId] = (primary: primary, attached: attached)
+    }
+
+    func setWorkspacesResult(_ result: Result<[WorkspaceReference], Error>) {
+        workspacesResult = result
+    }
+
+    func setTimelineWorkspacesResult(_ factory: @escaping (UUID) -> Result<(primary: WorkspaceReference?, attached: [WorkspaceReference]), Error>) {
+        timelineWorkspacesResult = factory
+    }
+
+    func setAttachError(_ error: Error?) {
+        attachError = error
+    }
+
+    func setDetachError(_ error: Error?) {
+        detachError = error
     }
 }
