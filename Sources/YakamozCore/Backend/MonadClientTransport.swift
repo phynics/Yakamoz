@@ -1,0 +1,67 @@
+import Foundation
+import MonadClient
+import MonadShared
+import PKShared
+
+/// The narrow slice of `MonadClient` that `MonadYakamozBackend` actually drives: status,
+/// timeline list/create/load, and one chat-turn stream.
+///
+/// `MonadClient` itself is a concrete `actor`, and its streaming call
+/// (`MonadChatClient.execute`) returns bytes via `URLSession.AsyncBytes` under the hood — a
+/// concrete Foundation type that cannot be hand-constructed in a test double. Rather than
+/// fake at the `URLSessionProtocol` layer (which would still require a real `AsyncBytes`
+/// for the streaming path), this protocol seam sits one level up: `LiveMonadClientTransport`
+/// wraps a real `MonadClient`, while tests inject a fully in-memory fake conforming to this
+/// protocol, so `MonadYakamozBackend`'s mapping/error-translation logic is exercised with no
+/// network involved.
+public protocol MonadClientTransport: Sendable {
+    func getStatus() async throws -> StatusResponse
+    func listTimelines() async throws -> [TimelineResponse]
+    func createTimeline(title: String?) async throws -> Timeline
+    func getTimeline(id: UUID) async throws -> TimelineResponse
+    func execute(
+        timelineId: UUID,
+        message: String,
+        toolOutputs: [ToolOutputSubmission]?,
+        clientTools: [ToolReference]?
+    ) async throws -> AsyncThrowingStream<ChatEvent, Error>
+}
+
+/// Live `MonadClientTransport` wrapping a real `MonadClient` actor.
+public struct LiveMonadClientTransport: MonadClientTransport {
+    private let client: MonadClient
+
+    public init(client: MonadClient) {
+        self.client = client
+    }
+
+    public func getStatus() async throws -> StatusResponse {
+        try await client.getStatus()
+    }
+
+    public func listTimelines() async throws -> [TimelineResponse] {
+        try await client.chat.listTimelines()
+    }
+
+    public func createTimeline(title: String?) async throws -> Timeline {
+        try await client.chat.createTimeline(title: title)
+    }
+
+    public func getTimeline(id: UUID) async throws -> TimelineResponse {
+        try await client.chat.getTimeline(id: id)
+    }
+
+    public func execute(
+        timelineId: UUID,
+        message: String,
+        toolOutputs: [ToolOutputSubmission]?,
+        clientTools: [ToolReference]?
+    ) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+        try await client.chat.execute(
+            timelineId: timelineId,
+            message: message,
+            toolOutputs: toolOutputs,
+            clientTools: clientTools
+        )
+    }
+}

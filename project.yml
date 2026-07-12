@@ -42,6 +42,12 @@ packages:
   MarkdownUI:
     url: https://github.com/gonzalezreal/swift-markdown-ui
     from: "2.4.0"
+  # YAK-MON-3: MonadClient is Monad's app-integration client library, consumed here as a
+  # local sibling checkout (Monad is a workspace sibling, not a published package — see
+  # the workspace root CLAUDE.md "Workspace Layout"). Scoped to YakamozCore only, never
+  # the app target, preserving the app-target import boundary.
+  Monad:
+    path: ../Monad
 targets:
   Yakamoz:
     type: application
@@ -83,6 +89,10 @@ targets:
         product: PKOllamaProvider
       - package: SwiftTerm
         product: SwiftTerm
+      - package: Monad
+        product: MonadClient
+      - package: Monad
+        product: MonadShared
   YakamozTests:
     type: bundle.unit-test
     platform: macOS
@@ -98,6 +108,10 @@ targets:
       - target: YakamozCore
       - package: PositronicKit
         product: PKTestSupport
+      - package: Monad
+        product: MonadClient
+      - package: Monad
+        product: MonadShared
 schemes:
   Yakamoz:
     build:
