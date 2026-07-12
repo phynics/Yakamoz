@@ -25,6 +25,12 @@ public protocol MonadClientTransport: Sendable {
         toolOutputs: [ToolOutputSubmission]?,
         clientTools: [ToolReference]?
     ) async throws -> AsyncThrowingStream<ChatEvent, Error>
+
+    // MARK: - YAK-MON-4: server agent instances/templates
+
+    func listAgentInstances() async throws -> [AgentInstance]
+    func listAgentTemplates() async throws -> [AgentTemplate]
+    func getAgentTimelines(agentId: UUID) async throws -> [TimelineResponse]
 }
 
 /// Live `MonadClientTransport` wrapping a real `MonadClient` actor.
@@ -63,5 +69,19 @@ public struct LiveMonadClientTransport: MonadClientTransport {
             toolOutputs: toolOutputs,
             clientTools: clientTools
         )
+    }
+
+    // MARK: - YAK-MON-4: server agent instances/templates
+
+    public func listAgentInstances() async throws -> [AgentInstance] {
+        try await client.chat.listAgentInstances()
+    }
+
+    public func listAgentTemplates() async throws -> [AgentTemplate] {
+        try await client.chat.listAgentTemplates()
+    }
+
+    public func getAgentTimelines(agentId: UUID) async throws -> [TimelineResponse] {
+        try await client.chat.getAgentTimelines(agentId: agentId)
     }
 }

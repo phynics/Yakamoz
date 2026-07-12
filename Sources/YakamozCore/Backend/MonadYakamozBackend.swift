@@ -187,3 +187,47 @@ extension MonadYakamozBackend: ChatRunning {
         }
     }
 }
+
+// MARK: - MonadAgentListing
+
+extension MonadYakamozBackend: MonadAgentListing {
+    /// Server agent *instances* (live agents with their own workspace/private timeline).
+    public func listAgentInstances() async throws -> [MonadAgentSummary] {
+        do {
+            let instances = try await transport.listAgentInstances()
+            return instances.map(MonadAgentSummary.init(instance:))
+        } catch let error as MonadClientError {
+            throw MonadBackendHealthError(clientError: error)
+        }
+    }
+
+    /// Server agent *templates* (reusable definitions an instance can be created from).
+    public func listAgentTemplates() async throws -> [MonadAgentSummary] {
+        do {
+            let templates = try await transport.listAgentTemplates()
+            return templates.map(MonadAgentSummary.init(template:))
+        } catch let error as MonadClientError {
+            throw MonadBackendHealthError(clientError: error)
+        }
+    }
+
+    /// Timelines belonging to a given server agent instance.
+    public func listTimelines(forAgent agentId: UUID) async throws -> [BackendTimelineSummary] {
+        do {
+            let timelines = try await transport.getAgentTimelines(agentId: agentId)
+            return timelines.map(BackendTimelineSummary.init(monadTimeline:))
+        } catch let error as MonadClientError {
+            throw MonadBackendHealthError(clientError: error)
+        }
+    }
+}
+
+private extension MonadAgentSummary {
+    init(instance: AgentInstance) {
+        self.init(id: instance.id, kind: .instance, name: instance.name, description: instance.description)
+    }
+
+    init(template: AgentTemplate) {
+        self.init(id: template.id, kind: .template, name: template.name, description: template.description)
+    }
+}

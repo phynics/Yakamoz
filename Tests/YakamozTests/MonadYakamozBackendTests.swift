@@ -21,6 +21,10 @@ struct MonadYakamozBackendTests {
         var executeResult: Result<[ChatEvent], Error> = .success([])
         var lastExecuteRequest: (timelineId: UUID, message: String)?
         var getTimelineResult: ((UUID) -> Result<TimelineResponse, Error>)?
+        var agentInstancesResult: Result<[AgentInstance], Error> = .success([])
+        var agentTemplatesResult: Result<[AgentTemplate], Error> = .success([])
+        var agentTimelinesResult: Result<[TimelineResponse], Error> = .success([])
+        var lastAgentTimelinesRequest: UUID?
 
         func getStatus() async throws -> StatusResponse {
             try statusResult.get()
@@ -61,6 +65,19 @@ struct MonadYakamozBackendTests {
                 }
                 continuation.finish()
             }
+        }
+
+        func listAgentInstances() async throws -> [AgentInstance] {
+            try agentInstancesResult.get()
+        }
+
+        func listAgentTemplates() async throws -> [AgentTemplate] {
+            try agentTemplatesResult.get()
+        }
+
+        func getAgentTimelines(agentId: UUID) async throws -> [TimelineResponse] {
+            lastAgentTimelinesRequest = agentId
+            return try agentTimelinesResult.get()
         }
     }
 
@@ -221,6 +238,62 @@ struct MonadYakamozBackendTests {
             _ = try await backend.run(ChatRunRequest(timelineId: UUID(), message: "Hello"))
         }
     }
+
+    // MARK: - Agent instances/templates (YAK-MON-4)
+
+    @Test("listAgentInstances maps AgentInstance to MonadAgentSummary with .instance kind")
+    func listAgentInstancesMaps() async throws {
+        let transport = FakeTransport()
+        let instance = AgentInstance(name: "Coder", description: "Writes code", privateTimelineId: UUID())
+        await transport.setAgentInstancesResult(.success([instance]))
+        let backend = MonadYakamozBackend(transport: transport)
+
+        let summaries = try await backend.listAgentInstances()
+        #expect(summaries.count == 1)
+        #expect(summaries.first?.id == instance.id)
+        #expect(summaries.first?.name == "Coder")
+        #expect(summaries.first?.description == "Writes code")
+        #expect(summaries.first?.kind == .instance)
+    }
+
+    @Test("listAgentTemplates maps AgentTemplate to MonadAgentSummary with .template kind")
+    func listAgentTemplatesMaps() async throws {
+        let transport = FakeTransport()
+        let template = AgentTemplate(id: UUID(), name: "Default", description: "General purpose", systemPrompt: "Be helpful")
+        await transport.setAgentTemplatesResult(.success([template]))
+        let backend = MonadYakamozBackend(transport: transport)
+
+        let summaries = try await backend.listAgentTemplates()
+        #expect(summaries.count == 1)
+        #expect(summaries.first?.id == template.id)
+        #expect(summaries.first?.name == "Default")
+        #expect(summaries.first?.kind == .template)
+    }
+
+    @Test("listAgentInstances maps a transport error to a typed MonadBackendHealthError")
+    func listAgentInstancesMapsError() async throws {
+        let transport = FakeTransport()
+        await transport.setAgentInstancesResult(.failure(MonadClientError.unauthorized))
+        let backend = MonadYakamozBackend(transport: transport)
+
+        await #expect(throws: MonadBackendHealthError.self) {
+            _ = try await backend.listAgentInstances()
+        }
+    }
+
+    @Test("listTimelines(forAgent:) forwards the agent id and maps responses")
+    func listTimelinesForAgentMaps() async throws {
+        let transport = FakeTransport()
+        let agentId = UUID()
+        let timelineId = UUID()
+        await transport.setAgentTimelinesResult(.success([TimelineResponse(id: timelineId, title: "Agent timeline")]))
+        let backend = MonadYakamozBackend(transport: transport)
+
+        let summaries = try await backend.listTimelines(forAgent: agentId)
+        #expect(summaries.map(\.id) == [timelineId])
+        #expect(summaries.map(\.title) == ["Agent timeline"])
+        #expect(await transport.lastAgentTimelinesRequest == agentId)
+    }
 }
 
 private struct DummyError: Error {}
@@ -236,5 +309,17 @@ private extension MonadYakamozBackendTests.FakeTransport {
 
     func setExecuteResult(_ result: Result<[ChatEvent], Error>) {
         executeResult = result
+    }
+
+    func setAgentInstancesResult(_ result: Result<[AgentInstance], Error>) {
+        agentInstancesResult = result
+    }
+
+    func setAgentTemplatesResult(_ result: Result<[AgentTemplate], Error>) {
+        agentTemplatesResult = result
+    }
+
+    func setAgentTimelinesResult(_ result: Result<[TimelineResponse], Error>) {
+        agentTimelinesResult = result
     }
 }
