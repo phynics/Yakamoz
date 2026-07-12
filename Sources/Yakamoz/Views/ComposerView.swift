@@ -11,11 +11,16 @@ struct ComposerView: View {
     /// keyboard focus to the text field. Defaults to a constant so callers/previews that
     /// don't manage focus keep working.
     var focusToken: Int = 0
+    /// ATW-8 requirement 5: disables sending entirely (e.g. an agent-less timeline with no
+    /// operator assigned yet). Defaults to `false` so existing call sites keep working.
+    var isDisabled: Bool = false
+    /// Tooltip shown on the send button while `isDisabled` is `true`.
+    var disabledReason: String?
 
     @FocusState private var isComposerFocused: Bool
 
     private var canSend: Bool {
-        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSending
+        !isDisabled && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSending
     }
 
     var body: some View {
@@ -30,7 +35,7 @@ struct ComposerView: View {
                 // SwiftUI's onSubmit fires on plain Return; Shift-Return inserts a
                 // newline into the bound text by default for an .vertical axis
                 // TextField, so no extra handling is required for the newline case.
-                .disabled(isSending)
+                .disabled(isSending || isDisabled)
                 .accessibilityLabel("Message composer")
                 .onAppear { isComposerFocused = true }
                 .onChange(of: focusToken) { _, _ in isComposerFocused = true }
@@ -47,6 +52,7 @@ struct ComposerView: View {
             }
             .buttonStyle(.plain)
             .disabled(!isSending && !canSend)
+            .help(isDisabled ? (disabledReason ?? "Sending is disabled.") : "")
             .accessibilityLabel(isSending ? "Stop" : "Send")
         }
         .padding(8)

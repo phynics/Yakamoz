@@ -76,6 +76,22 @@ struct ChatView: View {
         return agents.first(where: { $0.id == id })?.instructions
     }
 
+    /// Ordered filesystem roots for the active operator: its private vault first, followed by
+    /// attached folder workspaces. Each root remains jailed independently by YakamozRuntime.
+    private var operatorWorkspaceRoots: [URL] {
+        var roots: [URL] = []
+        if let id = conversation.agentId,
+           let vaultPath = agents.first(where: { $0.id == id })?.vaultPath,
+           !vaultPath.isEmpty
+        {
+            roots.append(URL(fileURLWithPath: vaultPath, isDirectory: true))
+        }
+        roots.append(contentsOf: attachedFolderWorkspaces.map {
+            URL(fileURLWithPath: $0.folderPath, isDirectory: true)
+        })
+        return roots
+    }
+
     private var attachedWorkspacesList: [WorkspaceModel] {
         WorkspaceResolutionHelper.attachedWorkspaces(for: conversation, in: workspaces)
     }
@@ -161,7 +177,7 @@ struct ChatView: View {
             }
 
             ToolbarItem(placement: .automatic) {
-                PersonaPicker(conversation: conversation)
+                OperatorChip(conversation: conversation)
             }
 
             ToolbarItem(placement: .automatic) {
@@ -272,7 +288,9 @@ struct ChatView: View {
                         isSending: viewModel.isSending,
                         onSend: { send(viewModel: viewModel) },
                         onCancel: { viewModel.cancel() },
-                        focusToken: composerFocusToken
+                        focusToken: composerFocusToken,
+                        isDisabled: AgentSidebarPresentation.isSendDisabled(agentId: conversation.agentId),
+                        disabledReason: "Assign an operator before sending."
                     )
                 }
 
@@ -512,7 +530,7 @@ struct ChatView: View {
             timelineId: conversation.id,
             systemInstructions: resolvedSystemInstructions,
             enabledToolIds: conversation.enabledToolIds,
-            folder: folderWorkspace,
+            workspaceRoots: operatorWorkspaceRoots,
             terminals: terminalContexts,
             sidecarDirectivesEnabled: conversation.sidecarDirectivesEnabled,
             // SID-1 cadence state: treat the conversation as "untitled" until the
@@ -578,7 +596,7 @@ struct ChatView: View {
         guard let runtime, let viewModel else { return }
         let tools = await runtime.resolveTools(
             enabledToolIds: conversation.enabledToolIds,
-            folder: folderWorkspace,
+            workspaceRoots: operatorWorkspaceRoots,
             terminals: terminalContexts
         )
         viewModel.updateTools(tools)

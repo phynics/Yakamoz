@@ -84,7 +84,7 @@ struct RuntimeCompositionTests {
         capturedConfiguration: @escaping @Sendable (LLMConfiguration) -> Void
     ) throws -> YakamozRuntime {
         try YakamozRuntime(
-            modelContainer: try modelContainer ?? makeModelContainer(),
+            modelContainer: modelContainer ?? makeModelContainer(),
             settings: settings,
             secrets: secrets,
             llmServiceFactory: { configuration in
@@ -169,7 +169,6 @@ struct RuntimeCompositionTests {
         #expect(configuration.activeProvider == .openRouter)
         #expect(configuration.apiKey == "sk-or-v1-openrouter-secret")
     }
-
 
     @Test("The runtime exposes the SwiftDataPromptInspector and YakamozStores it constructed")
     @MainActor
@@ -424,5 +423,56 @@ struct RuntimeCompositionTests {
         #expect(captured[1].modelName == "gpt-4o-test")
         #expect(captured[2].apiKey == "sk-secret-updated")
         #expect(captured[2].modelName == "updated-model")
+    }
+
+    /// ATW-4: `YakamozRuntime.makeKit` wires an `AgentVaultPromptSectionProvider` whose
+    /// `agentForInstance` lookup resolves a backend instance id back to its owning agent via
+    /// the runtime's `ModelContainer`. `PositronicKit.sectionProviders` is private, so this
+    /// proves the wiring behaviorally: the provider built with `lookup(in:)` (the closure
+    /// `makeKit` passes) resolves a seeded agent and injects its vault content in order.
+    @Test("ATW-4: the runtime wires a vault-section provider that resolves the operator")
+    @MainActor
+    func vaultSectionProviderResolvesOperator() async throws {
+        let container = try makeModelContainer()
+        let settings = makeSettings()
+        let secrets = FakeSecretStore()
+        try secrets.write("sk-vault-key", account: ProviderSettings.apiKeyAccount)
+        let mock = MockLLMService()
+        _ = try makeRuntime(settings: settings, secrets: secrets, mock: mock, modelContainer: container) { _ in }
+
+        // Seed an agent with a real vault on disk, and bind a backend instance id to it
+        // (mirrors `OperatorBackendBinding.ensureBackendInstance`, which initializes
+        // `backendInstanceId = agent.id` on first binding).
+        let vaultRoot = try makeTempRoot()
+        defer { cleanup(vaultRoot) }
+        let agent = AgentModel(
+            name: "Vault Operator",
+            instructions: "You are the vault operator.",
+            vaultPath: vaultRoot.path
+        )
+        container.mainContext.insert(agent)
+        agent.backendInstanceId = agent.id
+        try container.mainContext.save()
+        try "workflow-body".write(to: vaultRoot.appendingPathComponent("WORKFLOW.md"), atomically: true, encoding: .utf8)
+        try "notes-body".write(to: vaultRoot.appendingPathComponent("NOTES.md"), atomically: true, encoding: .utf8)
+
+        // The closure `YakamozRuntime.makeKit` passes to the provider, pointed at this
+        // agent's real vault root.
+        let provider = AgentVaultPromptSectionProvider(
+            agentForInstance: AgentVaultPromptSectionProvider.lookup(in: container),
+            rootForAgent: { _ in vaultRoot }
+        )
+        let sections = await provider.sections(for: .init(
+            timelineId: UUID(),
+            agentInstanceId: agent.backendInstanceId,
+            message: "hi"
+        ))
+
+        let ids = sections.compactMap { ($0 as? TextPrompt)?.id }
+        #expect(ids == [
+            "yakamoz.agent-vault.instructions",
+            "yakamoz.agent-vault.workflow",
+            "yakamoz.agent-vault.notes",
+        ])
     }
 }

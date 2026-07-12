@@ -48,7 +48,9 @@ public enum AppHealthStatus: String, Sendable, Equatable {
 public enum ConversationRunError: Error, Sendable, Equatable, LocalizedError {
     case operatorRequired
 
-    public var errorDescription: String? { "Assign an operator first." }
+    public var errorDescription: String? {
+        "Assign an operator first."
+    }
 }
 
 /// The single composition root for Yakamoz's runtime: wires SwiftData-backed persistence
@@ -76,6 +78,12 @@ public actor YakamozRuntime: ChatRunning {
     /// Shared by `resolveTools` (live agent tools) and any `TerminalWorkspace` parity path so a
     /// command run and a status read see the same shell. Torn down via `terminateAll()` on quit.
     public let terminalRegistry = TerminalSessionRegistry()
+
+    /// ATW-6: process-wide scheduler that serializes turns contending for the same attached
+    /// workspace or the same agent vault. Shared by every `ChatViewModel` this runtime builds so
+    /// turns across *all* timelines contend through one FIFO queue per key. Terminal sessions
+    /// are not serialized here (spec §5.3) — only the turns.
+    public let workspaceTurnScheduler = WorkspaceTurnScheduler()
 
     /// Gate consulted before each `terminal_run`. Defaults to `DenyAllApprover()` (default-deny)
     /// so the terminal backend is never an un-gated arbitrary-exec primitive when unwired; the
@@ -127,6 +135,7 @@ public actor YakamozRuntime: ChatRunning {
         kit = try Self.makeKit(
             stores: stores,
             inspector: inspector,
+            modelContainer: modelContainer,
             settingsSnapshot: settingsSnapshot,
             apiKey: ProviderSettings.storedAPIKey(for: settingsSnapshot.preset, secrets: secrets),
             llmServiceFactory: llmServiceFactory,
@@ -150,10 +159,15 @@ public actor YakamozRuntime: ChatRunning {
     /// is stable across refreshes rather than minted per call (PKPOST-004c).
     public nonisolated func resolveTools(
         enabledToolIds: [String],
-        folder: FolderToolContext?,
+        workspaceRoots: [URL],
         terminals: [TerminalToolContext] = []
     ) async -> [AnyTool] {
-        let providers = makeToolProviders(folder: folder, terminals: terminals)
+        // Derive a stable provenance id per root so the same root yields the same id across
+        // refreshes (PKPOST-004c). Callers that already hold a persisted `WorkspaceModel.id`
+        // (via `FolderToolContext`) should use the `folder:` overload, which carries that
+        // id through unchanged rather than re-deriving it.
+        let folders = workspaceRoots.map { FolderToolContext(workspaceID: Self.stableWorkspaceID(for: $0), rootURL: $0) }
+        let providers = makeToolProviders(folders: folders, terminals: terminals)
         var available: [AnyTool] = []
         for provider in providers {
             available.append(contentsOf: await provider.resolvedTools())
@@ -172,12 +186,36 @@ public actor YakamozRuntime: ChatRunning {
         return unpermissioned.filter { enabled.contains($0.callName) }
     }
 
-    private nonisolated func makeToolProviders(
+    /// Compatibility overload for callers that still have a single persisted workspace.
+    /// Carries the folder's persisted `workspaceID` through so provenance is stable across
+    /// refreshes (PKPOST-004c).
+    public nonisolated func resolveTools(
+        enabledToolIds: [String],
         folder: FolderToolContext?,
+        terminals: [TerminalToolContext] = []
+    ) async -> [AnyTool] {
+        let folders = folder.map { [$0] } ?? []
+        let providers = makeToolProviders(folders: folders, terminals: terminals)
+        var available: [AnyTool] = []
+        for provider in providers {
+            available.append(contentsOf: await provider.resolvedTools())
+        }
+        let explained = available.map { $0.withExplanationParameter() }
+        let autoApproved = ReadOnlyToolApproval.autoApprovedToolIds
+        let unpermissioned = explained.map { tool in
+            autoApproved.contains(tool.callName) ? tool.withoutPermissionRequirement() : tool
+        }
+        let enabled = Set(enabledToolIds)
+        guard !enabled.isEmpty else { return unpermissioned }
+        return unpermissioned.filter { enabled.contains($0.callName) }
+    }
+
+    private nonisolated func makeToolProviders(
+        folders: [FolderToolContext],
         terminals: [TerminalToolContext]
     ) -> [any ToolProviding] {
         var providers: [any ToolProviding] = [BuiltInToolProvider()]
-        if let folder {
+        for folder in folders {
             providers.append(FileWorkspaceToolProvider(folder: folder))
         }
         providers.append(contentsOf: terminals.map {
@@ -188,6 +226,24 @@ public actor YakamozRuntime: ChatRunning {
             )
         })
         return providers
+    }
+
+    /// A deterministic `UUID` derived from a workspace root's resolved path, so the same
+    /// root yields the same provenance id across `resolveTools` calls. Fills the 16 UUID
+    /// bytes by cycling through the path's UTF-8 bytes — a stable, seed-independent
+    /// mapping (only needs to be stable per root within a process, not globally unique).
+    private static func stableWorkspaceID(for root: URL) -> UUID {
+        let bytes = Array(root.standardizedFileURL.resolvingSymlinksInPath().path.utf8)
+        var uuidBytes = [UInt8](repeating: 0, count: 16)
+        for (i, byte) in bytes.enumerated() {
+            uuidBytes[i % 16] ^= byte
+        }
+        return UUID(uuid: (
+            uuidBytes[0], uuidBytes[1], uuidBytes[2], uuidBytes[3],
+            uuidBytes[4], uuidBytes[5], uuidBytes[6], uuidBytes[7],
+            uuidBytes[8], uuidBytes[9], uuidBytes[10], uuidBytes[11],
+            uuidBytes[12], uuidBytes[13], uuidBytes[14], uuidBytes[15]
+        ))
     }
 
     /// Computes the sidecar-directive list due for the upcoming turn (SID-1/SID-2).
@@ -266,6 +322,7 @@ public actor YakamozRuntime: ChatRunning {
         systemInstructions: String? = nil,
         enabledToolIds: [String] = [],
         folder: FolderToolContext? = nil,
+        workspaceRoots: [URL]? = nil,
         terminals: [TerminalToolContext] = [],
         sidecarDirectivesEnabled: Bool = false,
         conversationTitle: String? = nil,
@@ -274,7 +331,25 @@ public actor YakamozRuntime: ChatRunning {
         onTimelineStateChange: (@MainActor @Sendable (ConversationTimelineState) async -> Void)? = nil
     ) async -> ChatViewModel {
         let promptInspector = inspector
-        let tools = await resolveTools(enabledToolIds: enabledToolIds, folder: folder, terminals: terminals)
+        let tools = await resolveTools(
+            enabledToolIds: enabledToolIds,
+            workspaceRoots: workspaceRoots ?? folder.map { [$0.rootURL] } ?? [],
+            terminals: terminals
+        )
+        // ATW-6: compute the turn's workspace/vault contention keys — attached workspace ids
+        // plus the operator agent id (the vault is contended between the home timeline and any
+        // other timeline run by the same agent). Read from the persisted conversation so the
+        // view model's scheduler wiring reflects live attachment state, not a snapshot. A
+        // missing conversation yields no keys (no serialization, matching current behavior).
+        var turnKeys: [UUID] = []
+        var descriptor = FetchDescriptor<ConversationModel>(predicate: #Predicate { $0.id == timelineId })
+        descriptor.fetchLimit = 1
+        if let conversation = try? modelContainer.mainContext.fetch(descriptor).first {
+            turnKeys = conversation.attachedWorkspaceIds
+            if let agentId = conversation.agentId {
+                turnKeys.append(agentId)
+            }
+        }
         let loadedTranscript: LoadedTranscript
         do {
             loadedTranscript = try await loadTranscript(for: timelineId)
@@ -338,7 +413,9 @@ public actor YakamozRuntime: ChatRunning {
                 : [],
             onTimelineStateChange: onTimelineStateChange,
             onSidecarResults: onSidecarResults,
-            initialTranscript: loadedTranscript.transcript
+            initialTranscript: loadedTranscript.transcript,
+            turnScheduler: workspaceTurnScheduler,
+            turnKeys: turnKeys
         )
     }
 
@@ -403,10 +480,45 @@ public actor YakamozRuntime: ChatRunning {
         return try await coordinator.createConversation(title: title, agentId: agentId, attachedWorkspaceIds: attachedWorkspaceIds, isHomeTimeline: isHomeTimeline)
     }
 
+    /// Creates a new `AgentModel` and initializes its vault directory (ATW-8: "New Agent"
+    /// sidebar action). The vault path is deterministic from the agent's id
+    /// (`AgentVaultFactory.vaultRoot(for:)`), matching how `AgentVaultPromptSectionProvider`
+    /// and `homeTimeline(for:modelContext:)` resolve it later.
+    @MainActor
+    public func createAgent(
+        modelContext: ModelContext,
+        name: String = "New Agent",
+        instructions: String = ""
+    ) throws -> AgentModel {
+        let factory = AgentVaultFactory()
+        let agent = AgentModel(name: name, instructions: instructions, vaultPath: "")
+        agent.vaultPath = factory.vaultRoot(for: agent.id).path
+        try factory.createVault(for: agent)
+        modelContext.insert(agent)
+        try modelContext.save()
+        return agent
+    }
+
     @MainActor
     public func setOperator(modelContext: ModelContext, conversationId: UUID, agentId: UUID?) async throws {
         let coordinator = ConversationCoordinator(modelContext: modelContext, timelineStore: stores.timelines)
         try await coordinator.setOperator(conversationId: conversationId, agentId: agentId)
+    }
+
+    /// Returns the agent's home timeline, creating it only when its Chat tab is first opened.
+    @MainActor
+    public func homeTimeline(for agentId: UUID, modelContext: ModelContext) async throws -> ConversationModel {
+        let coordinator = ConversationCoordinator(modelContext: modelContext, timelineStore: stores.timelines)
+        return try await coordinator.homeTimeline(for: agentId)
+    }
+
+    /// Deletes an agent after the view has collected its destructive-action confirmation.
+    /// The cascade removes the home timeline and vault while retaining other timelines as
+    /// unassigned conversations.
+    @MainActor
+    public func deleteAgent(id: UUID, modelContext: ModelContext) async throws {
+        let coordinator = ConversationCoordinator(modelContext: modelContext, timelineStore: stores.timelines)
+        try await coordinator.deleteAgent(id: id)
     }
 
     /// ChatRunning conformance that resolves the latest settings and API key on each turn.
@@ -457,6 +569,7 @@ public actor YakamozRuntime: ChatRunning {
     private static func makeKit(
         stores: YakamozStores,
         inspector: SwiftDataPromptInspector,
+        modelContainer: ModelContainer,
         settingsSnapshot: ProviderSettingsSnapshot,
         apiKey: String,
         llmServiceFactory: LLMServiceFactory,
@@ -477,7 +590,13 @@ public actor YakamozRuntime: ChatRunning {
                 ),
                 runtime: .init(
                     workspaceCreator: FileSystemWorkspaceFactory(),
-                    sectionProviders: [CurrentTimeSectionProvider()],
+                    sectionProviders: [
+                        CurrentTimeSectionProvider(),
+                        AgentVaultPromptSectionProvider(
+                            agentForInstance: AgentVaultPromptSectionProvider.lookup(in: modelContainer),
+                            isHomeTimeline: AgentVaultPromptSectionProvider.homeTimelineLookup(in: modelContainer)
+                        ),
+                    ],
                     promptInspector: inspector,
                     toolApprovalGate: toolApprovalGate
                 ),

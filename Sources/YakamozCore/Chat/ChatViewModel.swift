@@ -80,6 +80,12 @@ public final class ChatViewModel {
     /// rather than injecting `ConversationCoordinator` directly so `ChatViewModel` stays
     /// decoupled from SwiftData — matching the existing `onTimelineStateChange` boundary.
     private let onSidecarResults: (@MainActor @Sendable (Int, [SidecarResult]) async -> Void)?
+    /// ATW-6: serializes this timeline's turns against other timelines sharing a workspace or
+    /// the agent vault. `nil` when unwired (tests, no-runtime construction) → no serialization,
+    /// matching pre-ATW-6 behavior. `turnKeys` is the set of contention keys (attached
+    /// workspace ids + the operator agent id) captured at view-model construction.
+    private let turnScheduler: WorkspaceTurnScheduler?
+    private let turnKeys: [UUID]
     private let clock: ContinuousClock
     private var nextTurnIndex = 0
     private var nextInspectionTurnIndex = 0
@@ -114,6 +120,8 @@ public final class ChatViewModel {
         onTimelineStateChange: (@MainActor @Sendable (ConversationTimelineState) async -> Void)? = nil,
         onSidecarResults: (@MainActor @Sendable (Int, [SidecarResult]) async -> Void)? = nil,
         initialTranscript: [TranscriptItem] = [],
+        turnScheduler: WorkspaceTurnScheduler? = nil,
+        turnKeys: [UUID] = [],
         clock: ContinuousClock = ContinuousClock()
     ) {
         self.timelineId = timelineId
@@ -127,6 +135,8 @@ public final class ChatViewModel {
         self.sidecars = sidecars
         self.onTimelineStateChange = onTimelineStateChange
         self.onSidecarResults = onSidecarResults
+        self.turnScheduler = turnScheduler
+        self.turnKeys = turnKeys
         transcript = initialTranscript
         nextTurnIndex = Self.nextTurnIndex(for: initialTranscript)
         nextInspectionTurnIndex = Self.nextInspectionTurnIndex(for: initialTranscript)
@@ -278,6 +288,42 @@ public final class ChatViewModel {
         await publishTimelineStateIfNeeded(state.timelineState)
         var lastRecordedErrorMessage: String?
 
+        // ATW-6: acquire the workspace/vault turn lease before running. The fast path
+        // (`tryAcquire`) claims all keys without suspending and without flashing a waiting
+        // state — the common uncontended turn. Only when a key is held by another timeline do
+        // we publish `.waitingForWorkspace` and suspend on `acquire` until the keys free. The
+        // lease is released after the turn body (single release site at function end + the two
+        // early-return arms below), so a turn never leaks a key.
+        let owner = WorkspaceTurnOwner(timelineID: timelineId)
+        var lease: WorkspaceTurnLease?
+        if let scheduler = turnScheduler, !turnKeys.isEmpty {
+            if let fast = await scheduler.tryAcquire(keys: turnKeys, owner: owner) {
+                lease = fast
+            } else {
+                // Contended: tell the UI we're queued, then suspend until the keys free.
+                await publishTimelineStateIfNeeded(.waitingForWorkspace)
+                do {
+                    lease = try await scheduler.acquire(keys: turnKeys, owner: owner)
+                } catch is CancellationError {
+                    state.isCancelled = true
+                    updateAssistantItem(id: assistantItemId, turn: state)
+                    await publishTimelineStateIfNeeded(state.timelineState)
+                    return
+                } catch {
+                    let message = ErrorKit.userFriendlyMessage(for: error)
+                    errorMessage = message
+                    state.errorMessage = message
+                    state = finalizeFailedTurn(state, assistantItemId: assistantItemId)
+                    await publishTimelineStateIfNeeded(state.timelineState)
+                    appendErrorItem(message, retryPrompt: text)
+                    return
+                }
+                // Acquired after waiting: re-publish the turn's natural (pre-waiting) state so
+                // the UI doesn't linger on `.waitingForWorkspace` before the first stream event.
+                await publishTimelineStateIfNeeded(state.timelineState)
+            }
+        }
+
         defer {
             isSending = false
             // STAB-9: the turn has reached its terminal state; drop the recorded index
@@ -375,6 +421,13 @@ public final class ChatViewModel {
             state = finalizeFailedTurn(state, assistantItemId: assistantItemId)
             await publishTimelineStateIfNeeded(state.timelineState)
             appendErrorItem(message, retryPrompt: text)
+        }
+
+        // ATW-6: release the turn lease on every terminal path (success, thrown error,
+        // cancellation all fall through to here). The two early-return arms in the acquire
+        // block above never set `lease`, so they need no release. Release is idempotent.
+        if let lease {
+            await lease.release()
         }
     }
 

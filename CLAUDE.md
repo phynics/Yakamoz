@@ -33,7 +33,8 @@ A loop, not a line:
 - **Repeat** — review tickets are the next implementation round.
 
 All tickets live in `../workflow/Yakamoz/tickets/` — one file `YAK-<id>-<slug>.md`, each with a `Status`
-line and (problem / affected `file:line` / before-after code / tests / acceptance criteria).
+line (new tickets also carry a `Triage:` line — root `../CLAUDE.md`, "Triage labels") and
+(problem / affected `file:line` / before-after code / tests / acceptance criteria).
 Numeric `YAK-N` for the backlog; a lettered batch (e.g. `YAK-TF*`) for a cohesive review set.
 **Update the index** [`../workflow/Yakamoz/tickets/README.md`](../workflow/Yakamoz/tickets/README.md) in the same change
 (table row + Open/Delayed summary; tag titles `[BUG]`/`[SECURITY]`).

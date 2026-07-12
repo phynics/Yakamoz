@@ -103,6 +103,14 @@ extension AgentVaultFactory {
 
     static let memoryIndexTemplate = "# Memory Index\n"
 
+    /// Standing context for the agent-only conversation. Kept with the vault templates so
+    /// users can inspect the complete system framing in one place.
+    static let homeTimelineTemplate = """
+    This is your home conversation with your principal. Treat this transcript as the durable,
+    direct relationship with them: be candid, retain their goals and preferences in your vault,
+    and distinguish it from task-specific timelines.
+    """
+
     static let workflowTemplate = """
     # How to use this vault
 

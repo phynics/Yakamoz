@@ -83,4 +83,69 @@ struct ToolWorkspaceSecurityTests {
         #expect(toolTrace.state == .succeeded)
         #expect(toolTrace.output == "4")
     }
+
+    /// ATW-5: with multiple roots resolved, a filesystem tool jailed to one root must not
+    /// be able to read a file under a sibling root. This proves the "jail roots remain
+    /// root-specific" acceptance criterion: each root's `cat` refuses a path that resolves
+    /// outside its own jail.
+    @Test("ATW-5: a jail root's cat cannot read a sibling root's file")
+    func jailRootsRemainRootSpecific() async throws {
+        let container = try makeModelContainer()
+        let settings = makeSettings()
+        let secrets = FakeSecretStore()
+        try secrets.write("sk-jail-key", account: ProviderSettings.apiKeyAccount)
+        let mock = MockLLMService()
+        let runtime = try YakamozRuntime(
+            modelContainer: container,
+            settings: settings,
+            secrets: secrets,
+            llmServiceFactory: { _ in mock }
+        )
+
+        let rootA = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("ATW5-jail-A-\(UUID().uuidString)", isDirectory: true)
+        let rootB = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("ATW5-jail-B-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootA, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: rootB, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootA); try? FileManager.default.removeItem(at: rootB) }
+
+        let secretA = "A-secret"
+        let secretB = "B-secret"
+        try secretA.write(to: rootA.appendingPathComponent("secretA.txt"), atomically: true, encoding: .utf8)
+        try secretB.write(to: rootB.appendingPathComponent("secretB.txt"), atomically: true, encoding: .utf8)
+
+        let tools = await runtime.resolveTools(
+            enabledToolIds: [],
+            workspaceRoots: [rootA, rootB],
+            terminals: []
+        )
+        /// Find each root's cat tool by its provenance name (root last path component).
+        func cat(forRoot root: URL) throws -> AnyTool {
+            try #require(tools.first { tool in
+                tool.callName == "cat" && {
+                    if case let .workspace(_, name) = tool.provenance { return name == root.lastPathComponent }
+                    return false
+                }()
+            })
+        }
+        let catA = try cat(forRoot: rootA)
+        let catB = try cat(forRoot: rootB)
+
+        // Positive control: each cat reads its own root's file.
+        let ownA = try await catA.execute(parameters: ["path": AnyCodable("secretA.txt")])
+        #expect(ownA.success)
+        #expect(ownA.output == secretA)
+
+        // Escape attempt: catA reaches into rootB via a relative traversal.
+        let traversal = "../\(rootB.lastPathComponent)/secretB.txt"
+        let escapeFromA = try await catA.execute(parameters: ["path": AnyCodable(traversal)])
+        #expect(!escapeFromA.success)
+        #expect(escapeFromA.output != secretB)
+
+        // Escape attempt: catB reaches into rootA via a relative traversal.
+        let escapeFromB = try await catB.execute(parameters: ["path": AnyCodable("../\(rootA.lastPathComponent)/secretA.txt")])
+        #expect(!escapeFromB.success)
+        #expect(escapeFromB.output != secretA)
+    }
 }
