@@ -43,6 +43,18 @@ struct MonadProfileStatusViewModelTests {
         ) async throws -> AsyncThrowingStream<ChatEvent, Error> {
             AsyncThrowingStream { $0.finish() }
         }
+
+        func listAgentInstances() async throws -> [AgentInstance] {
+            []
+        }
+
+        func listAgentTemplates() async throws -> [AgentTemplate] {
+            []
+        }
+
+        func getAgentTimelines(agentId _: UUID) async throws -> [TimelineResponse] {
+            []
+        }
     }
 
     private func makeSUT(
