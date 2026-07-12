@@ -97,7 +97,7 @@ struct ContentView: View {
         case let .agent(agentId):
             MonadAgentDetailView(agentId: agentId, profile: monadProfile, selection: $monadSelection)
         case let .timeline(timelineId):
-            MonadTimelineSummaryView(timelineId: timelineId, profile: monadProfile)
+            MonadChatView(timelineId: timelineId, profile: monadProfile)
         case nil:
             unavailable
         }
