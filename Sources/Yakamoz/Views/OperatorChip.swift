@@ -32,17 +32,14 @@ struct OperatorChip: View {
         .help("Choose the timeline operator")
         .accessibilityLabel("Operator: \(selectedName)")
         .disabled(conversation.isHomeTimeline)
-        .alert("Couldn't Change Operator", isPresented: Binding(
-            get: { swapError != nil },
-            set: { if !$0 { swapError = nil } }
-        )) { Button("OK", role: .cancel) {} } message: { Text(swapError ?? "") }
+        .errorAlert("Couldn't Change Operator", message: $swapError)
     }
 
     private func setOperator(_ agentId: UUID?) {
         guard let runtime else { return }
         Task {
             do { try await runtime.setOperator(modelContext: modelContext, conversationId: conversation.id, agentId: agentId) }
-            catch { swapError = error.localizedDescription }
+            catch { swapError = Log.userFriendlyErrorMessage(for: error) }
         }
     }
 }

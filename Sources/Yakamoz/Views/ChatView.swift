@@ -3,13 +3,6 @@ import SwiftData
 import SwiftUI
 import YakamozCore
 
-/// Snapshot carried by `onScrollGeometryChange` so it can be compared across scroll events.
-/// Tuples do not conform to `Equatable`, so the API requires a concrete struct type.
-private struct ScrollGeometryState: Equatable {
-    let isAtBottom: Bool
-    let contentHeight: CGFloat
-}
-
 /// Owns the per-conversation `ChatViewModel`, built from the environment runtime and
 /// `conversation.id` — the same `UUID` used as the PositronicKit `timelineId`
 /// (see `ConversationCoordinator`).
@@ -26,6 +19,7 @@ struct ChatView: View {
 
     @State private var viewModel: ChatViewModel?
     @State private var inspectionViewModel: InspectionViewModel?
+    @State private var detailWidth: CGFloat = 0
     @State private var draft = ""
     @State private var workspacePresentation: WorkspacePresentation?
     @State private var workspacePromptId: UUID?
@@ -259,8 +253,7 @@ struct ChatView: View {
     }
 
     private func chatBody(viewModel: ChatViewModel) -> some View {
-        GeometryReader { proxy in
-            HStack(spacing: 0) {
+        HStack(spacing: 0) {
                 VStack(spacing: 0) {
                     if let terminalApprover {
                         TerminalApprovalBanner(
@@ -297,7 +290,7 @@ struct ChatView: View {
                 if let inspectionViewModel {
                     InspectorDrawer(
                         viewModel: inspectionViewModel,
-                        detailWidth: proxy.size.width,
+                        detailWidth: detailWidth,
                         selectedTurnState: viewModel.selectedTurnState,
                         workspacePresentation: workspacePresentation,
                         providerStatus: providerStatus,
@@ -318,7 +311,11 @@ struct ChatView: View {
                         onSelectTurn: { viewModel.selectInspectionTurn($0) }
                     )
                 }
-            }
+        }
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { newWidth in
+            detailWidth = newWidth
         }
     }
 
@@ -725,7 +722,7 @@ private struct JumpToBottomButton: View {
     var body: some View {
         Button(action: onTap) {
             Image(systemName: "arrow.down")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .frame(width: 32, height: 32)
                 .background(.regularMaterial, in: Circle())

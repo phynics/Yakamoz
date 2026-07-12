@@ -67,14 +67,7 @@ struct AgentSettingsView: View {
         } message: {
             Text("This deletes the agent's home timeline and vault. Timelines it merely operated become unassigned.")
         }
-        .alert(
-            "Couldn't Delete Agent",
-            isPresented: Binding(get: { deleteError != nil }, set: { if !$0 { deleteError = nil } })
-        ) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(deleteError ?? "")
-        }
+        .errorAlert("Couldn't Delete Agent", message: $deleteError)
     }
 
     private func toggleDefaultTool(_ id: String, isOn: Bool) {

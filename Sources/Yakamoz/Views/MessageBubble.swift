@@ -149,7 +149,7 @@ private struct TranscriptRowFrame<Content: View>: View {
                 .padding(.vertical, 2)
 
             Image(systemName: presentation.iconSystemName)
-                .font(.system(size: 14, weight: .medium))
+                .font(.subheadline.weight(.medium))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(presentation.iconColor)
                 .frame(width: 18)
@@ -660,7 +660,7 @@ private struct AssistantTurnContent: View {
             // Completion is handled by `markdownSource` returning the exact text directly,
             // not here. Only the last segment tracks the live-growing text.
             guard isLastSegment, !turn.isComplete, !fullSegmentText.isEmpty else { return }
-            let now = Date()
+            let now = Date.now
             if now.timeIntervalSince(lastMarkdownRenderAt) >= Self.streamingMarkdownCoalesceInterval {
                 streamingMarkdownText = fullSegmentText
                 lastMarkdownRenderAt = now

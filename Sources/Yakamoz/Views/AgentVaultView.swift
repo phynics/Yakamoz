@@ -20,14 +20,7 @@ struct AgentVaultView: View {
         .task(id: agent.id) {
             reload()
         }
-        .alert(
-            "Couldn't Save Notes",
-            isPresented: Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })
-        ) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(saveError ?? "")
-        }
+        .errorAlert("Couldn't Save Notes", message: $saveError)
     }
 
     private var notesEditor: some View {

@@ -188,7 +188,7 @@ private extension ToolsInspectorView {
                 Spacer()
                 stateBadge(trace.status)
                 if let elapsed = trace.elapsedMillis {
-                    Text(String(format: "%.0f ms", elapsed))
+                    Text("\(elapsed, format: .number.precision(.fractionLength(0))) ms")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .monospacedDigit()

@@ -68,14 +68,7 @@ struct AgentSidebarView: View {
         .sheet(isPresented: $isWorkspaceLibraryPresented) {
             WorkspaceLibraryView()
         }
-        .alert(
-            "Couldn't Complete Action",
-            isPresented: Binding(get: { creationError != nil }, set: { if !$0 { creationError = nil } })
-        ) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(creationError ?? "")
-        }
+        .errorAlert("Couldn't Complete Action", message: $creationError)
     }
 
     private func agentSection(_ group: AgentSidebarGroup) -> some View {

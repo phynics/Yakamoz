@@ -96,10 +96,6 @@ struct InspectorDrawer: View {
         RightPanePresentation(selectedInspectionTurnIndex: selectedInspectionTurnIndex)
     }
 
-    private var minWidth: CGFloat {
-        280
-    }
-
     var body: some View {
         Group {
             if isOpen {
@@ -127,7 +123,7 @@ struct InspectorDrawer: View {
     }
 
     private var clampedWidth: CGFloat {
-        min(max(CGFloat(storedWidth), minWidth), maxWidth)
+        InspectorWidthClamping.clamped(CGFloat(storedWidth), detailWidth: detailWidth)
     }
 
     private var resizeHandle: some View {
@@ -145,16 +141,18 @@ struct InspectorDrawer: View {
                     let start = dragStartWidth ?? Double(clampedWidth)
                     if dragStartWidth == nil { dragStartWidth = start }
                     let proposed = start - Double(value.translation.width)
-                    storedWidth = min(max(proposed, Double(minWidth)), Double(maxWidth))
+                    storedWidth = Double(InspectorWidthClamping.clamped(CGFloat(proposed), detailWidth: detailWidth))
                 }
                 .onEnded { _ in dragStartWidth = nil }
         )
+        .accessibilityElement()
         .accessibilityLabel("Resize inspector")
-        .accessibilityHint("Drag to change the inspector width")
-    }
-
-    private var maxWidth: CGFloat {
-        max(minWidth, detailWidth * 0.55)
+        .accessibilityHint("Drag or adjust to change the inspector width")
+        .accessibilityAdjustableAction { direction in
+            let step: CGFloat = 40
+            let proposed = CGFloat(storedWidth) + (direction == .increment ? step : -step)
+            storedWidth = Double(InspectorWidthClamping.clamped(proposed, detailWidth: detailWidth))
+        }
     }
 
     @ViewBuilder
