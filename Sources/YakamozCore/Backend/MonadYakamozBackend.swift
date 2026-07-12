@@ -171,6 +171,18 @@ private extension BackendTimelineSummary {
     }
 }
 
+// MARK: - BackendInspectorProviding (YAK-MON-8)
+
+extension MonadYakamozBackend: BackendInspectorProviding {
+    /// A limited inspector is available for Monad-backed turns: response metadata, tool
+    /// traces, and workspace files are sourced from the live `ChatTurnState` (no local
+    /// persistence). The prompt/sent/journal tabs are not available because Monad does not
+    /// expose the prompt assembly pipeline, sent payload, or journal diffs.
+    public var inspectorAvailable: Bool {
+        true
+    }
+}
+
 // MARK: - ChatRunning
 
 extension MonadYakamozBackend: ChatRunning {

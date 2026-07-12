@@ -510,6 +510,13 @@ struct MonadYakamozBackendTests {
         let afterDetach = try await backend.listTimelineWorkspaces(timelineId: timelineId)
         #expect(afterDetach.attached.isEmpty)
     }
+
+    @Test("inspectorAvailable is true for Monad-backed turns (limited inspector, YAK-MON-8)")
+    func inspectorAvailableTrue() {
+        let transport = FakeTransport()
+        let backend = MonadYakamozBackend(transport: transport)
+        #expect(backend.inspectorAvailable)
+    }
 }
 
 private struct DummyError: Error {}
