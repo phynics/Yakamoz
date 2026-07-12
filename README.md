@@ -45,6 +45,9 @@ make test TEST_FILTER=InspectableChatIntegrationTests
 `xcodebuild test -scheme Yakamoz -destination 'platform=macOS' -skipMacroValidation`,
 and parses the `xcodebuild` output to fail the command if the executed test count is zero.
 
+For the Local-versus-Monad operating model and the real-server verification checklist, see
+[Monad mode: operation guide and manual smoke](docs/monad-mode-manual-smoke.md).
+
 To run the app, open the generated `Yakamoz.xcodeproj` in Xcode and run the **Yakamoz**
 scheme (the app target links only `YakamozCore`; see the boundary note below).
 

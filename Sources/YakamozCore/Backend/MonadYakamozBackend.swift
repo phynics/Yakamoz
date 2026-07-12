@@ -17,36 +17,11 @@ import PositronicKit
 /// response/error mapping. `LiveMonadClientTransport` is the production implementation;
 /// tests inject a fully in-memory fake.
 ///
-/// ## Manual smoke checklist (run against a real local `monad server`)
+/// ## Manual smoke
 ///
-/// This ticket explicitly excludes live network calls from automated tests. Verify the
-/// adapter against a real server by hand:
-///
-/// 1. `cd Monad && swift run monad server` (starts a local server on `127.0.0.1:8080`
-///    by default). Do **not** have Yakamoz auto-start this — the ticket explicitly
-///    excludes server auto-start.
-/// 2. In Yakamoz, create/select a `MonadProfile` pointing at that server's URL (no API
-///    key needed for a default local server).
-/// 3. Construct `MonadYakamozBackend(profile:secrets:)` and call
-///    `backendHealthCheck()` — expect `.ok`.
-/// 4. Stop the server and call `backendHealthCheck()` again — expect `.down` (not a
-///    thrown error/crash).
-/// 5. With the server running again, call `createTimeline(title: "Smoke test")` —
-///    expect a `BackendTimelineSummary` with a non-nil `id` and matching `title`.
-/// 6. Call `listTimelines()` — expect the created timeline to appear in the result.
-/// 7. Call `loadTimeline(id:)` with that id — expect a non-nil summary back; with a
-///    random UUID — expect `nil` (not a thrown error).
-/// 8. Call `run(_:)` with a `ChatRunRequest(timelineId: <created id>, message: "Hello")`
-///    and iterate the returned stream — expect at least one `ChatEvent` (e.g. a text
-///    delta) with no error, proving one basic user turn streams end to end against a
-///    real server.
-/// 9. Point the profile at an unreachable URL (e.g. a closed port) and repeat step 3 —
-///    expect `.down`, not a hang or crash.
-/// 10. Set an incorrect API key on a server that requires one (or point at a server
-///     requiring auth without a key) and repeat step 3 — expect `.down` (auth failure
-///     is surfaced as `.down` via `backendHealthCheck()`; `verifyReachable()` below
-///     surfaces the distinction with a typed `MonadBackendHealthError.authenticationFailed`
-///     for callers that need it).
+/// Automated tests intentionally inject an in-memory `MonadClientTransport`. The authoritative
+/// real-server procedure, including profile authentication, workspace RPC, streaming, inspector
+/// limits, and recorded results, is `docs/monad-mode-manual-smoke.md`.
 public struct MonadYakamozBackend: Sendable {
     /// `internal`, not `private`, so `MonadConnectionStatus.swift`'s
     /// `MonadYakamozBackend.fetchConnectionStatus()` extension (YAK-MON-9) can read it —

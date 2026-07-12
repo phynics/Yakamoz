@@ -6,14 +6,10 @@ import PKShared
 /// `x-monad-client-id` header, read `WorkspaceRPCRequestEnvelope` JSON text frames, write
 /// `WorkspaceRPCResponseEnvelope` JSON text frames back.
 ///
-/// See `MonadWorkspaceRPCConnection`'s doc comment for the honest caveat: this type is
-/// implemented against the wire format as documented server-side, but is not exercised by
-/// any automated test against a real server (the ticket explicitly excludes live network
-/// from automated tests), and the server's current read loop
-/// (`WebSocketAPIController.handle`) only decodes inbound frames as `RPCResponse`, not
-/// `RPCRequest` — so a real end-to-end round trip through this type has not been verified
-/// against a running `monad server`. Manual verification is called out in
-/// `MonadWorkspaceProvider`'s smoke-test doc comment.
+/// This type is intentionally not exercised against a real server in automated tests. Monad's
+/// server-initiated request/client-response contract is implemented by MON-API-2, but the full
+/// round trip remains a manual-smoke concern because it requires a user-managed authorized
+/// server and a configured provider. See Yakamoz's `docs/monad-mode-manual-smoke.md`.
 public final class LiveMonadWorkspaceRPCConnection: MonadWorkspaceRPCConnection, @unchecked Sendable {
     private let baseURL: URL
     private let apiKey: String?

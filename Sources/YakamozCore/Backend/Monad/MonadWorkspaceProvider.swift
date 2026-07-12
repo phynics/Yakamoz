@@ -23,20 +23,16 @@ import PKShared
 ///   with `location: .attached`), and tool sync (`PUT /api/workspaces/{id}/tools`). These
 ///   go through `MonadWorkspaceRegistrationTransport`, whose live implementation wraps a
 ///   real `MonadClient` and hits real, already-shipped Monad server routes.
-/// - **Seam-only, pending real transport**: the WebSocket push channel itself
-///   (`workspace/executeTool` etc. arriving as server-initiated calls). The wire format is
-///   concretely defined server-side (`RemoteWorkspace.swift`, `WorkspaceRPC.swift`,
-///   `WebSocketAPIController.swift`) and `LiveMonadWorkspaceRPCConnection` implements the
-///   documented client half of it, but:
-///     1. `WebSocketAPIController`'s current read loop only decodes inbound frames as
-///        `RPCResponse` — i.e. today the server does not yet read `RPCRequest` frames
-///        *from* a client, only `RPCResponse` frames replying to something the server
-///        sent. A live end-to-end round trip has not been (and cannot yet be) verified.
-///     2. The wire contract has no workspace id in `workspace/*` request params —
-///        `RemoteWorkspace` addresses a client purely by `clientId`. This provider
-///        therefore supports exactly **one** registered folder workspace per connection;
-///        multiplexing several simultaneously-attached folders for one Yakamoz instance
-///        is not resolvable against the current protocol and is out of scope here.
+/// - **Live WebSocket contract, not an automated-network test**: MON-API-2 established the
+///   server-initiated direction: Monad sends `RPCRequest` frames and Yakamoz replies with
+///   `RPCResponse` frames, correlated by id. `LiveMonadWorkspaceRPCConnection` implements that
+///   client half. Unit tests intentionally use fakes and cover provider dispatch/jailing without
+///   network; run the committed Monad-mode manual smoke guide against an authorized server for
+///   the real round trip.
+/// - **One-folder protocol limit**: `RemoteWorkspace` RPC params identify a client but do not
+///   contain a workspace id, so one provider instance supports one registered folder workspace
+///   per connection. Supporting multiple attached folders needs a protocol/API extension and is
+///   out of scope here.
 ///   `handle(request:)` — the dispatch logic that decodes an RPC request, executes it
 ///   against `FileSystemWorkspace`, and encodes the response — is fully implemented and
 ///   tested directly (bypassing `LiveMonadWorkspaceRPCConnection`/`URLSessionWebSocketTask`
@@ -47,34 +43,11 @@ import PKShared
 ///   `workspace/*` file methods above is rejected with
 ///   `MonadWorkspaceProviderError.unsupportedMethod`.
 ///
-/// ## Manual smoke checklist (run against a real local `monad server`)
+/// ## Manual smoke
 ///
-/// Automated tests cover `handle(request:)`'s dispatch/jailing/error-mapping logic with
-/// fakes only (per the ticket's "no live network, no live WebSocket" requirement) — they
-/// cannot prove the WebSocket round trip end to end, since (per above) the server doesn't
-/// yet read `RPCRequest` frames from a client. Once that server-side gap is closed, verify
-/// by hand:
-///
-/// 1. `cd Monad && swift run monad server` to start a local server.
-/// 2. In Yakamoz, construct a `MonadWorkspaceProvider` for the active `MonadProfile` and a
-///    `FileSystemWorkspace` rooted at some local folder, then call `start(folder:)`.
-/// 3. Confirm `registerClient` succeeds — `GET /api/clients` on the server should list a
-///    Yakamoz origin.
-/// 4. Confirm the attached workspace was created — `GET /api/workspaces` should list one
-///    `.attached` workspace with `originId` matching the registered client and `rootPath`
-///    matching the local folder.
-/// 5. From another Monad client (e.g. `monad chat`), attach that workspace to a timeline
-///    and ask the agent to list files in it — expect the request to reach this provider's
-///    `handle(request:)` for `workspace/listFiles` and return real directory contents.
-/// 6. Ask the agent to read a known file in the folder — expect the real file contents
-///    back via `workspace/readFile`.
-/// 7. Ask the agent to write/create a file — expect it to appear on disk under the folder,
-///    routed via `workspace/writeFile`.
-/// 8. Attempt (via a crafted/forced RPC or a follow-up ticket's test harness) a path
-///    outside the folder root (e.g. `../../etc/passwd`) — expect `accessDenied`, not a
-///    successful read, proving jailing survived the RPC hop.
-/// 9. Stop `monad server` mid-session — expect `LiveMonadWorkspaceRPCConnection`'s
-///    `incomingRequests()` stream to finish (with an error), not hang.
+/// Automated tests cover `handle(request:)`'s dispatch/jailing/error mapping with fakes only.
+/// Run `docs/monad-mode-manual-smoke.md` against an authorized user-managed server to exercise
+/// registration, folder attachment, server-initiated RPC, and a streamed tool turn.
 public actor MonadWorkspaceProvider {
     private let registrationTransport: any MonadWorkspaceRegistrationTransport
     private let connectionFactory: @Sendable () -> any MonadWorkspaceRPCConnection

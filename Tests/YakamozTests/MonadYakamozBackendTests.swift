@@ -19,7 +19,12 @@ struct MonadYakamozBackendTests {
         var timelines: [TimelineResponse] = []
         var createdTitle: String?
         var executeResult: Result<[ChatEvent], Error> = .success([])
-        var lastExecuteRequest: (timelineId: UUID, message: String)?
+        var lastExecuteRequest: (
+            timelineId: UUID,
+            message: String,
+            toolOutputs: [ToolOutputSubmission]?,
+            clientTools: [ToolReference]?
+        )?
         var getTimelineResult: ((UUID) -> Result<TimelineResponse, Error>)?
         var agentInstancesResult: Result<[AgentInstance], Error> = .success([])
         var agentTemplatesResult: Result<[AgentTemplate], Error> = .success([])
@@ -64,10 +69,10 @@ struct MonadYakamozBackendTests {
         func execute(
             timelineId: UUID,
             message: String,
-            toolOutputs _: [ToolOutputSubmission]?,
-            clientTools _: [ToolReference]?
+            toolOutputs: [ToolOutputSubmission]?,
+            clientTools: [ToolReference]?
         ) async throws -> AsyncThrowingStream<ChatEvent, Error> {
-            lastExecuteRequest = (timelineId, message)
+            lastExecuteRequest = (timelineId, message, toolOutputs, clientTools)
             let events = try executeResult.get()
             return AsyncThrowingStream { continuation in
                 for event in events {
@@ -277,6 +282,27 @@ struct MonadYakamozBackendTests {
         let lastRequest = await transport.lastExecuteRequest
         #expect(lastRequest?.timelineId == timelineId)
         #expect(lastRequest?.message == "Hello")
+    }
+
+    @Test("run() preserves deferred workspace tool outputs and does not inject client tools")
+    func runForwardsDeferredWorkspaceToolOutputs() async throws {
+        let transport = FakeTransport()
+        let backend = MonadYakamozBackend(transport: transport)
+        let toolOutput = ToolOutputSubmission(toolCallId: "workspace-call", output: "README contents")
+
+        _ = try await backend.run(
+            ChatRunRequest(
+                timelineId: UUID(),
+                message: "Continue after the workspace result.",
+                toolOutputs: [toolOutput]
+            )
+        )
+
+        let recorded = await transport.lastExecuteRequest
+        #expect(recorded?.toolOutputs?.count == 1)
+        #expect(recorded?.toolOutputs?.first?.toolCallId == "workspace-call")
+        #expect(recorded?.toolOutputs?.first?.output == "README contents")
+        #expect(recorded?.clientTools == nil)
     }
 
     @Test("run() maps a transport error to a typed MonadBackendHealthError")
