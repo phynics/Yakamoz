@@ -86,21 +86,25 @@ public struct ProviderSettingsSnapshot: Sendable, Equatable {
 
     /// Maps this snapshot onto the real PositronicKit configuration type.
     public func configuration(apiKey: String) -> LLMConfiguration {
-        LLMConfiguration(
-            endpoint: baseURL.absoluteString,
-            modelName: model,
-            utilityModel: model,
-            fastModel: model,
-            apiKey: apiKey,
-            provider: preset.llmProvider,
-            timeoutInterval: timeoutInterval,
-            maxRetries: maxRetries,
-            temperature: temperature,
-            maxTokens: maxTokens,
-            topP: topP,
-            frequencyPenalty: frequencyPenalty,
-            presencePenalty: presencePenalty,
-            seed: seed
+        let provider = preset.llmProvider
+        var providerConfig = ProviderConfiguration.defaultFor(provider)
+        providerConfig.endpoint = baseURL.absoluteString
+        providerConfig.modelName = model
+        providerConfig.utilityModel = model
+        providerConfig.fastModel = model
+        providerConfig.apiKey = apiKey
+        providerConfig.timeoutInterval = timeoutInterval
+        providerConfig.maxRetries = maxRetries
+        providerConfig.temperature = temperature
+        providerConfig.maxTokens = maxTokens
+        providerConfig.topP = topP
+        providerConfig.frequencyPenalty = frequencyPenalty
+        providerConfig.presencePenalty = presencePenalty
+        providerConfig.seed = seed
+
+        return LLMConfiguration(
+            activeProvider: provider,
+            providers: [provider: providerConfig]
         )
     }
 
@@ -344,7 +348,7 @@ public final class ProviderSettings {
     }
 
     /// Maps the current settings plus a freshly read secret into the real PositronicKit
-    /// `LLMConfiguration`, using its flat legacy initializer (endpoint/apiKey/modelName/...).
+    /// `LLMConfiguration`, via a single-provider `ProviderConfiguration`.
     public func configuration(apiKey: String) -> LLMConfiguration {
         snapshot.configuration(apiKey: apiKey)
     }
