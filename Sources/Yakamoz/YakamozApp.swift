@@ -126,7 +126,7 @@ struct YakamozApp: App {
                 settings: settings,
                 secrets: secrets,
                 terminalApprover: approver,
-                toolApprovalGate: toolApprover
+                toolApprovalPolicy: toolApprover
             )
             modelContainer = container
             builtRuntime = rt

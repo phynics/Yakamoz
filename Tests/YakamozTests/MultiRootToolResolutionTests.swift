@@ -87,15 +87,15 @@ struct MultiRootToolResolutionTests {
         )
         let cats = tools.filter { $0.callName == "cat" }
         #expect(cats.count == 2)
-        /// The provenance name is the root's last path component, so the first cat is the
+        /// The origin name is the root's last path component, so the first cat is the
         /// vault root and the second is the attached folder. (workspaceID is minted per
         /// call, so name — not id — is the stable ordering signal.)
-        func workspaceName(_ p: ToolProvenance) -> String? {
+        func workspaceName(_ p: ToolOrigin) -> String? {
             if case let .workspace(_, name) = p { return name }
             return nil
         }
-        #expect(workspaceName(cats[0].provenance) == vault.lastPathComponent)
-        #expect(workspaceName(cats[1].provenance) == folder.lastPathComponent)
+        #expect(workspaceName(cats[0].origin) == vault.lastPathComponent)
+        #expect(workspaceName(cats[1].origin) == folder.lastPathComponent)
     }
 
     @Test("enabled filtering still applies to multi-root filesystem tools")
@@ -152,9 +152,9 @@ struct MultiRootToolResolutionTests {
         #expect(ids.isSuperset(of: ["cat", "ls", "find", "search_files", "grep"]))
         // Terminal tools for the one attached terminal.
         #expect(ids.isSuperset(of: ["terminal_run", "terminal_read", "terminal_send_input", "terminal_interrupt", "terminal_wait"]))
-        // And the terminal tool carries the attached terminal's provenance.
+        // And the terminal tool carries the attached terminal's origin.
         #expect(tools.contains { tool in
-            tool.callName == "terminal_run" && tool.provenance == .terminal(id: ctx.workspaceId, name: "tmp")
+            tool.callName == "terminal_run" && tool.origin == .terminal(id: ctx.workspaceId, name: "tmp")
         })
     }
 }

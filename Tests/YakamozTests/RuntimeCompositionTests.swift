@@ -117,9 +117,10 @@ struct RuntimeCompositionTests {
 
         let configuration = try #require(captured)
         #expect(configuration.activeProvider == .openAI)
-        #expect(configuration.endpoint == ProviderPreset.openAI.baseURL.absoluteString)
-        #expect(configuration.modelName == "gpt-4o-test")
-        #expect(configuration.apiKey == "sk-secret-runtime-key")
+        let activeConfig = configuration.activeProviderConfiguration
+        #expect(activeConfig.endpoint == ProviderPreset.openAI.baseURL.absoluteString)
+        #expect(activeConfig.modelName == "gpt-4o-test")
+        #expect(activeConfig.apiKey == "sk-secret-runtime-key")
     }
 
     @Test("OpenRouter runtime reads the OpenRouter API key account")
@@ -141,9 +142,10 @@ struct RuntimeCompositionTests {
 
         let configuration = try #require(captured)
         #expect(configuration.activeProvider == .openRouter)
-        #expect(configuration.endpoint == ProviderPreset.openRouter.baseURL.absoluteString)
-        #expect(configuration.modelName == "openai/gpt-4o-test")
-        #expect(configuration.apiKey == "sk-or-v1-openrouter-secret")
+        let activeConfig = configuration.activeProviderConfiguration
+        #expect(activeConfig.endpoint == ProviderPreset.openRouter.baseURL.absoluteString)
+        #expect(activeConfig.modelName == "openai/gpt-4o-test")
+        #expect(activeConfig.apiKey == "sk-or-v1-openrouter-secret")
     }
 
     @Test("fetchAvailableModels uses the latest saved configuration")
@@ -167,7 +169,7 @@ struct RuntimeCompositionTests {
         #expect(models == ["mock-model", "openai/gpt-4.1"])
         let configuration = try #require(captured)
         #expect(configuration.activeProvider == .openRouter)
-        #expect(configuration.apiKey == "sk-or-v1-openrouter-secret")
+        #expect(configuration.activeProviderConfiguration.apiKey == "sk-or-v1-openrouter-secret")
     }
 
     @Test("The runtime exposes the SwiftDataPromptInspector and YakamozStores it constructed")
@@ -241,14 +243,30 @@ struct RuntimeCompositionTests {
         // `kit.run`. Dropping that argument silently selects the PositronicKit convenience
         // overload that hardcodes `structuredOutput: nil`, which compiles and passes every
         // other test while quietly disabling structured-output requests.
+        //
+        // v3 change: `MockLLMService` no longer emulates `LLMService`'s structured-output
+        // adapter preparation, so this test uses a real `LLMService` wrapping a `MockLLMClient`
+        // to prove the native `response_format` reaches the transport.
         let settings = makeSettings()
         let secrets = FakeSecretStore()
         try secrets.write("sk-secret-runtime-key", account: ProviderSettings.apiKeyAccount)
-        let mock = MockLLMService()
-        mock.nextResponse = #"{"tags":["a"]}"#
         let container = try makeModelContainer()
 
-        let runtime = try makeRuntime(settings: settings, secrets: secrets, mock: mock, modelContainer: container) { _ in }
+        let mockClient = MockLLMClient()
+        mockClient.nextResponse = #"{"tags":["a"]}"#
+        let configuration = settings.configuration(apiKey: "sk-secret-runtime-key")
+        let languageModel = LLMService(
+            storage: InMemoryConfigurationService(config: configuration),
+            client: mockClient,
+            utilityClient: mockClient,
+            fastClient: mockClient
+        )
+        let runtime = try YakamozRuntime(
+            modelContainer: container,
+            settings: settings,
+            secrets: secrets,
+            llmServiceFactory: { _ in languageModel }
+        )
         let operatorID = try #require(try container.mainContext.fetch(FetchDescriptor<AgentModel>()).first?.id)
         let conversation = try await runtime.createConversation(modelContext: container.mainContext, agentId: operatorID)
 
@@ -260,9 +278,11 @@ struct RuntimeCompositionTests {
         ))
         for try await _ in stream {}
 
-        // The openAI preset maps a structured-output request to a native response_format, which
-        // the mock's client records. Nil here means the request never reached the transport.
-        #expect(mock.mockClient.lastResponseFormat != nil)
+        // v3: OpenAI-compatible structured output now reaches the transport as a forced
+        // synthetic tool call rather than a native response_format. A synthetic tool named
+        // `emit_structured_response` on the wire proves the request reached the transport.
+        let syntheticToolNames = mockClient.lastTools?.map { $0.name } ?? []
+        #expect(syntheticToolNames.contains("emit_structured_response"))
     }
 
     @Test("run() fails fast with missingAPIKey when a key-requiring provider has no key")
@@ -417,12 +437,12 @@ struct RuntimeCompositionTests {
         _ = await runtime.healthCheck()
 
         #expect(captured.count == 3)
-        #expect(captured[0].apiKey == "sk-secret-initial")
-        #expect(captured[0].modelName == "gpt-4o-test")
-        #expect(captured[1].apiKey == "sk-secret-initial")
-        #expect(captured[1].modelName == "gpt-4o-test")
-        #expect(captured[2].apiKey == "sk-secret-updated")
-        #expect(captured[2].modelName == "updated-model")
+        #expect(captured[0].activeProviderConfiguration.apiKey == "sk-secret-initial")
+        #expect(captured[0].activeProviderConfiguration.modelName == "gpt-4o-test")
+        #expect(captured[1].activeProviderConfiguration.apiKey == "sk-secret-initial")
+        #expect(captured[1].activeProviderConfiguration.modelName == "gpt-4o-test")
+        #expect(captured[2].activeProviderConfiguration.apiKey == "sk-secret-updated")
+        #expect(captured[2].activeProviderConfiguration.modelName == "updated-model")
     }
 
     /// ATW-4: `YakamozRuntime.makeKit` wires an `AgentVaultPromptSectionProvider` whose

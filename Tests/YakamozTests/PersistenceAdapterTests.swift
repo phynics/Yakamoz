@@ -183,7 +183,7 @@ struct PersistenceAdapterTests {
     @Test("Round-trips workspaces with tools")
     func workspacesRoundTrip() async throws {
         let stores = try makeStores()
-        let workspaceStore: any WorkspacePersistenceProtocol = stores.workspaces
+        let workspaceStore: any WorkspaceStore = stores.workspaces
 
         let workspace = WorkspaceReference(
             uri: WorkspaceURI(host: "pk-runtime", path: "/timelines/abc"),

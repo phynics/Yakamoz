@@ -120,11 +120,11 @@ struct ToolWorkspaceSecurityTests {
             workspaceRoots: [rootA, rootB],
             terminals: []
         )
-        /// Find each root's cat tool by its provenance name (root last path component).
+        /// Find each root's cat tool by its origin name (root last path component).
         func cat(forRoot root: URL) throws -> AnyTool {
             try #require(tools.first { tool in
                 tool.callName == "cat" && {
-                    if case let .workspace(_, name) = tool.provenance { return name == root.lastPathComponent }
+                    if case let .workspace(_, name) = tool.origin { return name == root.lastPathComponent }
                     return false
                 }()
             })

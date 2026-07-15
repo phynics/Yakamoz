@@ -164,9 +164,10 @@ struct ProviderConfigurationTests {
 
         let config = settings.configuration(apiKey: "sk-secret-test-key")
         #expect(config.activeProvider == .openAI)
-        #expect(config.apiKey == "sk-secret-test-key")
-        #expect(config.modelName == "gpt-4o")
-        #expect(config.endpoint == ProviderPreset.openAI.baseURL.absoluteString)
+        let activeConfig = config.activeProviderConfiguration
+        #expect(activeConfig.apiKey == "sk-secret-test-key")
+        #expect(activeConfig.modelName == "gpt-4o")
+        #expect(activeConfig.endpoint == ProviderPreset.openAI.baseURL.absoluteString)
     }
 
     @Test("API key accounts are scoped per provider")

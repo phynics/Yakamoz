@@ -18,7 +18,7 @@ settings:
 packages:
   PositronicKit:
     url: https://github.com/phynics/PositronicKit.git
-    from: "2.0.0"
+    from: "3.0.0"
   # Pin the transitive swift-json-schema to the same version PositronicKit builds
   # against on its public main branch. Without this,
   # Yakamoz can resolve a different release and the workspace ends up with a
@@ -87,6 +87,8 @@ targets:
         product: PKOpenRouterProvider
       - package: PositronicKit
         product: PKOllamaProvider
+      - package: PositronicKit
+        product: PKUtilities
       - package: SwiftTerm
         product: SwiftTerm
       - package: Monad

@@ -92,7 +92,7 @@ struct TerminalToolGatingTests {
         let ids = Set(withTerminal.map(\.callName))
         #expect(ids.isSuperset(of: ["terminal_run", "terminal_read", "terminal_send_input", "terminal_interrupt", "terminal_wait"]))
         #expect(withTerminal.contains { tool in
-            tool.callName == "terminal_run" && tool.provenance == .terminal(id: ctx.workspaceId, name: "tmp")
+            tool.callName == "terminal_run" && tool.origin == .terminal(id: ctx.workspaceId, name: "tmp")
         })
     }
 
@@ -110,7 +110,7 @@ struct TerminalToolGatingTests {
     }
 
     @MainActor
-    @Test func toolOptionsGroupByProvenance() async throws {
+    @Test func toolOptionsGroupByOrigin() async throws {
         let runtime = try makeRuntime()
         let ctx = TerminalToolContext(workspaceId: UUID(), rootURL: URL(fileURLWithPath: "/tmp"))
         let tools = await runtime.resolveTools(
@@ -126,22 +126,22 @@ struct TerminalToolGatingTests {
     }
 
     @MainActor
-    @Test func resolveToolsKeepsFolderProvenanceStableAcrossRefreshes() async throws {
+    @Test func resolveToolsKeepsFolderOriginStableAcrossRefreshes() async throws {
         let runtime = try makeRuntime()
         let workspaceID = UUID()
         let folder = FolderToolContext(workspaceID: workspaceID, rootURL: URL(fileURLWithPath: "/workspace"))
 
-        // Two refreshes with the same attached folder must produce identical provenance —
+        // Two refreshes with the same attached folder must produce identical origin —
         // the persisted workspaceID is reused, not minted per resolveTools call (PKPOST-004c:
-        // provenance is structural/stable by construction, mirroring TerminalWorkspaceToolProvider).
+        // origin is structural/stable by construction, mirroring TerminalWorkspaceToolProvider).
         let first = await runtime.resolveTools(enabledToolIds: [], folder: folder, terminals: [])
         let second = await runtime.resolveTools(enabledToolIds: [], folder: folder, terminals: [])
 
         let firstCat = try #require(first.first { $0.callName == "cat" })
         let secondCat = try #require(second.first { $0.callName == "cat" })
 
-        #expect(firstCat.provenance == .workspace(id: workspaceID, name: "workspace"))
-        #expect(secondCat.provenance == firstCat.provenance)
+        #expect(firstCat.origin == .workspace(id: workspaceID, name: "workspace"))
+        #expect(secondCat.origin == firstCat.origin)
     }
 }
 

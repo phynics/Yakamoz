@@ -13,7 +13,7 @@ public extension AnyTool {
             assertionFailure("Yakamoz tool '\(callName)' declares reserved parameter '\(ToolExplanationParameter.key)'")
             return self
         }
-        return AnyTool(ExplainedTool(wrapped: self), provenance: provenance)
+        return AnyTool(ExplainedTool(wrapped: self), origin: origin)
     }
 }
 

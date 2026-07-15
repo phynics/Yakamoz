@@ -61,12 +61,12 @@ extension WorkspaceReferenceModel {
     }
 }
 
-/// `WorkspacePersistenceProtocol` adapter persisting `WorkspaceReference` values
+/// `WorkspaceStore` adapter persisting `WorkspaceReference` values
 /// as `WorkspaceReferenceModel` rows, with nested `tools` stored separately as
 /// `ToolReferenceModel` rows keyed by `workspaceId` (mirrors how `ToolPersistenceProtocol`
 /// addresses tools independently of workspace saves).
 @ModelActor
-public actor SwiftDataWorkspaceStore: WorkspacePersistenceProtocol {
+public actor SwiftDataWorkspaceStore: WorkspaceStore {
     public func saveWorkspace(_ workspace: WorkspaceReference) async throws {
         let id = workspace.id
         let descriptor = FetchDescriptor<WorkspaceReferenceModel>(predicate: #Predicate { $0.id == id })

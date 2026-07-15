@@ -9,9 +9,9 @@ import SwiftData
 /// PositronicKit `timelineId` so `ChatViewModel`/`ChatEngine.run(timelineId:)` can hydrate
 /// the same conversation `ConversationListView` displays).
 ///
-/// `ChatEngine.prepareSession` reads `TimelineManager.getTimeline(id:)`, which only
-/// consults its in-memory cache and tolerates a `nil` result (the rendered prompt simply
-/// omits timeline-specific context) — so a pre-existing `Timeline` is not strictly
+/// `ChatEngine.prepareSession` reads `TimelineManager.timeline(id:)`/`touchTimeline(id:)`,
+/// which only consults its in-memory cache and tolerates a `nil` result (the rendered prompt
+/// simply omits timeline-specific context) — so a pre-existing `Timeline` is not strictly
 /// required for `run` to succeed. We still persist one eagerly here because
 /// `TimelinePersistenceProtocol` (and any future feature that lists/archives timelines,
 /// e.g. `fetchAllTimelines`) expects every conversation to have a corresponding row.

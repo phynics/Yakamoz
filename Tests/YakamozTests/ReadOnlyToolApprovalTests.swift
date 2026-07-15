@@ -39,8 +39,8 @@ struct ReadOnlyToolApprovalTests {
         let summarizeBase = base.summarize(parameters: ["path": "x"], result: result)
         #expect(unpermissioned.summarize(parameters: ["path": "x"], result: result) == summarizeBase)
 
-        // Provenance is preserved through the wrapper.
-        #expect(unpermissioned.provenance == base.provenance)
+        // Origin is preserved through the wrapper.
+        #expect(unpermissioned.origin == base.origin)
     }
 
     @Test("Decorator composes with withExplanationParameter preserving schema + flag (both orders)")
@@ -127,7 +127,7 @@ struct ReadOnlyToolApprovalTests {
             settings: settings,
             secrets: secrets,
             llmServiceFactory: { _ in mock },
-            toolApprovalGate: approver
+            toolApprovalPolicy: approver
         )
 
         let workspaceURL = FileManager.default.temporaryDirectory

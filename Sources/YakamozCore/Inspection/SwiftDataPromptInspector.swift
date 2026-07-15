@@ -25,13 +25,13 @@ public extension TurnInspectionModel {
     }
 }
 
-/// `PromptInspecting` adapter that confines a SwiftData `ModelContext` to persist
+/// `PromptObserving` adapter that confines a SwiftData `ModelContext` to persist
 /// each `PromptInspection` as a `TurnInspectionModel`.
 ///
 /// `ModelContext` is not `Sendable`; `@ModelActor` confines it to this actor so the
-/// adapter can safely implement the `Sendable` `async` `PromptInspecting` protocol.
+/// adapter can safely implement the `Sendable` `async` `PromptObserving` protocol.
 @ModelActor
-public actor SwiftDataPromptInspector: PromptInspecting {
+public actor SwiftDataPromptInspector: PromptObserving {
     public func didComposePrompt(_ inspection: PromptInspection) async {
         do {
             let projection = try InspectionProjection(inspection)

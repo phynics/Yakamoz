@@ -398,7 +398,7 @@ public final class TimelineModel {
 ///
 /// Distinct from `WorkspaceModel` (Yakamoz's folder-backed workspace, Task 3): this
 /// entity stores the full `WorkspaceReference` surface (URI, trust level, status,
-/// origin attribution) needed by `WorkspacePersistenceProtocol`. Nested `tools` are
+/// origin attribution) needed by `WorkspaceStore`. Nested `tools` are
 /// stored separately as `ToolReferenceModel` rows keyed by `workspaceId`.
 @Model
 public final class WorkspaceReferenceModel {

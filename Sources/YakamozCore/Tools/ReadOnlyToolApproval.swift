@@ -28,13 +28,13 @@ public enum ReadOnlyToolApproval {
 
 public extension AnyTool {
     /// Returns a copy of this tool with `requiresPermission = false`, forwarding every
-    /// other member and preserving `provenance`. Applied at Yakamoz's tool registration
+    /// other member and preserving `origin`. Applied at Yakamoz's tool registration
     /// seam (`YakamozRuntime.resolveTools`) to the ids in `ReadOnlyToolApproval` so the
-    /// read-only filesystem tools skip the approval gate entirely. Mirrors TEX-1's
+    /// read-only filesystem tools skip the approval policy entirely. Mirrors TEX-1's
     /// `withExplanationParameter()` decorator approach; the two decorators compose at the
     /// same seam and preserve each other's effects (schema + flag).
     func withoutPermissionRequirement() -> AnyTool {
-        AnyTool(UnpermissionedTool(wrapped: self), provenance: provenance)
+        AnyTool(UnpermissionedTool(wrapped: self), origin: origin)
     }
 }
 

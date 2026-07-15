@@ -14,7 +14,7 @@ import YakamozCore
 /// turn-scoped data — it is loaded once per conversation by `ChatView` via
 /// `YakamozRuntime.makeWorkspacePresentation(for:)`, which returns the `Sendable`
 /// `WorkspacePresentation` value type so this app-target view never imports
-/// `WorkspaceProtocol`/`PositronicKit` directly. `touchedFiles` (from the selected turn's
+/// `Workspace`/`PositronicKit` directly. `touchedFiles` (from the selected turn's
 /// `ChatTurnState.workspaceFiles`) is the one piece of genuinely turn-scoped data and is
 /// passed in separately.
 ///
