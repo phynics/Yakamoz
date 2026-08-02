@@ -58,6 +58,8 @@ struct ConversationCoordinatorTests {
         #expect(conversation.agentId == agent.id)
         #expect(conversation.attachedWorkspaceIds == [workspaceId])
         #expect(agent.backendInstanceId == agent.id)
+        let templates = try container.mainContext.fetch(FetchDescriptor<AgentTemplateModel>())
+        #expect(templates.first(where: { $0.id == agent.id })?.systemPrompt == agent.instructions)
         let timeline = try #require(await stores.timelines.fetchTimeline(id: conversation.id))
         #expect(timeline.attachedAgentInstanceId == agent.id)
     }

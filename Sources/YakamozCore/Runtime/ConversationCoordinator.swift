@@ -32,9 +32,16 @@ public struct ConversationCoordinator {
     }
     private let modelContext: ModelContext
     private let timelineStore: any TimelinePersistenceProtocol
-    public init(modelContext: ModelContext, timelineStore: any TimelinePersistenceProtocol) {
+    private let agentStore: SwiftDataAgentStore
+
+    public init(
+        modelContext: ModelContext,
+        timelineStore: any TimelinePersistenceProtocol,
+        agentStore: SwiftDataAgentStore? = nil
+    ) {
         self.modelContext = modelContext
         self.timelineStore = timelineStore
+        self.agentStore = agentStore ?? SwiftDataAgentStore(modelContext: modelContext)
     }
 
     /// Inserts a new `ConversationModel` and a paired `Timeline` sharing the same id,
@@ -106,15 +113,11 @@ public struct ConversationCoordinator {
 
     private func agentName(id: UUID?) throws -> String? {
         guard let id else { return nil }
-        var descriptor = FetchDescriptor<AgentModel>(predicate: #Predicate { $0.id == id })
-        descriptor.fetchLimit = 1
-        return try modelContext.fetch(descriptor).first?.name
+        return try agentStore.fetchAgent(id: id)?.name
     }
 
     private func agentModel(id: UUID) throws -> OperatorModel? {
-        var descriptor = FetchDescriptor<OperatorModel>(predicate: #Predicate { $0.id == id })
-        descriptor.fetchLimit = 1
-        return try modelContext.fetch(descriptor).first
+        try agentStore.fetchAgent(id: id)
     }
 
     public func fetchStandardConversations() throws -> [ConversationModel] {

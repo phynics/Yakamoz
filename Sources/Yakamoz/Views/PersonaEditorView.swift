@@ -1,4 +1,3 @@
-import Logging
 import SwiftData
 import SwiftUI
 import YakamozCore
@@ -43,72 +42,5 @@ struct PersonaPicker: View {
             do { try await runtime.setOperator(modelContext: modelContext, conversationId: conversation.id, agentId: agentId) }
             catch { swapError = error.localizedDescription }
         }
-    }
-}
-
-/// Edit sheet for a migrated custom `PersonaModel`. New operators are persistent agents;
-/// ATW-3 will replace this legacy editor with the agent-facing UI.
-struct PersonaEditorView: View {
-    let persona: PersonaModel?
-    let onSave: (PersonaModel) -> Void
-
-    @Environment(\.modelContext) private var modelContext
-    @Environment(\.dismiss) private var dismiss
-
-    @State private var name: String
-    @State private var instructions: String
-
-    init(persona: PersonaModel?, onSave: @escaping (PersonaModel) -> Void) {
-        self.persona = persona
-        self.onSave = onSave
-        _name = State(initialValue: persona?.name ?? "")
-        _instructions = State(initialValue: persona?.systemInstructions ?? "")
-    }
-
-    private var trimmedName: String {
-        name.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Edit Persona")
-                .font(.headline)
-
-            Form {
-                TextField("Name", text: $name)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("System Instructions").font(.caption).foregroundStyle(.secondary)
-                    TextEditor(text: $instructions)
-                        .font(.callout)
-                        .frame(minHeight: 120)
-                        .border(.quaternary)
-                }
-            }
-
-            HStack {
-                Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }
-                Button("Save") { save() }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(trimmedName.isEmpty)
-            }
-        }
-        .padding()
-        .frame(width: 420)
-    }
-
-    private func save() {
-        guard let persona else { return }
-        persona.name = trimmedName
-        persona.systemInstructions = instructions
-        do {
-            try modelContext.save()
-        } catch {
-            Log.appError("failed to save persona", metadata: [
-                "personaID": "\(persona.id)",
-            ])
-        }
-        onSave(persona)
-        dismiss()
     }
 }

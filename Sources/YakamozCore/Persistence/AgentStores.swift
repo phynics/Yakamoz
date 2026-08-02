@@ -15,6 +15,12 @@ public final class SwiftDataAgentStore {
         modelContext = modelContainer.mainContext
     }
 
+    /// Builds a store over an already selected main-actor context. This is useful for
+    /// coordinators that share a context with their SwiftData UI models.
+    public init(modelContext: ModelContext) {
+        self.modelContext = modelContext
+    }
+
     public func saveAgent(_ agent: AgentModel) throws {
         let id = agent.id
         let descriptor = FetchDescriptor<AgentModel>(predicate: #Predicate { $0.id == id })

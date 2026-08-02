@@ -13,7 +13,11 @@ struct ConversationListView: View {
     @Environment(\.yakamozRuntime) private var runtime
     @Environment(\.uiCoordinator) private var coordinator
 
-    @Query(sort: \ConversationModel.createdAt, order: .reverse)
+    @Query(
+        filter: #Predicate<ConversationModel> { !$0.isHomeTimeline },
+        sort: \ConversationModel.createdAt,
+        order: .reverse
+    )
     private var conversations: [ConversationModel]
 
     @State private var creationError: String?
@@ -60,7 +64,7 @@ struct ConversationListView: View {
     }
 
     private var prioritizedConversations: [ConversationModel] {
-        conversations.filter { !$0.isHomeTimeline }.sorted { lhs, rhs in
+        conversations.sorted { lhs, rhs in
             if lhs.timelineState.sortPriority != rhs.timelineState.sortPriority {
                 return lhs.timelineState.sortPriority < rhs.timelineState.sortPriority
             }
