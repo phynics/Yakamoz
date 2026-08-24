@@ -56,7 +56,7 @@ public final class TimelineAnnotationModel {
 /// chip the user taps to jump to a turn. The underlying `@Model` is not `Sendable` and
 /// lives in SwiftData, so YakamozCore projects it into this value type for SwiftUI
 /// consumption — mirroring how `ResponseDTO`/`SidecarResultView` keep the app target
-/// insulated from `PKShared` types.
+/// insulated from PositronicKit types.
 public struct SectionAnnotationView: Sendable, Identifiable, Equatable {
     public let id: UUID
     public let turnIndex: Int

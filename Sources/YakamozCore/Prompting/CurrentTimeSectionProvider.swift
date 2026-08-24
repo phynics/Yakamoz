@@ -1,21 +1,9 @@
 import Foundation
-import PKPrompt
 import PositronicKit
 
-/// Injects the current wall-clock time as a low-priority, volatile prompt section into
-/// every chat turn for its timeline.
-///
-/// Registered with the runtime via `PositronicKit.init(sectionProviders:)` /
-/// `RuntimeConfiguration.sectionProviders`, which forwards to
-/// `TimelineManager.init(sectionProviders:)`. The facade then calls
-/// `TimelineManager.gatherExtensionSections(...)` during prompt assembly, so the section
-/// participates in priority sorting and token-budget decisions automatically.
-///
-/// The clock is injected so tests can assert deterministic ISO-8601 content against a fixed
-/// instant; production uses `Date.init` (the live clock).
-public struct CurrentTimeSectionProvider: PromptSectionProviding {
-    /// Stable section id so the inspector and journal can track it across turns.
-    public static let sectionID = "yakamoz.current-time"
+/// Contributes the current wall-clock time through PositronicKit v4's bounded Turn context seam.
+/// The clock is injected so tests can assert deterministic content.
+public struct CurrentTimeContextSource: TurnContextSource {
 
     private let now: @Sendable () -> Date
 
@@ -32,16 +20,11 @@ public struct CurrentTimeSectionProvider: PromptSectionProviding {
         return "Current time (UTC): \(formatter.string(from: date))"
     }
 
-    public func sections(for _: PromptBuildContext) async -> [any Prompt] {
-        let text = Self.content(for: now())
-        return [
-            TextPrompt(
-                text,
-                id: Self.sectionID,
-                priority: PromptPriority.low.rawValue,
-                compression: .keep,
-                cachePolicy: .volatile
-            ),
-        ]
+    public func contributions(for _: TurnContextRequest) async throws -> [TurnContextContribution] {
+        [try TurnContextContribution(
+            namespace: "yakamoz",
+            key: "current-time",
+            text: Self.content(for: now())
+        )]
     }
 }

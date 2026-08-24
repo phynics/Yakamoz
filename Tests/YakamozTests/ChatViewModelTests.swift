@@ -2,7 +2,7 @@ import Foundation
 import JSONSchemaBuilder
 import Logging
 import PKPrompt
-import PKShared
+import PKContracts
 import PositronicKit
 import SwiftData
 import Testing
@@ -24,7 +24,7 @@ private final class ScriptedRunner: ChatRunning, @unchecked Sendable {
     private(set) var lastSidecars: [SidecarDirective] = []
     private(set) var lastSendId: UUID?
     private(set) var lastSystemInstructions: String?
-    var continuation: AsyncThrowingStream<ChatEvent, Error>.Continuation?
+    var continuation: AsyncThrowingStream<TurnEvent, Error>.Continuation?
     var onRun: (@Sendable (String) -> Void)?
     private let runCounter = AsyncCounter()
     private let continuationCounter = AsyncCounter()
@@ -37,10 +37,10 @@ private final class ScriptedRunner: ChatRunning, @unchecked Sendable {
         await continuationCounter.wait(until: count)
     }
 
-    func run(_ request: ChatRunRequest) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+    func run(_ request: TurnRequest) async throws -> AsyncThrowingStream<TurnEvent, Error> {
         capturedMessages.append(request.message)
         lastSidecars = request.sidecars
-        lastSendId = request.sendId
+        lastSendId = request.requestID
         lastSystemInstructions = request.systemInstructions
         onRun?(request.message)
         runCounter.increment()
@@ -207,9 +207,8 @@ struct ChatViewModelTests {
         let assembled = try prompt.assemblePrompt()
         let rendered = await assembled.render()
         await inspector.didComposePrompt(PromptInspection(
-            identity: TurnIdentity(sendId: sendId, roundTrip: 0),
-            timelineId: timelineId,
-            agentInstanceId: nil,
+            threadID: timelineId,
+            agentID: nil,
             turnIndex: 0,
             model: "gpt-test",
             rendered: rendered,
@@ -219,7 +218,8 @@ struct ChatViewModelTests {
                 stablePrefixCount: 0,
                 didCompact: false
             ),
-            estimatedTokens: rendered.estimatedTokens
+            estimatedTokens: rendered.estimatedTokens,
+            requestID: sendId
         ))
 
         let results: [SidecarResult] = [
@@ -316,9 +316,8 @@ struct ChatViewModelTests {
         let assembled = try prompt.assemblePrompt()
         let rendered = await assembled.render()
         let seedInspection = PromptInspection(
-            identity: TurnIdentity(sendId: sendId, roundTrip: 0),
-            timelineId: timelineId,
-            agentInstanceId: nil,
+            threadID: timelineId,
+            agentID: nil,
             turnIndex: 0,
             model: "gpt-test",
             rendered: rendered,
@@ -328,7 +327,8 @@ struct ChatViewModelTests {
                 stablePrefixCount: 0,
                 didCompact: false
             ),
-            estimatedTokens: rendered.estimatedTokens
+            estimatedTokens: rendered.estimatedTokens,
+            requestID: sendId
         )
         await inspector.didComposePrompt(seedInspection)
 
@@ -369,9 +369,8 @@ struct ChatViewModelTests {
         let assembled = try prompt.assemblePrompt()
         let rendered = await assembled.render()
         await inspector.didComposePrompt(PromptInspection(
-            identity: TurnIdentity(sendId: sendId, roundTrip: 0),
-            timelineId: timelineId,
-            agentInstanceId: nil,
+            threadID: timelineId,
+            agentID: nil,
             turnIndex: 0,
             model: "gpt-test",
             rendered: rendered,
@@ -381,7 +380,8 @@ struct ChatViewModelTests {
                 stablePrefixCount: 0,
                 didCompact: false
             ),
-            estimatedTokens: rendered.estimatedTokens
+            estimatedTokens: rendered.estimatedTokens,
+            requestID: sendId
         ))
 
         runner.continuation?.yield(.generation("final answer"))
@@ -1139,7 +1139,7 @@ private actor LockedStateLog {
 private struct ThrowingRunner: ChatRunning {
     let error: any Error
 
-    func run(_: ChatRunRequest) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+    func run(_: TurnRequest) async throws -> AsyncThrowingStream<TurnEvent, Error> {
         throw error
     }
 }

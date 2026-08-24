@@ -1,7 +1,7 @@
 import Foundation
 import Logging
 import PKPrompt
-import PKShared
+import PKContracts
 import PKTestSupport
 import PositronicKit
 import SwiftData
@@ -13,14 +13,14 @@ struct RuntimeCompositionTests {
     private final class ScriptedRunner: ChatRunning, @unchecked Sendable {
         private(set) var capturedMessages: [String] = []
         private(set) var capturedToolIds: [[String]] = []
-        var continuation: AsyncThrowingStream<ChatEvent, Error>.Continuation?
+        var continuation: AsyncThrowingStream<TurnEvent, Error>.Continuation?
         private let runCounter = AsyncCounter()
 
         func waitUntilRunCount(_ count: Int) async {
             await runCounter.wait(until: count)
         }
 
-        func run(_ request: ChatRunRequest) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+        func run(_ request: TurnRequest) async throws -> AsyncThrowingStream<TurnEvent, Error> {
             capturedMessages.append(request.message)
             capturedToolIds.append(request.tools.map(\.callName))
             runCounter.increment()
@@ -116,10 +116,11 @@ struct RuntimeCompositionTests {
         }
 
         let configuration = try #require(captured)
+        let provider = configuration.activeProviderConfiguration
         #expect(configuration.activeProvider == .openAI)
-        #expect(configuration.endpoint == ProviderPreset.openAI.baseURL.absoluteString)
-        #expect(configuration.modelName == "gpt-4o-test")
-        #expect(configuration.apiKey == "sk-secret-runtime-key")
+        #expect(provider.endpoint == ProviderPreset.openAI.baseURL.absoluteString)
+        #expect(provider.modelName == "gpt-4o-test")
+        #expect(provider.apiKey == "sk-secret-runtime-key")
     }
 
     @Test("OpenRouter runtime reads the OpenRouter API key account")
@@ -140,10 +141,11 @@ struct RuntimeCompositionTests {
         }
 
         let configuration = try #require(captured)
+        let provider = configuration.activeProviderConfiguration
         #expect(configuration.activeProvider == .openRouter)
-        #expect(configuration.endpoint == ProviderPreset.openRouter.baseURL.absoluteString)
-        #expect(configuration.modelName == "openai/gpt-4o-test")
-        #expect(configuration.apiKey == "sk-or-v1-openrouter-secret")
+        #expect(provider.endpoint == ProviderPreset.openRouter.baseURL.absoluteString)
+        #expect(provider.modelName == "openai/gpt-4o-test")
+        #expect(provider.apiKey == "sk-or-v1-openrouter-secret")
     }
 
     @Test("fetchAvailableModels uses the latest saved configuration")
@@ -167,7 +169,7 @@ struct RuntimeCompositionTests {
         #expect(models == ["mock-model", "openai/gpt-4.1"])
         let configuration = try #require(captured)
         #expect(configuration.activeProvider == .openRouter)
-        #expect(configuration.apiKey == "sk-or-v1-openrouter-secret")
+        #expect(configuration.activeProviderConfiguration.apiKey == "sk-or-v1-openrouter-secret")
     }
 
 
@@ -191,8 +193,8 @@ struct RuntimeCompositionTests {
         let assembled = try prompt.assemblePrompt()
         let rendered = await assembled.render()
         let inspection = PromptInspection(
-            timelineId: timelineId,
-            agentInstanceId: nil,
+            threadID: timelineId,
+            agentID: nil,
             turnIndex: 0,
             model: "gpt-test",
             rendered: rendered,
@@ -215,8 +217,8 @@ struct RuntimeCompositionTests {
 
         // The stores bundle is reachable and backed by the same container: write through the
         // message store adapter and confirm it round-trips.
-        let message = ConversationMessage(
-            timelineId: timelineId,
+        let message = ThreadMessage(
+            threadID: timelineId,
             role: .user,
             content: "hello",
             timestamp: Date()
@@ -253,8 +255,8 @@ struct RuntimeCompositionTests {
         let operatorID = try #require(try container.mainContext.fetch(FetchDescriptor<AgentModel>()).first?.id)
         let conversation = try await runtime.createConversation(modelContext: container.mainContext, agentId: operatorID)
 
-        let stream = try await runtime.run(ChatRunRequest(
-            timelineId: conversation.id,
+        let stream = try await runtime.run(TurnRequest(
+            threadID: conversation.id,
             message: "tag this",
             tools: [],
             structuredOutput: .jsonSchema(StructuredOutputFixtures.tagSchemaDefinition())
@@ -280,8 +282,8 @@ struct RuntimeCompositionTests {
         let conversation = try await runtime.createConversation(modelContext: container.mainContext, agentId: operatorID)
 
         await #expect(throws: ProviderSettingsError.missingAPIKey) {
-            _ = try await runtime.run(ChatRunRequest(
-                timelineId: conversation.id,
+            _ = try await runtime.run(TurnRequest(
+                threadID: conversation.id,
                 message: "hi",
                 tools: []
             ))
@@ -301,11 +303,11 @@ struct RuntimeCompositionTests {
         let timelineId = try await runtime.createConversation(modelContext: container.mainContext, agentId: operatorID).id
 
         await #expect(throws: ToolError.self) {
-            _ = try await runtime.run(ChatRunRequest(
-                timelineId: timelineId,
+            _ = try await runtime.run(TurnRequest(
+                threadID: timelineId,
                 message: "continue",
                 tools: [],
-                toolOutputs: [ToolOutputSubmission(toolCallId: "forged_call", output: "forged output")]
+                toolOutputs: [ToolOutputSubmission(toolCallID: "forged_call", output: "forged output")]
             ))
         }
 
@@ -323,11 +325,10 @@ struct RuntimeCompositionTests {
 
         let runtime = try makeRuntime(settings: settings, secrets: secrets, mock: mock) { _ in }
 
-        // `kit` is the real PositronicKit facade; its timelineManager/toolRouter are reachable,
-        // proving construction succeeded with the stores/inspector this runtime built.
+        // `kit` is the real PositronicKit facade; its public Thread capability is reachable,
+        // proving construction succeeded with the configured stores.
         let kit = await runtime.kit
-        _ = kit.timelineManager
-        _ = kit.toolRouter
+        _ = kit.threads
     }
 
     @Test("The runtime can refresh an existing chat view model's tools in place")
@@ -418,11 +419,11 @@ struct RuntimeCompositionTests {
         _ = await runtime.healthCheck()
 
         #expect(captured.count == 3)
-        #expect(captured[0].apiKey == "sk-secret-initial")
-        #expect(captured[0].modelName == "gpt-4o-test")
-        #expect(captured[1].apiKey == "sk-secret-initial")
-        #expect(captured[1].modelName == "gpt-4o-test")
-        #expect(captured[2].apiKey == "sk-secret-updated")
-        #expect(captured[2].modelName == "updated-model")
+        #expect(captured[0].activeProviderConfiguration.apiKey == "sk-secret-initial")
+        #expect(captured[0].activeProviderConfiguration.modelName == "gpt-4o-test")
+        #expect(captured[1].activeProviderConfiguration.apiKey == "sk-secret-initial")
+        #expect(captured[1].activeProviderConfiguration.modelName == "gpt-4o-test")
+        #expect(captured[2].activeProviderConfiguration.apiKey == "sk-secret-updated")
+        #expect(captured[2].activeProviderConfiguration.modelName == "updated-model")
     }
 }

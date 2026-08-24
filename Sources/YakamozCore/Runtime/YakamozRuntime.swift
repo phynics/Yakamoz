@@ -1,36 +1,47 @@
 import Foundation
 import Logging
+import PKAnthropicProvider
 import PKOllamaProvider
 import PKOpenAIProvider
 import PKOpenRouterProvider
-import PKShared
+import PKContracts
 import PositronicKit
 import SwiftData
 
 /// Builds the narrow LLM-service seam (`LLMStreamClient & LLMConfigStore & LLMUtilityClient &
 /// HealthCheckable`) that `YakamozRuntime` hands to `PositronicKit`.
 ///
-/// Defaults to the real `PKOpenAIProvider`-registered `LLMService`. Tests substitute a factory
+/// Defaults to the real provider-backed `LLMService`. Tests substitute a factory
 /// that returns a mock (e.g. `PKTestSupport.MockLLMService`) so no network call ever happens
 /// during `make test`.
 public typealias LLMServiceFactory = @Sendable (LLMConfiguration) -> any LLMStreamClient & HealthCheckable & LLMConfigStore & LLMUtilityClient
 
-/// The default factory used in production: registers supported provider client factories and
-/// constructs a real `LLMService` from the given configuration.
+/// The default factory used in production: constructs the configured provider client and wraps it
+/// in a real `LLMService`.
 public func defaultLLMServiceFactory(configuration: LLMConfiguration) -> any LLMStreamClient & LLMConfigStore & LLMUtilityClient & HealthCheckable {
-    PKOpenAIProvider.register()
-    PKOpenRouterProvider.register()
-    PKOllamaProvider.register()
-    return LLMService(configuration: configuration)
+    let client: any LLMClientProtocol = switch configuration.activeProvider {
+    case .openAI, .openAICompatible:
+        PKOpenAIProvider.makeClient(configuration: configuration)
+    case .openRouter:
+        PKOpenRouterProvider.makeClient(configuration: configuration)
+    case .ollama:
+        PKOllamaProvider.makeClient(configuration: configuration)
+    case .anthropic:
+        PKAnthropicProvider.makeClient(configuration: configuration)
+    }
+    return LLMService(
+        configuration: configuration,
+        clients: LLMClientSet(primary: client)
+    )
 }
 
-/// App-facing mirror of `PKShared.HealthStatus`.
+/// App-facing mirror of PositronicKit's `HealthStatus`.
 ///
 /// The `Yakamoz` app target links only `YakamozCore` (see `project.yml`); it must never
-/// name a `PositronicKit`/`PKShared` type directly, or the optimized `test` build's
+/// name a `PositronicKit` type directly, or the optimized `test` build's
 /// linker pass fails with undefined symbols for that framework's metadata (the app
 /// binary never embeds it). This boundary type lets `SettingsView` show a health badge
-/// without importing `PKShared`.
+/// without importing PositronicKit.
 public enum AppHealthStatus: String, Sendable, Equatable {
     case ok
     case degraded
@@ -75,22 +86,22 @@ public actor YakamozRuntime: ChatRunning {
     /// Keeps terminal-workspace `TerminalSession`s alive across timeline switches (YAK-T3/T4).
     /// Shared by `resolveTools` (live agent tools) and any `TerminalWorkspace` parity path so a
     /// command run and a status read see the same shell. Torn down via `terminateAll()` on quit.
-    public let terminalRegistry = TerminalSessionRegistry()
+    public nonisolated let terminalRegistry = TerminalSessionRegistry()
 
     /// Gate consulted before each `terminal_run`. Defaults to `DenyAllApprover()` (default-deny)
     /// so the terminal backend is never an un-gated arbitrary-exec primitive when unwired; the
     /// app injects a concrete UI-bridging approver (YAK-T5).
-    private let terminalApprover: any TerminalCommandApproving
+    private nonisolated let terminalApprover: any TerminalCommandApproving
 
     /// Gate consulted by PositronicKit's `ToolRouter` before any tool whose
     /// `requiresPermission` is `true` executes. Defaults to
-    /// `DenyAllToolApprovalGate()` (default-deny) so permissioned tools are never an
+    /// `DenyAllToolApprovalPolicy()` (default-deny) so permissioned tools are never an
     /// un-gated primitive when unwired; the app injects a concrete
     /// `MainActorToolApprover` (YAK-31). YAK-47 auto-approves the read-only filesystem
     /// tools (`cat`/`ls`/`find`/`search_files`/`grep`) at this seam in
     /// `resolveTools`, so they never reach this gate; it remains the seam for any
     /// future write tool that opts into `requiresPermission = true`.
-    private let toolApprovalGate: any ToolApprovalGate
+    private let toolApprovalPolicy: any ToolApprovalPolicy
 
     @MainActor
     public init(
@@ -99,20 +110,8 @@ public actor YakamozRuntime: ChatRunning {
         secrets: any SecretStoring,
         llmServiceFactory: @escaping LLMServiceFactory = defaultLLMServiceFactory,
         terminalApprover: any TerminalCommandApproving = DenyAllApprover(),
-        toolApprovalGate: any ToolApprovalGate = DenyAllToolApprovalGate()
+        toolApprovalPolicy: any ToolApprovalPolicy = DenyAllToolApprovalPolicy()
     ) throws {
-        // Structured-output preparation (PositronicKit 2.0's PKARCH-005) looks up a
-        // process-wide `StructuredOutputAdapterRegistry` keyed by `LLMProvider`, populated by
-        // each provider target's `register()`. That registry is independent of which
-        // `LLMStreamClient` a given `llmServiceFactory` actually returns, so tests that inject
-        // a mock client in place of `defaultLLMServiceFactory` would otherwise never register
-        // an adapter and silently fall back to the synthetic-tool-call path instead of a
-        // provider's native response format. Register unconditionally so structured-output
-        // routing reflects the configured preset regardless of which factory built the client.
-        PKOpenAIProvider.register()
-        PKOpenRouterProvider.register()
-        PKOllamaProvider.register()
-
         stores = YakamozStores(modelContainer: modelContainer)
         try AgentMigration.seedAndMigrate(modelContext: modelContainer.mainContext)
         inspector = SwiftDataPromptInspector(modelContainer: modelContainer)
@@ -121,16 +120,15 @@ public actor YakamozRuntime: ChatRunning {
         self.secrets = secrets
         self.llmServiceFactory = llmServiceFactory
         self.terminalApprover = terminalApprover
-        self.toolApprovalGate = toolApprovalGate
+        self.toolApprovalPolicy = toolApprovalPolicy
 
         let settingsSnapshot = settings.snapshot
         kit = try Self.makeKit(
             stores: stores,
-            inspector: inspector,
             settingsSnapshot: settingsSnapshot,
             apiKey: ProviderSettings.storedAPIKey(for: settingsSnapshot.preset, secrets: secrets),
             llmServiceFactory: llmServiceFactory,
-            toolApprovalGate: toolApprovalGate
+            toolApprovalPolicy: toolApprovalPolicy
         )
     }
 
@@ -146,7 +144,7 @@ public actor YakamozRuntime: ChatRunning {
     /// in that case only demo tools are offered, even if filesystem tool ids happen to be
     /// present in `enabledToolIds` (there is nothing to jail them to). When non-nil, the
     /// folder's `workspaceID` (the persisted `WorkspaceModel.id`) is carried through to
-    /// `FileWorkspaceToolProvider` so the resulting `ToolProvenance.workspace(id:name:)`
+    /// `FileWorkspaceToolProvider` so the resulting `ToolOrigin.workspace(id:name:)`
     /// is stable across refreshes rather than minted per call (PKPOST-004c).
     public nonisolated func resolveTools(
         enabledToolIds: [String],
@@ -175,8 +173,8 @@ public actor YakamozRuntime: ChatRunning {
     private nonisolated func makeToolProviders(
         folder: FolderToolContext?,
         terminals: [TerminalToolContext]
-    ) -> [any ToolProviding] {
-        var providers: [any ToolProviding] = [BuiltInToolProvider()]
+    ) -> [any ToolSource] {
+        var providers: [any ToolSource] = [BuiltInToolProvider()]
         if let folder {
             providers.append(FileWorkspaceToolProvider(folder: folder))
         }
@@ -242,7 +240,7 @@ public actor YakamozRuntime: ChatRunning {
     }
 
     /// `healthCheck()` mapped to the app-safe `AppHealthStatus`, for callers (the
-    /// `Yakamoz` app target) that must not name `PKShared.HealthStatus` directly.
+    /// `Yakamoz` app target) that must not name a PositronicKit health type directly.
     public func appHealthCheck() async -> AppHealthStatus {
         AppHealthStatus(await healthCheck())
     }
@@ -262,7 +260,6 @@ public actor YakamozRuntime: ChatRunning {
     @MainActor
     public func makeChatViewModel(
         timelineId: UUID,
-        agentInstanceId: UUID? = nil,
         systemInstructions: String? = nil,
         enabledToolIds: [String] = [],
         folder: FolderToolContext? = nil,
@@ -326,7 +323,6 @@ public actor YakamozRuntime: ChatRunning {
             timelineId: timelineId,
             runner: self,
             inspector: promptInspector,
-            agentInstanceId: agentInstanceId,
             tools: tools,
             systemInstructions: systemInstructions,
             sidecars: sidecarDirectivesEnabled
@@ -354,7 +350,7 @@ public actor YakamozRuntime: ChatRunning {
     /// `nil` when none exists yet. Used by `ChatView` to feed the upcoming turn's
     /// `section_title` directive's "current section" context. Surfaced on the runtime
     /// (rather than having the app target construct a `ConversationCoordinator` itself)
-    /// so the app target never names `TimelinePersistenceProtocol` — a PositronicKit
+    /// so the app target never names `ThreadPersistenceProtocol` — a PositronicKit
     /// type the app target must not import per the architecture boundary. Swallows
     /// SwiftData read errors (returns `nil`) since a missing read degrades gracefully to
     /// "no section has been marked yet" in the directive's instruction.
@@ -410,17 +406,17 @@ public actor YakamozRuntime: ChatRunning {
     }
 
     /// ChatRunning conformance that resolves the latest settings and API key on each turn.
-    public func run(_ request: ChatRunRequest) async throws -> AsyncThrowingStream<ChatEvent, Error> {
-        let timelineId = request.timelineId
+    public func run(_ request: TurnRequest) async throws -> AsyncThrowingStream<TurnEvent, Error> {
+        let threadID = request.threadID
         let hasOperator = try await MainActor.run {
-            var descriptor = FetchDescriptor<ConversationModel>(predicate: #Predicate { $0.id == timelineId })
+            var descriptor = FetchDescriptor<ConversationModel>(predicate: #Predicate { $0.id == threadID })
             descriptor.fetchLimit = 1
             return try modelContainer.mainContext.fetch(descriptor).first?.agentId != nil
         }
         guard hasOperator else { throw ConversationRunError.operatorRequired }
         try Self.rejectExternalToolOutputs(request.toolOutputs)
         let kit = try await makeConfiguredKit()
-        return try await kit.run(request)
+        return try await kit.threads.open(threadID).run(request)
     }
 
     private static func rejectExternalToolOutputs(_ toolOutputs: [ToolOutputSubmission]?) throws {
@@ -449,37 +445,37 @@ public actor YakamozRuntime: ChatRunning {
             throw ProviderSettingsError.missingAPIKey
         }
         return kit.reconfigured(
-            llmService: llmServiceFactory(settings.configuration(apiKey: key)),
+            languageModel: llmServiceFactory(settings.configuration(apiKey: key)),
             generationParameters: settings.generationParameters
         )
     }
 
     private static func makeKit(
         stores: YakamozStores,
-        inspector: SwiftDataPromptInspector,
         settingsSnapshot: ProviderSettingsSnapshot,
         apiKey: String,
         llmServiceFactory: LLMServiceFactory,
-        toolApprovalGate: any ToolApprovalGate
+        toolApprovalPolicy: any ToolApprovalPolicy
     ) -> PositronicKit {
         let llmConfiguration = settingsSnapshot.configuration(apiKey: apiKey)
         let llmService = llmServiceFactory(llmConfiguration)
         return PositronicKit(
             configuration: .init(
-                provider: .init(llmService: llmService),
+                provider: .init(languageModel: llmService),
                 persistence: .init(
                     messageStore: stores.messages,
-                    timelinePersistence: stores.timelines,
+                    threadPersistence: stores.timelines,
                     workspacePersistence: stores.workspaces,
                     toolPersistence: stores.tools,
-                    agentInstanceStore: stores.agents,
+                    agentStore: stores.agents,
                     requestOriginStore: stores.origins
                 ),
                 runtime: .init(
                     workspaceCreator: FileSystemWorkspaceFactory(),
-                    sectionProviders: [CurrentTimeSectionProvider()],
-                    promptInspector: inspector,
-                    toolApprovalGate: toolApprovalGate
+                    customization: RuntimeCustomization(
+                        turnContextSource: CurrentTimeContextSource()
+                    ),
+                    toolApprovalPolicy: toolApprovalPolicy
                 ),
                 generationParameters: settingsSnapshot.generationParameters
             )
@@ -497,10 +493,10 @@ public actor YakamozRuntime: ChatRunning {
         return LoadedTranscript(transcript: Self.transcriptItems(from: messages))
     }
 
-    /// Rebuilds the chat transcript from persisted `ConversationMessage` rows.
+    /// Rebuilds the chat transcript from persisted `ThreadMessage` rows.
     ///
     /// A single logical assistant turn (one user send) can span several LLM round-trips
-    /// in the tool-resolution loop, each emitting its own assistant `ConversationMessage`
+    /// in the tool-resolution loop, each emitting its own assistant `ThreadMessage`
     /// followed by one `.tool`-role result message per requested call. To match the live
     /// in-session transcript produced by `ChatEventReducer` — which accumulates one
     /// `ChatTurnState` across all round-trips of a send — this rebuild groups consecutive
@@ -517,8 +513,8 @@ public actor YakamozRuntime: ChatRunning {
     /// (unchanged from the prior reload behavior).
     ///
     /// `internal` so `YakamozTests` can exercise the reconstruction directly with seeded
-    /// `ConversationMessage` values (see `TranscriptReloadToolTraceTests`).
-    static func transcriptItems(from messages: [ConversationMessage]) -> [TranscriptItem] {
+    /// `ThreadMessage` values (see `TranscriptReloadToolTraceTests`).
+    static func transcriptItems(from messages: [ThreadMessage]) -> [TranscriptItem] {
         var assistantTurnIndex = 0
         var nextInspectionTurnIndex = 0
         var transcript: [TranscriptItem] = []
@@ -526,9 +522,9 @@ public actor YakamozRuntime: ChatRunning {
         // Accumulator for the in-flight logical assistant turn: every assistant message
         // in the group (in arrival order, each carrying its own `toolCalls`) plus the
         // `.tool`-role result messages matched by `toolCallId`.
-        var pendingLastAssistantMessage: ConversationMessage?
+        var pendingLastAssistantMessage: ThreadMessage?
         var pendingToolCallsByAssistant: [[ToolCall]] = []
-        var pendingToolResults: [String: ConversationMessage] = [:]
+        var pendingToolResults: [String: ThreadMessage] = [:]
 
         func appendPendingAssistantIfNeeded() {
             guard let lastMessage = pendingLastAssistantMessage else { return }
@@ -627,7 +623,7 @@ public actor YakamozRuntime: ChatRunning {
                 if !toolCalls.isEmpty { pendingToolCallsByAssistant.append(toolCalls) }
                 nextInspectionTurnIndex += 1
             case .tool:
-                if let callId = message.toolCallId {
+                if let callId = message.toolCallID {
                     pendingToolResults[callId] = message
                 }
             case .system:
@@ -648,7 +644,7 @@ public actor YakamozRuntime: ChatRunning {
 
     /// Decodes a persisted assistant message's `toolCalls` JSON string into `[ToolCall]`.
     /// Returns an empty array when the field is missing/`"[]"`/undecodable, mirroring
-    /// `ConversationMessage.toMessage()`'s tolerant decoding.
+    /// `ThreadMessage.toMessage()`'s tolerant decoding.
     private static func decodeToolCalls(_ toolCallsJSON: String) -> [ToolCall] {
         guard let data = toolCallsJSON.data(using: .utf8) else { return [] }
         return (try? JSONDecoder().decode([ToolCall].self, from: data)) ?? []
@@ -669,9 +665,9 @@ public actor YakamozRuntime: ChatRunning {
     private static let toolErrorPrefix = "Error: "
 }
 
-private struct BuiltInToolProvider: ToolProviding {
-    let toolProvenance: ToolProvenance = .global
-    func provideTools() async -> [AnyTool] {
+private struct BuiltInToolProvider: ToolSource {
+    let toolOrigin: ToolOrigin = .global
+    func tools() async -> [AnyTool] {
         [
             CalculatorTool().toAnyTool(),
             CurrentDateTimeTool().toAnyTool(),
@@ -679,14 +675,14 @@ private struct BuiltInToolProvider: ToolProviding {
     }
 }
 
-private struct FileWorkspaceToolProvider: ToolProviding {
+private struct FileWorkspaceToolProvider: ToolSource {
     let folder: FolderToolContext
 
-    var toolProvenance: ToolProvenance {
+    var toolOrigin: ToolOrigin {
         .workspace(id: folder.workspaceID, name: folder.rootURL.lastPathComponent)
     }
 
-    func provideTools() async -> [AnyTool] {
+    func tools() async -> [AnyTool] {
         let root = folder.rootURL.path
         return [
             ReadFileTool(currentDirectory: root, jailRoot: root).toAnyTool(),
@@ -699,16 +695,16 @@ private struct FileWorkspaceToolProvider: ToolProviding {
     }
 }
 
-private struct TerminalWorkspaceToolProvider: ToolProviding {
+private struct TerminalWorkspaceToolProvider: ToolSource {
     let terminal: TerminalToolContext
     let registry: TerminalSessionRegistry
     let approver: any TerminalCommandApproving
 
-    var toolProvenance: ToolProvenance {
+    var toolOrigin: ToolOrigin {
         .terminal(id: terminal.workspaceId, name: terminal.rootURL.lastPathComponent)
     }
 
-    func provideTools() async -> [AnyTool] {
+    func tools() async -> [AnyTool] {
         [
             TerminalRunTool(workspaceId: terminal.workspaceId, registry: registry, rootURL: terminal.rootURL, approver: approver).toAnyTool(),
             TerminalReadTool(workspaceId: terminal.workspaceId, registry: registry, rootURL: terminal.rootURL).toAnyTool(),

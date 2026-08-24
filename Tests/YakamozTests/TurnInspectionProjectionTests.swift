@@ -1,6 +1,6 @@
 import Foundation
 import PKPrompt
-import PKShared
+import PKContracts
 import PositronicKit
 import SwiftData
 import Testing
@@ -51,8 +51,8 @@ struct TurnInspectionProjectionTests {
         )
 
         return PromptInspection(
-            timelineId: UUID(),
-            agentInstanceId: nil,
+            threadID: UUID(),
+            agentID: nil,
             turnIndex: 0,
             model: "gpt-test",
             rendered: rendered,
@@ -70,10 +70,10 @@ struct TurnInspectionProjectionTests {
 
         await inspector.didComposePrompt(fixture)
 
-        let saved = try await inspector.inspection(conversationId: fixture.timelineId, turnIndex: 0)
+        let saved = try await inspector.inspection(conversationId: fixture.threadID, turnIndex: 0)
         let model = try #require(saved)
 
-        #expect(model.conversationId == fixture.timelineId)
+        #expect(model.conversationId == fixture.threadID)
         #expect(model.turnIndex == 0)
         #expect(model.model == "gpt-test")
         #expect(model.estimatedTokens == fixture.estimatedTokens)
@@ -131,7 +131,7 @@ struct TurnInspectionProjectionTests {
             ToolTraceDTO(id: "call_2", name: "broken_tool", status: .failure, error: "boom"),
         ]
         try await inspector.updateResponse(
-            conversationId: fixture.timelineId,
+            conversationId: fixture.threadID,
             turnIndex: 0,
             response: ResponseDTO(
                 reconstructedText: "done",
@@ -140,7 +140,7 @@ struct TurnInspectionProjectionTests {
             )
         )
 
-        let saved = try await inspector.inspection(conversationId: fixture.timelineId, turnIndex: 0)
+        let saved = try await inspector.inspection(conversationId: fixture.threadID, turnIndex: 0)
         let response = try #require(saved?.response)
         #expect(response.tools.count == 2)
         #expect(response.tools.first?.id == "call_1")
@@ -153,7 +153,7 @@ struct TurnInspectionProjectionTests {
         #expect(response.tools.last?.error == "boom")
 
         // The presentation read seam surfaces the same traces.
-        let presentation = try #require(try await inspector.presentation(conversationId: fixture.timelineId, turnIndex: 0))
+        let presentation = try #require(try await inspector.presentation(conversationId: fixture.threadID, turnIndex: 0))
         #expect(presentation.response?.tools.map(\.status) == [.success, .failure])
     }
 

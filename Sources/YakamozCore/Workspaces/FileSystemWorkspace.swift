@@ -1,24 +1,24 @@
 import Foundation
 import Logging
-import PKShared
+import PKContracts
 import PositronicKit
 
-/// A `WorkspaceProtocol` implementation confined to a single root directory on disk.
+/// A `Workspace` implementation confined to a single root directory on disk.
 ///
 /// All file operations (`readFile`/`writeFile`/`listFiles`/`deleteFile`) and every
 /// routed tool (`cat`/`ls`/`find`/`search_files`/`grep`/`change_directory`, the same
-/// six PKShared filesystem tools used elsewhere in PositronicKit) are confined to
+/// six PositronicKit filesystem tools used elsewhere in PositronicKit) are confined to
 /// `rootURL`. Confinement is enforced twice, independently:
 ///
 /// 1. `confinedURL(for:)` below, used by the four direct file operations.
-/// 2. Each PKShared filesystem tool's own `jailRoot`/`PathSanitizer.safelyResolve`
+/// 2. Each filesystem tool's own `jailRoot`/`PathSanitizer.safelyResolve`
 ///    confinement, used when a tool id is routed through `executeTool`.
 ///
 /// Both paths standardize and resolve symlinks for the candidate *and* the root before
 /// comparing, so a symlink created inside the root that points outside of it cannot be
 /// used to escape the sandbox (resolving the candidate turns it into its real,
 /// out-of-root destination, which then fails the prefix check).
-public actor FileSystemWorkspace: WorkspaceProtocol {
+public actor FileSystemWorkspace: Workspace {
     public let id: UUID
     public let rootURL: URL
     private let displayName: String
@@ -40,7 +40,7 @@ public actor FileSystemWorkspace: WorkspaceProtocol {
         )
     }
 
-    // MARK: - WorkspaceProtocol: file operations
+    // MARK: - Workspace: file operations
 
     public func readFile(path: String) async throws -> String {
         let url = try confinedURL(for: path)
@@ -115,9 +115,9 @@ public actor FileSystemWorkspace: WorkspaceProtocol {
         return FileManager.default.fileExists(atPath: rootURL.path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 
-    // MARK: - WorkspaceProtocol: tool routing
+    // MARK: - Workspace: tool routing
 
-    /// The PKShared filesystem tool ids this workspace exposes, in display order.
+    /// The filesystem tool ids this workspace exposes, in display order.
     static let toolIds = ["cat", "ls", "find", "search_files", "grep", "change_directory"]
 
     public func listTools() async throws -> [ToolReference] {

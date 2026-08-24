@@ -1,6 +1,6 @@
 import Foundation
 import PKPrompt
-import PKShared
+import PKContracts
 import PositronicKit
 
 /// Codable projection of a single `RenderedPrompt.Section`.
@@ -179,8 +179,8 @@ public struct ResponseDTO: Codable, Sendable, Equatable {
 }
 
 /// App-target-safe view of a single sidecar-directive result (SID-1/SID-2). The
-/// underlying `SidecarResult` lives in `PKShared` and carries `AnyCodable` (also
-/// `PKShared`); Yakamoz's app target is a `YakamozCore`-only client per the
+/// underlying `SidecarResult` lives in `PKContracts` and carries `AnyCodable`; Yakamoz's app
+/// target is a `YakamozCore`-only client per the
 /// architecture boundary, so `ResponseDTO` exposes its sidecar results through this
 /// projection instead. The projection preserves the value/declined/failed distinction
 /// the inspector UI renders, flattening `.value`'s `AnyCodable` to its string form (or
@@ -211,9 +211,9 @@ public struct SidecarResultView: Sendable, Identifiable, Equatable {
 }
 
 public extension ResponseDTO {
-    /// Projects the persisted `sidecarResults` (a `PKShared`-typed storage field) into a
+    /// Projects the persisted `sidecarResults` (a PositronicKit-typed storage field) into a
     /// `YakamozCore`-defined presentation the app target's Response inspector can render
-    /// without importing `PKShared`. One `SidecarResultView` per stored result, keyed by
+    /// without importing PositronicKit. One `SidecarResultView` per stored result, keyed by
     /// `result.name` (matching `ForEach(... id: \.name)`). Empty when the turn carried no
     /// sidecar directives — the inspector's "Sidecars" section renders nothing in that
     /// case (absence is the normal state, not an error).
@@ -394,9 +394,9 @@ public struct InspectionProjection {
         let journalData = try encoder.encode(journal)
 
         model = TurnInspectionModel(
-            conversationId: inspection.timelineId,
-            sendId: inspection.identity.sendId,
-            roundTrip: inspection.identity.roundTrip,
+            conversationId: inspection.threadID,
+            sendId: inspection.identity.requestID,
+            roundTrip: inspection.identity.modelRoundIndex,
             turnIndex: inspection.turnIndex,
             model: inspection.model,
             sectionsData: sectionsData,
@@ -453,7 +453,11 @@ public struct PersistedTurnInspection: Sendable, Equatable {
     public init(model: TurnInspectionModel) throws {
         try self.init(
             conversationId: model.conversationId,
-            identity: TurnIdentity(sendId: model.sendId, roundTrip: model.roundTrip),
+            identity: TurnIdentity(
+                turnID: model.sendId,
+                requestID: model.sendId,
+                modelRoundIndex: model.roundTrip
+            ),
             turnIndex: model.turnIndex,
             model: model.model,
             createdAt: model.createdAt,

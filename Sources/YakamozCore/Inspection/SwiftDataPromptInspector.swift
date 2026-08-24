@@ -25,13 +25,13 @@ public extension TurnInspectionModel {
     }
 }
 
-/// `PromptInspecting` adapter that confines a SwiftData `ModelContext` to persist
-/// each `PromptInspection` as a `TurnInspectionModel`.
+/// SwiftData adapter that confines a `ModelContext` to persist each Yakamoz-owned
+/// `PromptInspection` as a `TurnInspectionModel`.
 ///
 /// `ModelContext` is not `Sendable`; `@ModelActor` confines it to this actor so the
 /// adapter can safely implement the `Sendable` `async` `PromptInspecting` protocol.
 @ModelActor
-public actor SwiftDataPromptInspector: PromptInspecting {
+public actor SwiftDataPromptInspector {
     public func didComposePrompt(_ inspection: PromptInspection) async {
         do {
             let projection = try InspectionProjection(inspection)
@@ -56,8 +56,8 @@ public actor SwiftDataPromptInspector: PromptInspecting {
 
     /// Fetches the persisted projection for a given conversation/send round-trip pair, if any.
     public func inspection(conversationId: UUID, turnIdentity: TurnIdentity) throws -> PersistedTurnInspection? {
-        let sendId = turnIdentity.sendId
-        let roundTrip = turnIdentity.roundTrip
+        let sendId = turnIdentity.requestID
+        let roundTrip = turnIdentity.modelRoundIndex
         var descriptor = FetchDescriptor<TurnInspectionModel>(
             predicate: #Predicate {
                 $0.conversationId == conversationId
@@ -90,8 +90,8 @@ public actor SwiftDataPromptInspector: PromptInspecting {
 
     /// Enriches a send-local round-trip row identified by `TurnIdentity`.
     public func updateResponse(conversationId: UUID, turnIdentity: TurnIdentity, response: ResponseDTO) throws {
-        let sendId = turnIdentity.sendId
-        let roundTrip = turnIdentity.roundTrip
+        let sendId = turnIdentity.requestID
+        let roundTrip = turnIdentity.modelRoundIndex
         var descriptor = FetchDescriptor<TurnInspectionModel>(
             predicate: #Predicate {
                 $0.conversationId == conversationId
@@ -142,7 +142,11 @@ public actor SwiftDataPromptInspector: PromptInspecting {
         )
         descriptor.fetchLimit = 1
         guard let model = try modelContext.fetch(descriptor).first else { return nil }
-        return TurnIdentity(sendId: model.sendId, roundTrip: model.roundTrip)
+        return TurnIdentity(
+            turnID: model.sendId,
+            requestID: model.sendId,
+            modelRoundIndex: model.roundTrip
+        )
     }
 
     /// Enriches the conversation's most recent inspection row with response metadata.

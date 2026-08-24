@@ -1,7 +1,7 @@
 import ErrorKit
 import Foundation
 import Logging
-import PKShared
+import PKContracts
 
 /// Convenience namespace providing labeled loggers for Yakamoz subsystems.
 ///

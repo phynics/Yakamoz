@@ -1,26 +1,27 @@
 import ErrorKit
 import Foundation
 import Logging
-import PKShared
+import Observation
+import PKContracts
 import PositronicKit
 
-/// The seam between `ChatViewModel` and `PositronicKit.run`.
+/// The seam between `ChatViewModel` and PositronicKit's managed Thread turn.
 ///
 /// Mirrors the facade's `run(_:)` signature exactly so the runtime can pass a
 /// concrete `ChatRunning` implementation through the same seam that tests replace
 /// with a scripted fake — no network, no real `ChatEngine`, no sleeps.
 public protocol ChatRunning: Sendable {
-    func run(_ request: ChatRunRequest) async throws -> AsyncThrowingStream<ChatEvent, Error>
+    func run(_ request: TurnRequest) async throws -> AsyncThrowingStream<TurnEvent, Error>
 }
 
 /// Main-actor, `@Observable` view model that drives a single chat conversation:
 /// sends user text through a `ChatRunning` runner, live-reduces the resulting
-/// `ChatEvent` stream into the transcript via `ChatEventReducer`, and persists the
+/// `TurnEvent` stream into the transcript via `ChatEventReducer`, and persists the
 /// final turn's response metadata via the turn inspector.
 ///
 /// `PositronicKit.run` (through `ChatEngine`) already persists the user and assistant
-/// `ConversationMessage` rows itself (see `ChatEngine+ContextBuilding.saveConversationSteps`
-/// and `MessagePersistenceStage`); this view model does not duplicate that write. The
+/// `ThreadMessage` rows itself via PositronicKit's message persistence stage; this view model
+/// does not duplicate that write. The
 /// one persistence gap it fills is `SwiftDataPromptInspector.updateResponse`, which
 /// records reconstructed text/thinking/model/finish-reason/token-usage onto the
 /// turn-inspection row that `didComposePrompt` created earlier in the same turn.
@@ -54,7 +55,6 @@ public final class ChatViewModel {
     private let runner: any ChatRunning
     private let inspector: SwiftDataPromptInspector?
     private let timelineId: UUID
-    private let agentInstanceId: UUID?
     private var tools: [AnyTool]
     /// TEX-2: the caller-supplied base instructions, unmodified. `effectiveSystemInstructions`
     /// (composed with `ToolCallExplanation.promptGuidance` when `tools` is non-empty) is what
@@ -105,7 +105,6 @@ public final class ChatViewModel {
         timelineId: UUID,
         runner: any ChatRunning,
         inspector: SwiftDataPromptInspector? = nil,
-        agentInstanceId: UUID? = nil,
         tools: [AnyTool] = [],
         systemInstructions: String? = nil,
         maxTurns: Int = 5,
@@ -119,7 +118,6 @@ public final class ChatViewModel {
         self.timelineId = timelineId
         self.runner = runner
         self.inspector = inspector
-        self.agentInstanceId = agentInstanceId
         self.tools = tools
         self.systemInstructions = systemInstructions
         self.maxTurns = maxTurns
@@ -288,14 +286,13 @@ public final class ChatViewModel {
 
         do {
             let stream = try await runner.run(
-                ChatRunRequest(
-                    timelineId: timelineId,
-                    sendId: sendId,
+                TurnRequest(
+                    threadID: timelineId,
+                    requestID: sendId,
                     message: text,
                     tools: tools,
                     systemInstructions: effectiveSystemInstructions,
-                    agentInstanceId: agentInstanceId,
-                    maxTurns: maxTurns,
+                    maxModelRounds: maxTurns,
                     generationParameters: generationParameters,
                     sidecars: sidecars
                 )
@@ -367,7 +364,7 @@ public final class ChatViewModel {
             // classifies blocked/approval errors via domain+code rather than the
             // message string; non-PKError errors leave `errorIdentity == nil`
             // and are intentionally treated as a plain failure.
-            state.errorIdentity = ChatEvent.ErrorIdentity.extracting(from: error)
+            state.errorIdentity = TurnEvent.ErrorIdentity.extracting(from: error)
             Log.chat.error(
                 "turn execution failed",
                 metadata: ["conversationID": "\(timelineId)", "turnIndex": "\(state.turnIndex)"]

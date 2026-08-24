@@ -1,6 +1,6 @@
 import Foundation
 import JSONSchemaBuilder
-import PKShared
+import PKContracts
 
 /// The payload shape for the `title` sidecar directive (SID-1): a single optional string.
 /// `nil`/absent means "no meaningfully better title exists yet" — a valid, non-error

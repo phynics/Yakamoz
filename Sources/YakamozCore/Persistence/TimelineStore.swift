@@ -1,110 +1,112 @@
 import Foundation
 import Logging
-import PKShared
+import PKContracts
 import PositronicKit
 import SwiftData
 
 extension TimelineModel {
-    convenience init(_ timeline: Timeline) throws {
+    convenience init(_ thread: Thread) throws {
         let idsData: Data
         do {
-            idsData = try JSONEncoder().encode(timeline.attachedWorkspaceIds)
+            idsData = try JSONEncoder().encode(thread.attachedWorkspaceIDs)
         } catch {
-            throw PersistenceError.encoding("Timeline.attachedWorkspaceIds: \(error)")
+            throw PersistenceError.encoding("Thread.attachedWorkspaceIDs: \(error)")
         }
         self.init(
-            id: timeline.id,
-            title: timeline.title,
-            createdAt: timeline.createdAt,
-            updatedAt: timeline.updatedAt,
-            isArchived: timeline.isArchived,
-            workingDirectory: timeline.workingDirectory,
+            id: thread.id,
+            title: thread.title,
+            createdAt: thread.createdAt,
+            updatedAt: thread.updatedAt,
+            isArchived: thread.isArchived,
+            workingDirectory: thread.workingDirectory,
             attachedWorkspaceIdsData: idsData,
-            attachedAgentInstanceId: timeline.attachedAgentInstanceId,
-            isPrivate: timeline.isPrivate
+            attachedAgentInstanceId: thread.attachedAgentID,
+            isPrivate: thread.isPrivate
         )
     }
 
-    func toTimeline() throws -> Timeline {
+    func toThread() throws -> Thread {
         let ids: [UUID]
         do {
             ids = try JSONDecoder().decode([UUID].self, from: attachedWorkspaceIdsData)
         } catch {
-            throw PersistenceError.decoding("Timeline.attachedWorkspaceIds: \(error)")
+            throw PersistenceError.decoding("Thread.attachedWorkspaceIDs: \(error)")
         }
-        return Timeline(
+        return Thread(
             id: id,
             title: title,
             createdAt: createdAt,
             updatedAt: updatedAt,
             isArchived: isArchived,
             workingDirectory: workingDirectory,
-            attachedWorkspaceIds: ids,
-            attachedAgentInstanceId: attachedAgentInstanceId,
+            attachedWorkspaceIDs: ids,
+            attachedAgentID: attachedAgentInstanceId,
             isPrivate: isPrivate
         )
     }
 
     /// Applies the mutable fields of `timeline` onto this existing model, in place
     /// (used by `saveTimeline` upsert semantics so identity/relationships aren't lost).
-    func update(from timeline: Timeline) throws {
+    func update(from thread: Thread) throws {
         let idsData: Data
         do {
-            idsData = try JSONEncoder().encode(timeline.attachedWorkspaceIds)
+            idsData = try JSONEncoder().encode(thread.attachedWorkspaceIDs)
         } catch {
-            throw PersistenceError.encoding("Timeline.attachedWorkspaceIds: \(error)")
+            throw PersistenceError.encoding("Thread.attachedWorkspaceIDs: \(error)")
         }
-        title = timeline.title
-        createdAt = timeline.createdAt
-        updatedAt = timeline.updatedAt
-        isArchived = timeline.isArchived
-        workingDirectory = timeline.workingDirectory
+        title = thread.title
+        createdAt = thread.createdAt
+        updatedAt = thread.updatedAt
+        isArchived = thread.isArchived
+        workingDirectory = thread.workingDirectory
         attachedWorkspaceIdsData = idsData
-        attachedAgentInstanceId = timeline.attachedAgentInstanceId
-        isPrivate = timeline.isPrivate
+        attachedAgentInstanceId = thread.attachedAgentID
+        isPrivate = thread.isPrivate
     }
 }
 
-/// `TimelinePersistenceProtocol` adapter persisting `Timeline` values as
+/// `ThreadPersistenceProtocol` adapter persisting `Thread` values as
 /// `TimelineModel` rows. See `SwiftDataMessageStore` for the actor-confinement
 /// rationale shared by all adapters in this directory.
 @ModelActor
-public actor SwiftDataTimelineStore: TimelinePersistenceProtocol {
-    public func saveTimeline(_ timeline: Timeline) async throws {
-        let id = timeline.id
+public actor SwiftDataTimelineStore: ThreadPersistenceProtocol {
+    public nonisolated let isDurable = true
+
+    public func saveThread(_ thread: Thread) async throws {
+        let id = thread.id
         let descriptor = FetchDescriptor<TimelineModel>(predicate: #Predicate { $0.id == id })
         if let existing = try modelContext.fetch(descriptor).first {
-            try existing.update(from: timeline)
+            try existing.update(from: thread)
         } else {
-            try modelContext.insert(TimelineModel(timeline))
+            try modelContext.insert(TimelineModel(thread))
         }
         do {
             try modelContext.save()
         } catch {
-            Log.runtime.error("failed to save Timeline", metadata: [
+            Log.runtime.error("failed to save Thread", metadata: [
                 "store": "TimelineStore",
-                "timelineID": "\(id)",
+                "threadID": "\(id)",
             ])
             throw error
         }
     }
 
-    public func fetchTimeline(id: UUID) async throws -> Timeline? {
+    public func fetchThread(id: UUID) async throws -> Thread? {
         var descriptor = FetchDescriptor<TimelineModel>(predicate: #Predicate { $0.id == id })
         descriptor.fetchLimit = 1
         do {
             guard let model = try modelContext.fetch(descriptor).first else { return nil }
-            return try model.toTimeline()
+            return try model.toThread()
         } catch {
-            Log.runtime.warning("failed to fetch Timeline", metadata: [
+            Log.runtime.warning("failed to fetch Thread", metadata: [
                 "store": "TimelineStore",
-                "timelineID": "\(id)",
+                "threadID": "\(id)",
             ])
             throw error
         }
     }
 
-    public func fetchAllTimelines(includeArchived: Bool) async throws -> [Timeline] {
+    public func fetchAllThreads(includeArchived: Bool) async throws -> [Thread] {
         let descriptor: FetchDescriptor<TimelineModel>
         if includeArchived {
             descriptor = FetchDescriptor<TimelineModel>(sortBy: [SortDescriptor(\.createdAt)])
@@ -115,29 +117,29 @@ public actor SwiftDataTimelineStore: TimelinePersistenceProtocol {
             )
         }
         do {
-            return try modelContext.fetch(descriptor).map { try $0.toTimeline() }
+            return try modelContext.fetch(descriptor).map { try $0.toThread() }
         } catch {
-            Log.runtime.warning("failed to fetch all Timelines", metadata: [
+            Log.runtime.warning("failed to fetch all Threads", metadata: [
                 "store": "TimelineStore",
             ])
             throw error
         }
     }
 
-    public func deleteTimeline(id: UUID) async throws {
+    public func deleteThread(id: UUID) async throws {
         try modelContext.delete(model: TimelineModel.self, where: #Predicate { $0.id == id })
         do {
             try modelContext.save()
         } catch {
-            Log.runtime.error("failed to delete Timeline", metadata: [
+            Log.runtime.error("failed to delete Thread", metadata: [
                 "store": "TimelineStore",
-                "timelineID": "\(id)",
+                "threadID": "\(id)",
             ])
             throw error
         }
     }
 
-    public func pruneTimelines(
+    public func pruneThreads(
         olderThan timeInterval: TimeInterval,
         excluding excludedTimelineIds: [UUID],
         dryRun: Bool

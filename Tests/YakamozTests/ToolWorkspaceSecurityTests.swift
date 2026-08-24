@@ -1,6 +1,6 @@
 import Foundation
 import PKPrompt
-import PKShared
+import PKContracts
 import PKTestSupport
 import PositronicKit
 import SwiftData

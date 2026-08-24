@@ -1,5 +1,5 @@
 import Foundation
-import PKShared
+import PKContracts
 import PositronicKit
 import Testing
 @testable import YakamozCore
@@ -117,7 +117,7 @@ struct FileSystemWorkspaceTests {
         let workspace = FileSystemWorkspace(rootURL: root)
 
         let tools = try await workspace.listTools()
-        let ids = Set(tools.map(\.toolId))
+        let ids = Set(tools.map(\.toolID))
         #expect(ids.contains("cat"))
         #expect(ids.contains("ls"))
         #expect(ids.contains("find"))

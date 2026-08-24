@@ -1,5 +1,5 @@
 import Foundation
-import PKShared
+import PKContracts
 
 /// Shared decode path for sidecar-directive `.value` payloads (SID-3).
 ///

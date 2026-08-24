@@ -1,6 +1,6 @@
 import Foundation
 import Logging
-import PKShared
+import PKContracts
 import SwiftData
 
 public struct ConversationToolOption: Sendable, Equatable, Identifiable {
@@ -86,9 +86,9 @@ public enum ConversationToolSupport {
                 id: tool.callName,
                 title: title(for: tool),
                 systemImage: systemImage(for: tool.callName),
-                group: group(for: tool.provenance),
-                requiresWorkspace: tool.provenance.isWorkspaceScoped,
-                requiresTerminal: tool.provenance.isTerminalScoped
+                group: group(for: tool.origin),
+                requiresWorkspace: tool.origin.isWorkspaceScoped,
+                requiresTerminal: tool.origin.isTerminalScoped
             )
         }
     }
@@ -136,8 +136,8 @@ public enum ConversationToolSupport {
         return workspaceToolSystemImage(for: id)
     }
 
-    private static func group(for provenance: ToolProvenance) -> ConversationToolOption.Group {
-        switch provenance {
+    private static func group(for origin: ToolOrigin) -> ConversationToolOption.Group {
+        switch origin {
         case .terminal:
             .terminal
         case .workspace:
@@ -148,7 +148,7 @@ public enum ConversationToolSupport {
     }
 }
 
-private extension ToolProvenance {
+private extension ToolOrigin {
     var isWorkspaceScoped: Bool {
         if case .workspace = self { return true }
         return false

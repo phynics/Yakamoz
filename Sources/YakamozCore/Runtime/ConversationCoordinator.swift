@@ -1,20 +1,20 @@
 import Foundation
-import PKShared
+import PKContracts
 import PositronicKit
 import SwiftData
 
 /// Creates a new conversation, pairing one `ConversationModel` row (Yakamoz's UI shell)
-/// with a `PositronicKit.Timeline` that shares the same `id` (see `YakamozRuntime` /
+/// with a `PositronicKit.Thread` that shares the same `id` (see `YakamozRuntime` /
 /// Task 7 integration notes: one `UUID` is used as both `ConversationModel.id` and the
 /// PositronicKit `timelineId` so `ChatViewModel`/`ChatEngine.run(timelineId:)` can hydrate
 /// the same conversation `ConversationListView` displays).
 ///
-/// `ChatEngine.prepareSession` reads `TimelineManager.getTimeline(id:)`, which only
+/// PositronicKit resolves the persisted Thread lazily during turn admission, which only
 /// consults its in-memory cache and tolerates a `nil` result (the rendered prompt simply
-/// omits timeline-specific context) — so a pre-existing `Timeline` is not strictly
+/// omits thread-specific context) — so a pre-existing `Thread` is not strictly
 /// required for `run` to succeed. We still persist one eagerly here because
-/// `TimelinePersistenceProtocol` (and any future feature that lists/archives timelines,
-/// e.g. `fetchAllTimelines`) expects every conversation to have a corresponding row.
+/// `ThreadPersistenceProtocol` (and any future feature that lists/archives threads) expects
+/// every conversation to have a corresponding row.
 @MainActor
 public struct ConversationCoordinator {
     public enum OperatorError: Error, Equatable, LocalizedError {
@@ -31,12 +31,12 @@ public struct ConversationCoordinator {
         }
     }
     private let modelContext: ModelContext
-    private let timelineStore: any TimelinePersistenceProtocol
+    private let timelineStore: any ThreadPersistenceProtocol
     private let agentStore: SwiftDataAgentStore
 
     public init(
         modelContext: ModelContext,
-        timelineStore: any TimelinePersistenceProtocol,
+        timelineStore: any ThreadPersistenceProtocol,
         agentStore: SwiftDataAgentStore? = nil
     ) {
         self.modelContext = modelContext
@@ -70,8 +70,8 @@ public struct ConversationCoordinator {
         modelContext.insert(conversation)
         try modelContext.save()
 
-        let timeline = Timeline(id: id, title: title, createdAt: now, updatedAt: now, attachedWorkspaceIds: attachedWorkspaceIds)
-        try await timelineStore.saveTimeline(timeline)
+        let thread = Thread(id: id, title: title, createdAt: now, updatedAt: now, attachedWorkspaceIDs: attachedWorkspaceIds)
+        try await timelineStore.saveThread(thread)
 
         if let agentId,
            let operatorModel = try agentModel(id: agentId)

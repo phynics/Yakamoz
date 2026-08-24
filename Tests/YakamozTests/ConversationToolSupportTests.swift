@@ -1,5 +1,5 @@
 import Foundation
-import PKShared
+import PKContracts
 import SwiftData
 import Testing
 @testable import YakamozCore

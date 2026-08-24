@@ -1,6 +1,6 @@
 import Foundation
 import Observation
-import PKShared
+import PKContracts
 
 /// Main-actor boundary for provider health and model-list state.
 ///

@@ -1,6 +1,6 @@
 import Foundation
 import JSONSchema
-import PKShared
+import PKContracts
 import PKTestSupport
 import PositronicKit
 import SwiftData
@@ -127,7 +127,7 @@ struct ReadOnlyToolApprovalTests {
             settings: settings,
             secrets: secrets,
             llmServiceFactory: { _ in mock },
-            toolApprovalGate: approver
+            toolApprovalPolicy: approver
         )
 
         let workspaceURL = FileManager.default.temporaryDirectory

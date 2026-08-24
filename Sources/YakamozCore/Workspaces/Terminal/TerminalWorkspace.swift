@@ -1,8 +1,8 @@
 import Foundation
-import PKShared
+import PKContracts
 import PositronicKit
 
-/// A `WorkspaceProtocol` implementation backed by an agent-driven PTY shell session rooted at
+/// A `Workspace` implementation backed by an agent-driven PTY shell session rooted at
 /// `rootURL`, instead of a filesystem confinement boundary.
 ///
 /// Unlike `FileSystemWorkspace`, this workspace exposes no direct file operations — a terminal
@@ -10,7 +10,7 @@ import PositronicKit
 /// `terminal_send_input`/`terminal_interrupt`/`terminal_wait`) to the corresponding `Tool` types
 /// in `TerminalTools.swift`, each constructed with this workspace's `id`, `registry`, and
 /// `rootURL` (and, for `terminal_run` only, `approver`).
-public actor TerminalWorkspace: WorkspaceProtocol {
+public actor TerminalWorkspace: Workspace {
     public let id: UUID
     public let rootURL: URL
     public let registry: TerminalSessionRegistry
@@ -42,7 +42,7 @@ public actor TerminalWorkspace: WorkspaceProtocol {
         )
     }
 
-    // MARK: - WorkspaceProtocol: file operations
+    // MARK: - Workspace: file operations
 
     /// A terminal is a shell, not a file store: none of the direct file operations are supported.
     public func readFile(path _: String) async throws -> String {
@@ -65,7 +65,7 @@ public actor TerminalWorkspace: WorkspaceProtocol {
         true
     }
 
-    // MARK: - WorkspaceProtocol: tool routing
+    // MARK: - Workspace: tool routing
 
     /// The terminal tool ids this workspace exposes, in display order.
     /// Includes the six tools: run, read, send_input, interrupt, wait, and read_output (YAK-T6).

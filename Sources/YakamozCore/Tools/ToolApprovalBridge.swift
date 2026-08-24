@@ -1,10 +1,11 @@
 import Foundation
-import PKShared
+import Observation
+import PKContracts
 
 /// A single outstanding permissioned-tool approval request, surfaced to the UI for rendering.
 ///
 /// Uses only `Foundation`/`String`/`UUID` so the app target can render it without naming any
-/// `PKShared` type (the app links only `YakamozCore` — see `AppHealthStatus`).
+/// PositronicKit type (the app links only `YakamozCore` — see `AppHealthStatus`).
 public struct PendingToolApproval: Identifiable, Sendable {
     public let id: UUID
     /// The tool's stable id (e.g. `read_file`).
@@ -22,7 +23,7 @@ public struct PendingToolApproval: Identifiable, Sendable {
     }
 }
 
-/// App-layer concrete `ToolApprovalGate` that bridges PositronicKit's runtime approval gate to a
+/// App-layer concrete `ToolApprovalPolicy` that bridges PositronicKit's runtime approval gate to a
 /// SwiftUI prompt — the tool-call analogue of `MainActorApprover` (which gates `terminal_run`).
 ///
 /// `ToolRouter` calls `requestApproval(tool:arguments:)` off the main actor for every tool whose
@@ -43,7 +44,7 @@ public struct PendingToolApproval: Identifiable, Sendable {
 /// the terminal tool, so re-prompting it through this gate would double-prompt the user.
 @MainActor
 @Observable
-public final class MainActorToolApprover: ToolApprovalGate {
+public final class MainActorToolApprover: ToolApprovalPolicy {
     public private(set) var pending: [PendingToolApproval] = []
 
     private var continuations: [UUID: CheckedContinuation<ToolApprovalDecision, Never>] = [:]

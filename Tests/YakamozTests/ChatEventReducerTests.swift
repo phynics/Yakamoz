@@ -1,5 +1,5 @@
 import Foundation
-import PKShared
+import PKContracts
 import PositronicKit
 import Testing
 @testable import YakamozCore
@@ -230,7 +230,7 @@ struct ChatEventReducerTests {
         let startedAt = clock.now
 
         ChatEventReducer.reduce(
-            .toolProgress(toolCallId: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
+            .toolProgress(toolCallID: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
             into: &state,
             now: startedAt
         )
@@ -250,12 +250,12 @@ struct ChatEventReducerTests {
         let finishedAt = clock.now
 
         ChatEventReducer.reduce(
-            .toolProgress(toolCallId: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
+            .toolProgress(toolCallID: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
             into: &state,
             now: startedAt
         )
         ChatEventReducer.reduce(
-            .toolCompleted(toolCallId: "call-1", status: .success(.success("3 results"))),
+            .toolCompleted(toolCallID: "call-1", status: .success(.success("3 results"))),
             into: &state,
             now: finishedAt
         )
@@ -279,7 +279,7 @@ struct ChatEventReducerTests {
             now: now
         )
         ChatEventReducer.reduce(
-            .toolCompleted(toolCallId: "call-1", status: .success(.success("4"))),
+            .toolCompleted(toolCallID: "call-1", status: .success(.success("4"))),
             into: &state,
             now: now
         )
@@ -296,12 +296,12 @@ struct ChatEventReducerTests {
         let finishedAt = clock.now
 
         ChatEventReducer.reduce(
-            .toolProgress(toolCallId: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
+            .toolProgress(toolCallID: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
             into: &state,
             now: startedAt
         )
         ChatEventReducer.reduce(
-            .toolCompleted(toolCallId: "call-1", status: .failed(reference: .known(id: "search"), error: "timeout")),
+            .toolCompleted(toolCallID: "call-1", status: .failed(reference: .known(id: "search"), error: "timeout")),
             into: &state,
             now: finishedAt
         )
@@ -318,12 +318,12 @@ struct ChatEventReducerTests {
         let now = clock.now
 
         ChatEventReducer.reduce(
-            .toolProgress(toolCallId: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
+            .toolProgress(toolCallID: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
             into: &state,
             now: now
         )
         ChatEventReducer.reduce(
-            .toolCompleted(toolCallId: "call-1", status: .executionError("not found")),
+            .toolCompleted(toolCallID: "call-1", status: .executionError("not found")),
             into: &state,
             now: now
         )
@@ -338,7 +338,7 @@ struct ChatEventReducerTests {
         let now = clock.now
 
         ChatEventReducer.reduce(
-            .toolCallError(toolCallId: "call-2", name: "search", error: "invalid arguments"),
+            .toolCallError(toolCallID: "call-2", name: "search", error: "invalid arguments"),
             into: &state,
             now: now
         )
@@ -356,12 +356,12 @@ struct ChatEventReducerTests {
         let now = clock.now
 
         ChatEventReducer.reduce(
-            .toolProgress(toolCallId: "call-b", status: .attempting(name: "second", reference: .known(id: "second"))),
+            .toolProgress(toolCallID: "call-b", status: .attempting(name: "second", reference: .known(id: "second"))),
             into: &state,
             now: now
         )
         ChatEventReducer.reduce(
-            .toolProgress(toolCallId: "call-a", status: .attempting(name: "first", reference: .known(id: "first"))),
+            .toolProgress(toolCallID: "call-a", status: .attempting(name: "first", reference: .known(id: "first"))),
             into: &state,
             now: now
         )
@@ -413,7 +413,7 @@ struct ChatEventReducerTests {
 
         ChatEventReducer.reduce(.error(ToolError.permissionDenied("rm")), into: &state, now: now)
 
-        #expect(state.errorIdentity == ChatEvent.ErrorIdentity(domain: PKErrorDomain.tool, code: 210))
+        #expect(state.errorIdentity == TurnEvent.ErrorIdentity(domain: PKErrorDomain.tool, code: 210))
         #expect(state.timelineState == .blocked)
     }
 
@@ -425,7 +425,7 @@ struct ChatEventReducerTests {
         // executionFailed carries tool domain code 203 — not in the blocked set.
         ChatEventReducer.reduce(.error(ToolError.executionFailed("timeout")), into: &state, now: now)
 
-        #expect(state.errorIdentity == ChatEvent.ErrorIdentity(domain: PKErrorDomain.tool, code: 203))
+        #expect(state.errorIdentity == TurnEvent.ErrorIdentity(domain: PKErrorDomain.tool, code: 203))
         #expect(state.errorMessage?.contains("Failed to execute") == true)
         #expect(state.timelineState == .failed)
     }
@@ -460,7 +460,7 @@ struct ChatEventReducerTests {
             now: now
         )
 
-        #expect(state.errorIdentity == ChatEvent.ErrorIdentity(domain: PKErrorDomain.tool, code: 207))
+        #expect(state.errorIdentity == TurnEvent.ErrorIdentity(domain: PKErrorDomain.tool, code: 207))
         #expect(state.timelineState == .blocked)
     }
 
@@ -481,7 +481,7 @@ struct ChatEventReducerTests {
         let now = clock.now
 
         ChatEventReducer.reduce(
-            .toolProgress(toolCallId: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
+            .toolProgress(toolCallID: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
             into: &state,
             now: now
         )
@@ -522,7 +522,7 @@ struct ChatEventReducerTests {
         // Late/stray events after completion must not mutate the finalized state.
         ChatEventReducer.reduce(.generation("late text"), into: &state, now: now)
         ChatEventReducer.reduce(
-            .toolProgress(toolCallId: "call-late", status: .attempting(name: "late", reference: .known(id: "late"))),
+            .toolProgress(toolCallID: "call-late", status: .attempting(name: "late", reference: .known(id: "late"))),
             into: &state,
             now: now
         )
@@ -542,12 +542,12 @@ struct ChatEventReducerTests {
         let finishedAt = clock.now
 
         ChatEventReducer.reduce(
-            .toolProgress(toolCallId: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
+            .toolProgress(toolCallID: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
             into: &state,
             now: startedAt
         )
         ChatEventReducer.reduce(
-            .toolCompleted(toolCallId: "call-1", status: .success(.success("ok"))),
+            .toolCompleted(toolCallID: "call-1", status: .success(.success("ok"))),
             into: &state,
             now: finishedAt
         )
@@ -564,7 +564,7 @@ struct ChatEventReducerTests {
 
         ChatEventReducer.reduce(.generation("Let me check that."), into: &state, now: now)
         ChatEventReducer.reduce(
-            .toolProgress(toolCallId: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
+            .toolProgress(toolCallID: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
             into: &state,
             now: now
         )
@@ -578,7 +578,7 @@ struct ChatEventReducerTests {
         let now = clock.now
 
         ChatEventReducer.reduce(
-            .toolProgress(toolCallId: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
+            .toolProgress(toolCallID: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
             into: &state,
             now: now
         )
@@ -594,13 +594,13 @@ struct ChatEventReducerTests {
 
         ChatEventReducer.reduce(.generation("First I'll search."), into: &state, now: now)
         ChatEventReducer.reduce(
-            .toolProgress(toolCallId: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
+            .toolProgress(toolCallID: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
             into: &state,
             now: now
         )
         ChatEventReducer.reduce(.generation("Now let me calculate."), into: &state, now: now)
         ChatEventReducer.reduce(
-            .toolProgress(toolCallId: "call-2", status: .attempting(name: "calculator", reference: .known(id: "calculator"))),
+            .toolProgress(toolCallID: "call-2", status: .attempting(name: "calculator", reference: .known(id: "calculator"))),
             into: &state,
             now: now
         )
@@ -621,7 +621,7 @@ struct ChatEventReducerTests {
         ChatEventReducer.reduce(.generation("Moon"), into: &state, now: now)
         ChatEventReducer.reduce(.generation("light"), into: &state, now: now)
         ChatEventReducer.reduce(
-            .toolProgress(toolCallId: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
+            .toolProgress(toolCallID: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
             into: &state,
             now: now
         )
@@ -643,12 +643,12 @@ struct ChatEventReducerTests {
 
         ChatEventReducer.reduce(.generation("Checking..."), into: &state, now: startedAt)
         ChatEventReducer.reduce(
-            .toolProgress(toolCallId: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
+            .toolProgress(toolCallID: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
             into: &state,
             now: startedAt
         )
         ChatEventReducer.reduce(
-            .toolCompleted(toolCallId: "call-1", status: .success(.success("done"))),
+            .toolCompleted(toolCallID: "call-1", status: .success(.success("done"))),
             into: &state,
             now: finishedAt
         )
@@ -668,7 +668,7 @@ struct ChatEventReducerTests {
 
         ChatEventReducer.reduce(.generation("Trying a tool call."), into: &state, now: now)
         ChatEventReducer.reduce(
-            .toolCallError(toolCallId: "call-2", name: "search", error: "invalid arguments"),
+            .toolCallError(toolCallID: "call-2", name: "search", error: "invalid arguments"),
             into: &state,
             now: now
         )
@@ -684,7 +684,7 @@ struct ChatEventReducerTests {
         ChatEventReducer.reduce(.reasoning("Let me check that."), into: &state, now: now)
         ChatEventReducer.reduce(.generation("Checking now."), into: &state, now: now)
         ChatEventReducer.reduce(
-            .toolProgress(toolCallId: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
+            .toolProgress(toolCallID: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
             into: &state,
             now: now
         )
@@ -709,7 +709,7 @@ struct ChatEventReducerTests {
         ChatEventReducer.reduce(.reasoning("think "), into: &state, now: now)
         ChatEventReducer.reduce(.reasoning("about this."), into: &state, now: now)
         ChatEventReducer.reduce(
-            .toolProgress(toolCallId: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
+            .toolProgress(toolCallID: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
             into: &state,
             now: now
         )
@@ -728,7 +728,7 @@ struct ChatEventReducerTests {
         ChatEventReducer.reduce(.reasoning("First thought. "), into: &state, now: now)
         ChatEventReducer.reduce(.generation("Some text."), into: &state, now: now)
         ChatEventReducer.reduce(
-            .toolProgress(toolCallId: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
+            .toolProgress(toolCallID: "call-1", status: .attempting(name: "search", reference: .known(id: "search"))),
             into: &state,
             now: now
         )

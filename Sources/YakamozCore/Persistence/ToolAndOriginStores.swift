@@ -1,6 +1,6 @@
 import Foundation
 import Logging
-import PKShared
+import PKContracts
 import PositronicKit
 import SwiftData
 
@@ -12,7 +12,7 @@ extension ToolReferenceModel {
         } catch {
             throw PersistenceError.encoding("ToolReference: \(error)")
         }
-        self.init(workspaceId: workspaceId, toolId: tool.toolId, referenceData: referenceData)
+        self.init(workspaceId: workspaceId, toolId: tool.toolID, referenceData: referenceData)
     }
 
     func toToolReference() throws -> ToolReference {
@@ -64,8 +64,10 @@ extension RequestOriginModel {
 /// their tool rows — there is no separate origin-to-tool table.
 @ModelActor
 public actor SwiftDataToolStore: ToolPersistenceProtocol {
+    public nonisolated let isDurable = true
+
     public func addToolToWorkspace(workspaceId: UUID, tool: ToolReference) async throws {
-        let toolId = tool.toolId
+        let toolId = tool.toolID
         let compositeId = "\(workspaceId.uuidString):\(toolId)"
         let descriptor = FetchDescriptor<ToolReferenceModel>(predicate: #Predicate { $0.id == compositeId })
         if let existing = try modelContext.fetch(descriptor).first {
@@ -174,6 +176,8 @@ public actor SwiftDataToolStore: ToolPersistenceProtocol {
 /// as `RequestOriginModel` rows.
 @ModelActor
 public actor SwiftDataRequestOriginStore: RequestOriginStoreProtocol {
+    public nonisolated let isDurable = true
+
     public func saveOrigin(_ origin: RequestOriginIdentity) async throws {
         let id = origin.id
         let descriptor = FetchDescriptor<RequestOriginModel>(predicate: #Predicate { $0.id == id })

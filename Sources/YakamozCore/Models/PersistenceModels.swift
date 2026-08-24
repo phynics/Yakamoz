@@ -1,4 +1,5 @@
 import Foundation
+import PKContracts
 import SwiftData
 
 /// Single source of truth for the full SwiftData schema: every `@Model` type that must
@@ -73,7 +74,7 @@ public enum ConversationTimelineState: String, Codable, Sendable, CaseIterable {
 /// - `ConversationModel` (this type) is the **UI shell** and is the source of truth
 ///   for the user-facing conversation surface the app drives directly: `title`,
 ///   `createdAt`, operator/tool selection, attached workspaces, and timeline state.
-/// - `TimelineModel` is the **PositronicKit-protocol surface** (`TimelinePersistenceProtocol`)
+/// - `TimelineModel` is the **PositronicKit protocol surface** (`ThreadPersistenceProtocol`)
 ///   and owns the runtime timeline lifecycle: `isArchived`, `workingDirectory`,
 ///   attached workspace/agent ids, `isPrivate`, and `updatedAt`.
 ///
@@ -157,7 +158,7 @@ public final class MessageModel {
     public var conversationId: UUID
     public var role: String
     public var content: String
-    /// JSON-encoded `ConversationMessage` envelope carrying every non-scalar field
+    /// JSON-encoded `ThreadMessage` envelope carrying every non-scalar field
     /// (recalledMemories, parentId, think, toolCalls, toolCallId, agentInstanceId,
     /// snapshotData, …). The scalar columns above are the authoritative queryable
     /// copy; this blob carries the rest. (Renamed from the historical `toolCallsData`,
@@ -347,7 +348,7 @@ public final class WorkspaceModel {
 /// A persisted `PositronicKit.Timeline` (chat timeline lifecycle/metadata).
 ///
 /// Distinct from `ConversationModel` (Yakamoz's own UI conversation shell, Task 3):
-/// this entity exists to satisfy `TimelinePersistenceProtocol`'s richer surface
+/// this entity exists to satisfy `ThreadPersistenceProtocol`'s richer surface
 /// (archival, working directory, attached workspace/agent ids, privacy).
 @Model
 public final class TimelineModel {
@@ -466,6 +467,8 @@ public final class AgentInstanceModel {
     /// rejects a stored property literally named `description` (collides with
     /// `CustomStringConvertible`).
     public var instanceDescription: String
+    /// Raw backing for PositronicKit's durable agent lifecycle state.
+    public var lifecycleRaw: String = AgentLifecycleState.active.rawValue
     public var primaryWorkspaceId: UUID?
     public var privateTimelineId: UUID
     public var lastActiveAt: Date
@@ -478,6 +481,7 @@ public final class AgentInstanceModel {
         id: UUID,
         name: String,
         instanceDescription: String,
+        lifecycle: AgentLifecycleState = .active,
         primaryWorkspaceId: UUID? = nil,
         privateTimelineId: UUID,
         lastActiveAt: Date = .now,
@@ -488,6 +492,7 @@ public final class AgentInstanceModel {
         self.id = id
         self.name = name
         self.instanceDescription = instanceDescription
+        lifecycleRaw = lifecycle.rawValue
         self.primaryWorkspaceId = primaryWorkspaceId
         self.privateTimelineId = privateTimelineId
         self.lastActiveAt = lastActiveAt

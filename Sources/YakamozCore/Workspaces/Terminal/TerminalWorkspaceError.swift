@@ -1,5 +1,5 @@
 import Foundation
-import PKShared
+import PKContracts
 
 /// Errors produced by terminal-workspace primitives (`TerminalSession` and friends).
 public enum TerminalWorkspaceError: PKError, Sendable, Equatable {

@@ -54,7 +54,7 @@ public struct WorkspacePresentation: Sendable, Equatable {
     public static func build(from workspace: FileSystemWorkspace, displayName: String) async -> WorkspacePresentation {
         let isHealthy = await workspace.healthCheck()
         let rootURL = workspace.rootURL
-        let toolNames = (try? await workspace.listTools().map(\.toolId)) ?? []
+        let toolNames = (try? await workspace.listTools().map(\.toolID)) ?? []
 
         return WorkspacePresentation(
             displayName: displayName,

@@ -1,5 +1,5 @@
 import Foundation
-import PKShared
+import PKContracts
 import PositronicKit
 import SwiftData
 
@@ -10,7 +10,7 @@ extension WorkspaceReferenceModel {
             uriHost: workspace.uri.host,
             uriPath: workspace.uri.path,
             locationRaw: workspace.location.rawValue,
-            originId: workspace.originId,
+            originId: workspace.originID,
             rootPath: workspace.rootPath,
             trustLevelRaw: workspace.trustLevel.rawValue,
             lastModifiedBy: workspace.lastModifiedBy,
@@ -36,7 +36,7 @@ extension WorkspaceReferenceModel {
             id: id,
             uri: WorkspaceURI(host: uriHost, path: uriPath),
             location: location,
-            originId: originId,
+            originID: originId,
             tools: tools,
             rootPath: rootPath,
             trustLevel: trustLevel,
@@ -51,7 +51,7 @@ extension WorkspaceReferenceModel {
         uriHost = workspace.uri.host
         uriPath = workspace.uri.path
         locationRaw = workspace.location.rawValue
-        originId = workspace.originId
+        originId = workspace.originID
         rootPath = workspace.rootPath
         trustLevelRaw = workspace.trustLevel.rawValue
         lastModifiedBy = workspace.lastModifiedBy
@@ -66,7 +66,9 @@ extension WorkspaceReferenceModel {
 /// `ToolReferenceModel` rows keyed by `workspaceId` (mirrors how `ToolPersistenceProtocol`
 /// addresses tools independently of workspace saves).
 @ModelActor
-public actor SwiftDataWorkspaceStore: WorkspacePersistenceProtocol {
+public actor SwiftDataWorkspaceStore: WorkspaceStore {
+    public nonisolated let isDurable = true
+
     public func saveWorkspace(_ workspace: WorkspaceReference) async throws {
         let id = workspace.id
         let descriptor = FetchDescriptor<WorkspaceReferenceModel>(predicate: #Predicate { $0.id == id })

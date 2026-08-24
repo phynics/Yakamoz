@@ -1,5 +1,5 @@
 import Foundation
-import PKShared
+import PKContracts
 import PositronicKit
 import Testing
 @testable import YakamozCore
@@ -163,10 +163,11 @@ struct ProviderConfigurationTests {
         settings.model = "gpt-4o"
 
         let config = settings.configuration(apiKey: "sk-secret-test-key")
+        let provider = config.activeProviderConfiguration
         #expect(config.activeProvider == .openAI)
-        #expect(config.apiKey == "sk-secret-test-key")
-        #expect(config.modelName == "gpt-4o")
-        #expect(config.endpoint == ProviderPreset.openAI.baseURL.absoluteString)
+        #expect(provider.apiKey == "sk-secret-test-key")
+        #expect(provider.modelName == "gpt-4o")
+        #expect(provider.endpoint == ProviderPreset.openAI.baseURL.absoluteString)
     }
 
     @Test("API key accounts are scoped per provider")

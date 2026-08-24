@@ -1,6 +1,6 @@
 import JSONSchema
 import JSONSchemaBuilder
-import PKShared
+import PKContracts
 
 public enum ToolExplanationParameter {
     public static let key = "explanation"
@@ -13,7 +13,7 @@ public extension AnyTool {
             assertionFailure("Yakamoz tool '\(callName)' declares reserved parameter '\(ToolExplanationParameter.key)'")
             return self
         }
-        return AnyTool(ExplainedTool(wrapped: self), provenance: provenance)
+        return AnyTool(ExplainedTool(wrapped: self), origin: origin)
     }
 }
 
@@ -21,9 +21,11 @@ private struct ExplainedTool: Tool {
     let wrapped: AnyTool
 
     var callName: String { wrapped.callName }
+    var identity: ToolReference { wrapped.identity }
     var name: String { wrapped.name }
     var description: String { wrapped.description }
     var requiresPermission: Bool { wrapped.requiresPermission }
+    var sideEffects: ToolSideEffects { wrapped.sideEffects }
     var usageExample: String? { wrapped.usageExample }
 
     var parametersSchema: Schema {
