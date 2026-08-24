@@ -1,5 +1,5 @@
 import Foundation
-import PKShared
+import PKContracts
 import PositronicKit
 import Testing
 @testable import YakamozCore
@@ -117,7 +117,7 @@ struct FileSystemWorkspaceTests {
         let workspace = FileSystemWorkspace(rootURL: root)
 
         let tools = try await workspace.listTools()
-        let ids = Set(tools.map(\.toolId))
+        let ids = Set(tools.map(\.toolID))
         #expect(ids.contains("cat"))
         #expect(ids.contains("ls"))
         #expect(ids.contains("find"))
@@ -144,8 +144,11 @@ struct FileSystemWorkspaceTests {
         defer { cleanup(root) }
         let workspace = FileSystemWorkspace(rootURL: root)
 
-        await #expect(throws: WorkspaceError.self) {
+        do {
             _ = try await workspace.executeTool(id: "not_a_real_tool", parameters: [:])
+            Issue.record("Expected unknown tool id to throw")
+        } catch {
+            #expect(String(describing: error) == String(describing: WorkspaceError.toolExecutionNotSupported))
         }
     }
 

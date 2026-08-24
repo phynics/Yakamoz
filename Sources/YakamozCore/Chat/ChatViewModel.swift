@@ -1,26 +1,28 @@
 import ErrorKit
 import Foundation
 import Logging
-import PKShared
+import Observation
+import PKContracts
+import PKPrompt
 import PositronicKit
 
-/// The seam between `ChatViewModel` and `PositronicKit.run`.
+/// The seam between `ChatViewModel` and PositronicKit's managed Thread turn.
 ///
 /// Mirrors the facade's `run(_:)` signature exactly so the runtime can pass a
 /// concrete `ChatRunning` implementation through the same seam that tests replace
 /// with a scripted fake — no network, no real `ChatEngine`, no sleeps.
 public protocol ChatRunning: Sendable {
-    func run(_ request: ChatRunRequest) async throws -> AsyncThrowingStream<ChatEvent, Error>
+    func run(_ request: TurnRequest) async throws -> AsyncThrowingStream<TurnEvent, Error>
 }
 
 /// Main-actor, `@Observable` view model that drives a single chat conversation:
 /// sends user text through a `ChatRunning` runner, live-reduces the resulting
-/// `ChatEvent` stream into the transcript via `ChatEventReducer`, and persists the
+/// `TurnEvent` stream into the transcript via `ChatEventReducer`, and persists the
 /// final turn's response metadata via the turn inspector.
 ///
 /// `PositronicKit.run` (through `ChatEngine`) already persists the user and assistant
-/// `ConversationMessage` rows itself (see `ChatEngine+ContextBuilding.saveConversationSteps`
-/// and `MessagePersistenceStage`); this view model does not duplicate that write. The
+/// `ThreadMessage` rows itself via PositronicKit's message persistence stage; this view model
+/// does not duplicate that write. The
 /// one persistence gap it fills is `SwiftDataPromptInspector.updateResponse`, which
 /// records reconstructed text/thinking/model/finish-reason/token-usage onto the
 /// turn-inspection row that `didComposePrompt` created earlier in the same turn.
@@ -54,7 +56,6 @@ public final class ChatViewModel {
     private let runner: any ChatRunning
     private let inspector: SwiftDataPromptInspector?
     private let timelineId: UUID
-    private let agentInstanceId: UUID?
     private var tools: [AnyTool]
     /// TEX-2: the caller-supplied base instructions, unmodified. `effectiveSystemInstructions`
     /// (composed with `ToolCallExplanation.promptGuidance` when `tools` is non-empty) is what
@@ -69,6 +70,12 @@ public final class ChatViewModel {
     /// the directive list (e.g. SID-1's `title` directive when it is due per cadence)
     /// and passes it here; a `[]` value means sidecars are disabled or no directive was due this turn.
     private let sidecars: [SidecarDirective]
+    /// v4 no longer exposes the upstream prompt-observer hook. Yakamoz records the public
+    /// prompt projection at this boundary instead, keeping the inspector useful without
+    /// reaching into PositronicKit's private assembly pipeline.
+    private let modelName: String
+    private var promptJournal = PromptJournal()
+    private var lastInspectionSections: [RenderedPrompt.Section] = []
     private let onTimelineStateChange: (@MainActor @Sendable (ConversationTimelineState) async -> Void)?
     /// Called once per turn with the turn's accumulated `SidecarResult`s, after the
     /// response has been persisted onto the terminal inspection row. YakamozRuntime
@@ -111,9 +118,9 @@ public final class ChatViewModel {
         timelineId: UUID,
         runner: any ChatRunning,
         inspector: SwiftDataPromptInspector? = nil,
-        agentInstanceId: UUID? = nil,
         tools: [AnyTool] = [],
         systemInstructions: String? = nil,
+        modelName: String = "unknown",
         maxTurns: Int = 5,
         generationParameters: GenerationParameters? = nil,
         sidecars: [SidecarDirective] = [],
@@ -127,9 +134,9 @@ public final class ChatViewModel {
         self.timelineId = timelineId
         self.runner = runner
         self.inspector = inspector
-        self.agentInstanceId = agentInstanceId
         self.tools = tools
         self.systemInstructions = systemInstructions
+        self.modelName = modelName
         self.maxTurns = maxTurns
         self.generationParameters = generationParameters
         self.sidecars = sidecars
@@ -278,13 +285,14 @@ public final class ChatViewModel {
 
         var state = ChatTurnState(turnIndex: turnIndex)
         state.inspectionTurnIndex = nextInspectionTurnIndex
+        await recordPromptInspection(message: text, sendId: sendId)
         let assistantItemId = UUID()
         transcript.append(.assistant(id: assistantItemId, turn: state))
         // STAB-9: record the just-appended item's index so `updateAssistantItem` can
         // rewrite it in place O(1) per token instead of scanning `transcript` by id.
         activeAssistantItemIndex = transcript.count - 1
         selectedTurnIndex = turnIndex
-        selectedInspectionTurnIndex = nextInspectionTurnIndex
+        selectedInspectionTurnIndex = state.inspectionTurnIndex
         await publishTimelineStateIfNeeded(state.timelineState)
         var lastRecordedErrorMessage: String?
 
@@ -334,14 +342,13 @@ public final class ChatViewModel {
 
         do {
             let stream = try await runner.run(
-                ChatRunRequest(
-                    timelineId: timelineId,
-                    sendId: sendId,
+                TurnRequest(
+                    threadID: timelineId,
+                    requestID: sendId,
                     message: text,
                     tools: tools,
                     systemInstructions: effectiveSystemInstructions,
-                    agentInstanceId: agentInstanceId,
-                    maxTurns: maxTurns,
+                    maxModelRounds: maxTurns,
                     generationParameters: generationParameters,
                     sidecars: sidecars
                 )
@@ -357,6 +364,15 @@ public final class ChatViewModel {
                 ChatEventReducer.reduce(event, into: &state, now: clock.now)
                 updateAssistantItem(id: assistantItemId, turn: state)
                 await publishTimelineStateIfNeeded(state.timelineState)
+
+                // A tool result means PositronicKit is about to build the next model-round
+                // prompt. Record that public projection before the next event is consumed so
+                // the inspector has a row for every internal round-trip of this send.
+                if nextInspectionTurnIndex == state.inspectionTurnIndex.map({ $0 + 1 }),
+                   state.orderedTools.contains(where: { $0.state == .succeeded || $0.state == .failed })
+                {
+                    await recordPromptInspection(message: text, sendId: sendId)
+                }
 
                 if let message = state.errorMessage, message != lastRecordedErrorMessage {
                     lastRecordedErrorMessage = message
@@ -413,7 +429,7 @@ public final class ChatViewModel {
             // classifies blocked/approval errors via domain+code rather than the
             // message string; non-PKError errors leave `errorIdentity == nil`
             // and are intentionally treated as a plain failure.
-            state.errorIdentity = ChatEvent.ErrorIdentity.extracting(from: error)
+            state.errorIdentity = TurnEvent.ErrorIdentity.extracting(from: error)
             Log.chat.error(
                 "turn execution failed",
                 metadata: ["conversationID": "\(timelineId)", "turnIndex": "\(state.turnIndex)"]
@@ -545,6 +561,109 @@ public final class ChatViewModel {
         var dto = state.responseDTO
         dto.tools = state.toolTraceDTOs
         return dto
+    }
+
+    /// Persists Yakamoz's v4-compatible prompt projection for the current model round.
+    ///
+    /// The runtime intentionally keeps its assembled prompt internals private in v4. The
+    /// inspector therefore records a small, honest projection of the public request boundary:
+    /// stable runtime context, the offered tools, and the volatile user query. The journal is
+    /// still real `PKPrompt.PromptJournal` state, so stable-prefix and semistable-diff data remain
+    /// meaningful across sends and tool-loop rounds.
+    private func recordPromptInspection(message: String, sendId: UUID) async {
+        guard let inspector else { return }
+
+        let stableText = systemInstructions?.isEmpty == false
+            ? systemInstructions!
+            : "Yakamoz conversation context"
+        let toolText = tools.map(\.callName).sorted().joined(separator: ", ")
+        let sections = [
+            RenderedPrompt.Section(
+                id: "yakamoz.runtime.context",
+                role: .system,
+                priority: PromptPriority.high.rawValue,
+                estimatedTokens: Self.estimateTokens(stableText),
+                compression: .keep,
+                type: .text,
+                cachePolicy: .stable,
+                path: ["stable", "yakamoz.runtime.context"],
+                parentID: nil,
+                content: .text(stableText)
+            ),
+            RenderedPrompt.Section(
+                id: "yakamoz.runtime.tools",
+                role: .context,
+                priority: PromptPriority.medium.rawValue,
+                estimatedTokens: Self.estimateTokens(toolText),
+                compression: .keep,
+                type: .text,
+                cachePolicy: .semiStable,
+                path: ["semiStable", "yakamoz.runtime.tools"],
+                parentID: nil,
+                content: .text(toolText.isEmpty ? "No tools" : toolText)
+            ),
+            RenderedPrompt.Section(
+                id: "yakamoz.turn.query",
+                role: .userQuery,
+                priority: PromptPriority.high.rawValue,
+                estimatedTokens: Self.estimateTokens(message),
+                compression: .keep,
+                type: .text,
+                cachePolicy: .volatile,
+                path: ["volatile", "yakamoz.turn.query"],
+                parentID: nil,
+                content: .text(message)
+            ),
+        ]
+        let rendered = RenderedPrompt(
+            sections: sections,
+            string: sections.compactMap { $0.content.text }.joined(separator: "\n\n"),
+            sectionsByID: Dictionary(uniqueKeysWithValues: sections.compactMap { section in
+                section.content.text.map { (section.id, $0) }
+            })
+        )
+        let plan = try? promptJournal.observe(rendered)
+        let stablePrefixCount = Self.stablePrefixCount(
+            between: lastInspectionSections,
+            and: sections
+        )
+        lastInspectionSections = sections
+
+        let sentMessages: [LLMMessage] = [
+            LLMMessage(role: .user, content: message),
+        ]
+        let inspection = PromptInspection(
+            threadID: timelineId,
+            agentID: nil,
+            turnIndex: nextInspectionTurnIndex,
+            model: modelName,
+            rendered: rendered,
+            sentMessages: sentMessages,
+            journal: TurnJournalSnapshot(
+                overlay: plan?.diff ?? PromptJournalDiff(),
+                stablePrefixCount: stablePrefixCount,
+                didCompact: plan?.requiresHardReset == true
+            ),
+            estimatedTokens: rendered.estimatedTokens,
+            requestID: sendId
+        )
+        await inspector.didComposePrompt(inspection)
+        nextInspectionTurnIndex += 1
+    }
+
+    private static func stablePrefixCount(
+        between previous: [RenderedPrompt.Section],
+        and current: [RenderedPrompt.Section]
+    ) -> Int {
+        zip(previous, current).prefix { lhs, rhs in
+            lhs.id == rhs.id
+                && lhs.cachePolicy == rhs.cachePolicy
+                && lhs.content == rhs.content
+        }.count
+    }
+
+    private static func estimateTokens(_ text: String) -> Int {
+        max(1, (text.count + 3) / 4)
     }
 
     private static func latestTimelineState(in transcript: [TranscriptItem]) -> ConversationTimelineState? {

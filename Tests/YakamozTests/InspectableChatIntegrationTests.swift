@@ -1,6 +1,6 @@
 import Foundation
 import PKPrompt
-import PKShared
+import PKContracts
 import PKTestSupport
 import PositronicKit
 import SwiftData
@@ -83,16 +83,15 @@ struct InspectableChatIntegrationTests {
         defer { try? FileManager.default.removeItem(at: workspaceURL) }
 
         let workspace = WorkspaceReference(
-            uri: .timelineWorkspace(timelineId),
+            uri: .threadWorkspace(timelineId),
             location: .runtime,
             rootPath: workspaceURL.path,
             trustLevel: .full
         )
         let kit = await runtime.kit
-        try await kit.timelineManager.hydrateTimeline(id: timelineId)
         let stores = await runtime.stores
         try await stores.workspaces.saveWorkspace(workspace)
-        try await kit.timelineManager.attachWorkspace(workspace.id, to: timelineId)
+        try await kit.threads.attachWorkspace(workspace.id, to: timelineId)
 
         let viewModel = await runtime.makeChatViewModel(
             timelineId: timelineId,
@@ -128,10 +127,10 @@ struct InspectableChatIntegrationTests {
 
         // Two model turns were inspected (turn 0 = pre-tool prompt, turn 1 = post-tool).
         let inspector = await runtime.inspector
-        let savedInspections = try await loadInspections(inspector, timelineId: timelineId, upTo: 4)
+        let savedInspections = try await loadInspections(inspector, threadID: timelineId, upTo: 4)
         #expect(savedInspections.map(\.turnIndex) == [0, 1])
-        #expect(savedInspections.map(\.identity.roundTrip) == [0, 1])
-        #expect(savedInspections.map(\.identity.sendId).allSatisfy { $0 == savedInspections[0].identity.sendId })
+        #expect(savedInspections.map(\.identity.modelRoundIndex) == [0, 1])
+        #expect(savedInspections.map(\.identity.requestID).allSatisfy { $0 == savedInspections[0].identity.requestID })
         #expect(savedInspections[0].sentMessages.last?.content == "Inspect this")
         #expect(savedInspections[1].journal.stablePrefixCount > 0)
 
@@ -142,14 +141,14 @@ struct InspectableChatIntegrationTests {
             try await inspector.presentation(conversationId: timelineId, turnIdentity: terminalIdentity)
         )
         #expect(terminalPresentation.response?.reconstructedText == "Inspection complete")
-        #expect(terminalPresentation.response?.tools.first?.status == .success)
+        #expect(terminalPresentation.response?.tools.first?.status == ToolTraceStatus.success)
         // The view model still tracks a single logical turn for selection/highlighting.
         #expect(viewModel.selectedTurnIndex == 0)
         // But the inspector follows the persisted row that carries the response/tool traces.
         #expect(viewModel.selectedInspectionTurnIndex == 1)
         #expect(viewModel.selectedInspectionIdentity == terminalIdentity)
 
-        // The transcript persisted as ConversationMessage rows (user + assistant).
+        // The transcript persisted as ThreadMessage rows (user + assistant).
         let messages = try await stores.messages.fetchMessages(for: timelineId)
         #expect(messages.contains { $0.role == "user" && $0.content == "Inspect this" })
         #expect(messages.contains { $0.role == "assistant" && $0.content.contains("Inspection complete") })
@@ -162,7 +161,7 @@ struct InspectableChatIntegrationTests {
         )
         #expect(reopened.response?.reconstructedText == "Inspection complete")
         let reopenedTools = try #require(reopened.response?.tools)
-        #expect(reopenedTools.first?.status == .success)
+        #expect(reopenedTools.first?.status == ToolTraceStatus.success)
         #expect(reopenedTools.first?.output == "4")
         #expect(reopenedTools.first?.arguments?.contains(#""explanation":"Checking the arithmetic before answering.""#) == true)
 
@@ -282,16 +281,15 @@ struct InspectableChatIntegrationTests {
         defer { try? FileManager.default.removeItem(at: workspaceURL) }
 
         let workspace = WorkspaceReference(
-            uri: .timelineWorkspace(timelineId),
+            uri: .threadWorkspace(timelineId),
             location: .runtime,
             rootPath: workspaceURL.path,
             trustLevel: .full
         )
         let kit = await runtime.kit
-        try await kit.timelineManager.hydrateTimeline(id: timelineId)
         let stores = await runtime.stores
         try await stores.workspaces.saveWorkspace(workspace)
-        try await kit.timelineManager.attachWorkspace(workspace.id, to: timelineId)
+        try await kit.threads.attachWorkspace(workspace.id, to: timelineId)
 
         let viewModel = await runtime.makeChatViewModel(
             timelineId: timelineId,
@@ -387,12 +385,12 @@ struct InspectableChatIntegrationTests {
     /// Loads each persisted inspection in turn order, stopping at the first missing turn.
     private func loadInspections(
         _ inspector: SwiftDataPromptInspector,
-        timelineId: UUID,
+        threadID: UUID,
         upTo limit: Int
     ) async throws -> [PersistedTurnInspection] {
         var result: [PersistedTurnInspection] = []
         for index in 0 ..< limit {
-            guard let inspection = try await inspector.inspection(conversationId: timelineId, turnIndex: index) else {
+            guard let inspection = try await inspector.inspection(conversationId: threadID, turnIndex: index) else {
                 break
             }
             result.append(inspection)

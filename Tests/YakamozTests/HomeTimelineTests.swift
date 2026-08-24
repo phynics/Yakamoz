@@ -122,7 +122,7 @@ struct HomeTimelineTests {
 
         #expect(try container.mainContext.fetch(FetchDescriptor<AgentModel>()).contains(where: { $0.id == agent.id }) == false)
         #expect(try container.mainContext.fetch(FetchDescriptor<ConversationModel>()).isEmpty)
-        #expect(try await stores.timelines.fetchTimeline(id: home.id) == nil)
+        #expect(try await stores.timelines.fetchThread(id: home.id) == nil)
         #expect(!FileManager.default.fileExists(atPath: vaults.vaultRoot(for: agent.id).path))
     }
 

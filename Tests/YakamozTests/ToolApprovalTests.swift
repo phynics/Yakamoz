@@ -1,12 +1,12 @@
 import Foundation
 import JSONSchema
-import PKShared
+import PKContracts
 import Testing
 @testable import YakamozCore
 
 /// Minimal permissioned tool used to exercise `MainActorToolApprover` without standing up a real
 /// filesystem/terminal tool.
-private struct StubPermissionedTool: PKShared.Tool, @unchecked Sendable {
+private struct StubPermissionedTool: Tool, @unchecked Sendable {
     let callName: String
     let name: String
     let description = "stub"

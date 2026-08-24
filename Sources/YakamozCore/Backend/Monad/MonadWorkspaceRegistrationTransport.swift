@@ -1,7 +1,7 @@
 import Foundation
 import MonadClient
 import MonadShared
-import PKShared
+import PKContracts
 
 /// The narrow slice of `MonadClient` that `MonadWorkspaceProvider` needs to register
 /// itself as a Monad request origin and register/sync Yakamoz-owned attached workspaces.

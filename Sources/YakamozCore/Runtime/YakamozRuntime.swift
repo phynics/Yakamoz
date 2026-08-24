@@ -1,52 +1,47 @@
 import Foundation
 import Logging
+import PKAnthropicProvider
 import PKOllamaProvider
 import PKOpenAIProvider
 import PKOpenRouterProvider
-import PKShared
-import PKUtilities
+import PKContracts
 import PositronicKit
 import SwiftData
 
 /// Builds the narrow LLM-service seam (`LanguageModel & HealthCheckable`) that
 /// `YakamozRuntime` hands to `PositronicKit`.
 ///
-/// Defaults to the real provider-backed `LLMService`. Tests substitute a factory that returns a
-/// mock (e.g. `PKTestSupport.MockLLMService`) so no network call ever happens during `make test`.
+/// Defaults to the real provider-backed `LLMService`. Tests substitute a factory
+/// that returns a mock (e.g. `PKTestSupport.MockLLMService`) so no network call ever happens
+/// during `make test`.
 public typealias LLMServiceFactory = @Sendable (LLMConfiguration) -> any LanguageModel & HealthCheckable
 
-/// The default factory used in production: wires supported provider client factories into a real
-/// `LLMService` and registers the matching structured-output adapters.
+/// The default factory used in production: constructs the configured provider client and wraps it
+/// in a real `LLMService`.
 public func defaultLLMServiceFactory(configuration: LLMConfiguration) -> any LanguageModel & HealthCheckable {
-    StructuredOutputAdapterRegistry.register(OpenAICompatibleStructuredOutputAdapter(), for: .openAI)
-    StructuredOutputAdapterRegistry.register(OpenAICompatibleStructuredOutputAdapter(), for: .openAICompatible)
-    StructuredOutputAdapterRegistry.register(OpenAICompatibleStructuredOutputAdapter(), for: .openRouter)
-    StructuredOutputAdapterRegistry.register(OllamaStructuredOutputAdapter(), for: .ollama)
-
-    return LLMService(configuration: configuration) { config in
-        switch config.activeProvider {
-        case .openAI, .openAICompatible:
-            let client = PKOpenAIProvider.makeClient(configuration: config)
-            return (main: client, utility: client, fast: client)
-        case .openRouter:
-            let client = PKOpenRouterProvider.makeClient(configuration: config)
-            return (main: client, utility: client, fast: client)
-        case .ollama:
-            let client = PKOllamaProvider.makeClient(configuration: config)
-            return (main: client, utility: client, fast: client)
-        default:
-            return (main: nil, utility: nil, fast: nil)
-        }
+    let client: any LLMClientProtocol = switch configuration.activeProvider {
+    case .openAI, .openAICompatible:
+        PKOpenAIProvider.makeClient(configuration: configuration)
+    case .openRouter:
+        PKOpenRouterProvider.makeClient(configuration: configuration)
+    case .ollama:
+        PKOllamaProvider.makeClient(configuration: configuration)
+    case .anthropic:
+        PKAnthropicProvider.makeClient(configuration: configuration)
     }
+    return LLMService(
+        configuration: configuration,
+        clients: LLMClientSet(primary: client)
+    )
 }
 
-/// App-facing mirror of `PKShared.HealthStatus`.
+/// App-facing mirror of PositronicKit's `HealthStatus`.
 ///
 /// The `Yakamoz` app target links only `YakamozCore` (see `project.yml`); it must never
-/// name a `PositronicKit`/`PKShared` type directly, or the optimized `test` build's
+/// name a `PositronicKit` type directly, or the optimized `test` build's
 /// linker pass fails with undefined symbols for that framework's metadata (the app
 /// binary never embeds it). This boundary type lets `SettingsView` show a health badge
-/// without importing `PKShared`.
+/// without importing PositronicKit.
 public enum AppHealthStatus: String, Sendable, Equatable {
     case ok
     case degraded
@@ -93,7 +88,7 @@ public actor YakamozRuntime: ChatRunning {
     /// Keeps terminal-workspace `TerminalSession`s alive across timeline switches (YAK-T3/T4).
     /// Shared by `resolveTools` (live agent tools) and any `TerminalWorkspace` parity path so a
     /// command run and a status read see the same shell. Torn down via `terminateAll()` on quit.
-    public let terminalRegistry = TerminalSessionRegistry()
+    public nonisolated let terminalRegistry = TerminalSessionRegistry()
 
     /// ATW-6: process-wide scheduler that serializes turns contending for the same attached
     /// workspace or the same agent vault. Shared by every `ChatViewModel` this runtime builds so
@@ -104,7 +99,7 @@ public actor YakamozRuntime: ChatRunning {
     /// Gate consulted before each `terminal_run`. Defaults to `DenyAllApprover()` (default-deny)
     /// so the terminal backend is never an un-gated arbitrary-exec primitive when unwired; the
     /// app injects a concrete UI-bridging approver (YAK-T5).
-    private let terminalApprover: any TerminalCommandApproving
+    private nonisolated let terminalApprover: any TerminalCommandApproving
 
     /// Policy consulted by PositronicKit's `ToolRouter` before any tool whose
     /// `requiresPermission` is `true` executes. Defaults to
@@ -125,17 +120,6 @@ public actor YakamozRuntime: ChatRunning {
         terminalApprover: any TerminalCommandApproving = DenyAllApprover(),
         toolApprovalPolicy: any ToolApprovalPolicy = DenyAllToolApprovalPolicy()
     ) throws {
-        // Structured-output preparation looks up a process-wide `StructuredOutputAdapterRegistry`
-        // keyed by `LLMProvider`. That registry is independent of which `LanguageModel` a given
-        // `llmServiceFactory` actually returns, so tests that inject a mock would otherwise never
-        // register an adapter and silently fall back to the synthetic-tool-call path instead of a
-        // provider's native response format. Register unconditionally so structured-output
-        // routing reflects the configured preset regardless of which factory built the client.
-        StructuredOutputAdapterRegistry.register(OpenAICompatibleStructuredOutputAdapter(), for: .openAI)
-        StructuredOutputAdapterRegistry.register(OpenAICompatibleStructuredOutputAdapter(), for: .openAICompatible)
-        StructuredOutputAdapterRegistry.register(OpenAICompatibleStructuredOutputAdapter(), for: .openRouter)
-        StructuredOutputAdapterRegistry.register(OllamaStructuredOutputAdapter(), for: .ollama)
-
         stores = YakamozStores(modelContainer: modelContainer)
         try AgentMigration.seedAndMigrate(modelContext: modelContainer.mainContext)
         inspector = SwiftDataPromptInspector(modelContainer: modelContainer)
@@ -149,8 +133,6 @@ public actor YakamozRuntime: ChatRunning {
         let settingsSnapshot = settings.snapshot
         kit = try Self.makeKit(
             stores: stores,
-            inspector: inspector,
-            modelContainer: modelContainer,
             settingsSnapshot: settingsSnapshot,
             apiKey: ProviderSettings.storedAPIKey(for: settingsSnapshot.preset, secrets: secrets),
             llmServiceFactory: llmServiceFactory,
@@ -313,7 +295,7 @@ public actor YakamozRuntime: ChatRunning {
     }
 
     /// `healthCheck()` mapped to the app-safe `AppHealthStatus`, for callers (the
-    /// `Yakamoz` app target) that must not name `PKShared.HealthStatus` directly.
+    /// `Yakamoz` app target) that must not name a PositronicKit health type directly.
     public func appHealthCheck() async -> AppHealthStatus {
         AppHealthStatus(await healthCheck())
     }
@@ -333,7 +315,6 @@ public actor YakamozRuntime: ChatRunning {
     @MainActor
     public func makeChatViewModel(
         timelineId: UUID,
-        agentInstanceId: UUID? = nil,
         systemInstructions: String? = nil,
         enabledToolIds: [String] = [],
         folder: FolderToolContext? = nil,
@@ -416,7 +397,6 @@ public actor YakamozRuntime: ChatRunning {
             timelineId: timelineId,
             runner: self,
             inspector: promptInspector,
-            agentInstanceId: agentInstanceId,
             tools: tools,
             systemInstructions: systemInstructions,
             sidecars: sidecarDirectivesEnabled
@@ -446,7 +426,7 @@ public actor YakamozRuntime: ChatRunning {
     /// `nil` when none exists yet. Used by `ChatView` to feed the upcoming turn's
     /// `section_title` directive's "current section" context. Surfaced on the runtime
     /// (rather than having the app target construct a `ConversationCoordinator` itself)
-    /// so the app target never names `TimelinePersistenceProtocol` — a PositronicKit
+    /// so the app target never names `ThreadPersistenceProtocol` — a PositronicKit
     /// type the app target must not import per the architecture boundary. Swallows
     /// SwiftData read errors (returns `nil`) since a missing read degrades gracefully to
     /// "no section has been marked yet" in the directive's instruction.
@@ -537,17 +517,17 @@ public actor YakamozRuntime: ChatRunning {
     }
 
     /// ChatRunning conformance that resolves the latest settings and API key on each turn.
-    public func run(_ request: ChatRunRequest) async throws -> AsyncThrowingStream<ChatEvent, Error> {
-        let timelineId = request.timelineId
+    public func run(_ request: TurnRequest) async throws -> AsyncThrowingStream<TurnEvent, Error> {
+        let threadID = request.threadID
         let hasOperator = try await MainActor.run {
-            var descriptor = FetchDescriptor<ConversationModel>(predicate: #Predicate { $0.id == timelineId })
+            var descriptor = FetchDescriptor<ConversationModel>(predicate: #Predicate { $0.id == threadID })
             descriptor.fetchLimit = 1
             return try modelContainer.mainContext.fetch(descriptor).first?.agentId != nil
         }
         guard hasOperator else { throw ConversationRunError.operatorRequired }
         try Self.rejectExternalToolOutputs(request.toolOutputs)
         let kit = try await makeConfiguredKit()
-        return try await kit.run(request)
+        return try await kit.threads.open(threadID).run(request)
     }
 
     private static func rejectExternalToolOutputs(_ toolOutputs: [ToolOutputSubmission]?) throws {
@@ -583,8 +563,6 @@ public actor YakamozRuntime: ChatRunning {
 
     private static func makeKit(
         stores: YakamozStores,
-        inspector: SwiftDataPromptInspector,
-        modelContainer: ModelContainer,
         settingsSnapshot: ProviderSettingsSnapshot,
         apiKey: String,
         llmServiceFactory: LLMServiceFactory,
@@ -597,22 +575,17 @@ public actor YakamozRuntime: ChatRunning {
                 provider: .init(languageModel: llmService),
                 persistence: .init(
                     messageStore: stores.messages,
-                    timelinePersistence: stores.timelines,
+                    threadPersistence: stores.timelines,
                     workspacePersistence: stores.workspaces,
                     toolPersistence: stores.tools,
-                    agentInstanceStore: stores.agents,
+                    agentStore: stores.agents,
                     requestOriginStore: stores.origins
                 ),
                 runtime: .init(
                     workspaceCreator: FileSystemWorkspaceFactory(),
-                    sectionProviders: [
-                        CurrentTimeSectionProvider(),
-                        AgentVaultPromptSectionProvider(
-                            agentForInstance: AgentVaultPromptSectionProvider.lookup(in: modelContainer),
-                            isHomeTimeline: AgentVaultPromptSectionProvider.homeTimelineLookup(in: modelContainer)
-                        ),
-                    ],
-                    promptObserver: inspector,
+                    customization: RuntimeCustomization(
+                        turnContextSource: CurrentTimeContextSource()
+                    ),
                     toolApprovalPolicy: toolApprovalPolicy
                 ),
                 generationParameters: settingsSnapshot.generationParameters
@@ -631,10 +604,10 @@ public actor YakamozRuntime: ChatRunning {
         return LoadedTranscript(transcript: Self.transcriptItems(from: messages))
     }
 
-    /// Rebuilds the chat transcript from persisted `ConversationMessage` rows.
+    /// Rebuilds the chat transcript from persisted `ThreadMessage` rows.
     ///
     /// A single logical assistant turn (one user send) can span several LLM round-trips
-    /// in the tool-resolution loop, each emitting its own assistant `ConversationMessage`
+    /// in the tool-resolution loop, each emitting its own assistant `ThreadMessage`
     /// followed by one `.tool`-role result message per requested call. To match the live
     /// in-session transcript produced by `ChatEventReducer` — which accumulates one
     /// `ChatTurnState` across all round-trips of a send — this rebuild groups consecutive
@@ -651,8 +624,8 @@ public actor YakamozRuntime: ChatRunning {
     /// (unchanged from the prior reload behavior).
     ///
     /// `internal` so `YakamozTests` can exercise the reconstruction directly with seeded
-    /// `ConversationMessage` values (see `TranscriptReloadToolTraceTests`).
-    static func transcriptItems(from messages: [ConversationMessage]) -> [TranscriptItem] {
+    /// `ThreadMessage` values (see `TranscriptReloadToolTraceTests`).
+    static func transcriptItems(from messages: [ThreadMessage]) -> [TranscriptItem] {
         var assistantTurnIndex = 0
         var nextInspectionTurnIndex = 0
         var transcript: [TranscriptItem] = []
@@ -660,9 +633,9 @@ public actor YakamozRuntime: ChatRunning {
         // Accumulator for the in-flight logical assistant turn: every assistant message
         // in the group (in arrival order, each carrying its own `toolCalls`) plus the
         // `.tool`-role result messages matched by `toolCallId`.
-        var pendingLastAssistantMessage: ConversationMessage?
+        var pendingLastAssistantMessage: ThreadMessage?
         var pendingToolCallsByAssistant: [[ToolCall]] = []
-        var pendingToolResults: [String: ConversationMessage] = [:]
+        var pendingToolResults: [String: ThreadMessage] = [:]
 
         func appendPendingAssistantIfNeeded() {
             guard let lastMessage = pendingLastAssistantMessage else { return }
@@ -761,7 +734,7 @@ public actor YakamozRuntime: ChatRunning {
                 if !toolCalls.isEmpty { pendingToolCallsByAssistant.append(toolCalls) }
                 nextInspectionTurnIndex += 1
             case .tool:
-                if let callId = message.toolCallId {
+                if let callId = message.toolCallID {
                     pendingToolResults[callId] = message
                 }
             case .system:
@@ -782,7 +755,7 @@ public actor YakamozRuntime: ChatRunning {
 
     /// Decodes a persisted assistant message's `toolCalls` JSON string into `[ToolCall]`.
     /// Returns an empty array when the field is missing/`"[]"`/undecodable, mirroring
-    /// `ConversationMessage.toMessage()`'s tolerant decoding.
+    /// `ThreadMessage.toMessage()`'s tolerant decoding.
     private static func decodeToolCalls(_ toolCallsJSON: String) -> [ToolCall] {
         guard let data = toolCallsJSON.data(using: .utf8) else { return [] }
         return (try? JSONDecoder().decode([ToolCall].self, from: data)) ?? []
@@ -821,15 +794,90 @@ private struct FileWorkspaceToolProvider: ToolSource {
     }
 
     func tools() async -> [AnyTool] {
-        let root = folder.rootURL.path
-        return [
-            ReadFileTool(currentDirectory: root, jailRoot: root).toAnyTool(),
-            ListDirectoryTool(currentDirectory: root, jailRoot: root).toAnyTool(),
-            FindFileTool(currentDirectory: root, jailRoot: root).toAnyTool(),
-            SearchFilesTool(currentDirectory: root, jailRoot: root).toAnyTool(),
-            SearchFileContentTool(currentDirectory: root, jailRoot: root).toAnyTool(),
-            ChangeDirectoryTool(currentPath: root, root: root, onChange: { _ in }).toAnyTool(),
+        let workspace = FileSystemWorkspace(id: folder.workspaceID, rootURL: folder.rootURL)
+        return Self.definitions.map {
+            WorkspaceToolWrapper(workspace: workspace, definition: $0).toAnyTool()
+        }
+    }
+
+    private static let definitions: [WorkspaceToolDefinition] = [
+        definition(
+            id: "cat",
+            name: "Read File",
+            description: "Read a UTF-8 text file within the attached workspace.",
+            properties: ["path": stringProperty],
+            required: ["path"]
+        ),
+        definition(
+            id: "ls",
+            name: "List Directory",
+            description: "List non-hidden files and directories within the attached workspace.",
+            properties: ["path": stringProperty]
+        ),
+        definition(
+            id: "find",
+            name: "Find Files",
+            description: "Find files and directories by name within the attached workspace.",
+            properties: [
+                "pattern": stringProperty,
+                "path": stringProperty,
+            ],
+            required: ["pattern"]
+        ),
+        definition(
+            id: "search_files",
+            name: "Search Files",
+            description: "Search file contents with a regular expression within the attached workspace.",
+            properties: [
+                "pattern": stringProperty,
+                "path": stringProperty,
+            ],
+            required: ["pattern"]
+        ),
+        definition(
+            id: "grep",
+            name: "Search File Content",
+            description: "Search file contents case-insensitively within the attached workspace.",
+            properties: [
+                "pattern": stringProperty,
+                "path": stringProperty,
+                "recursive": booleanProperty,
+            ],
+            required: ["pattern"]
+        ),
+        definition(
+            id: "change_directory",
+            name: "Change Directory",
+            description: "Validate a directory path within the attached workspace.",
+            properties: ["path": stringProperty],
+            required: ["path"]
+        ),
+    ]
+
+    private static let stringProperty: AnyCodable = .dictionary(["type": .string("string")])
+    private static let booleanProperty: AnyCodable = .dictionary(["type": .string("boolean")])
+
+    private static func definition(
+        id: String,
+        name: String,
+        description: String,
+        properties: [String: AnyCodable],
+        required: [String] = []
+    ) -> WorkspaceToolDefinition {
+        var schema: [String: AnyCodable] = [
+            "type": .string("object"),
+            "properties": .dictionary(properties),
+            "additionalProperties": .boolean(false),
         ]
+        if !required.isEmpty {
+            schema["required"] = .array(required.map(AnyCodable.string))
+        }
+        return WorkspaceToolDefinition(
+            id: id,
+            name: name,
+            description: description,
+            parametersSchema: schema
+        )
     }
 }
 

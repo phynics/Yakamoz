@@ -1,5 +1,5 @@
 import Foundation
-import PKShared
+import PKContracts
 
 // Wire-format types mirroring Monad server's workspace RPC envelope
 // (`Monad/Sources/MonadServer/Models/Workspace/WorkspaceRPC.swift`) and the five

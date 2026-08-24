@@ -1,18 +1,17 @@
 import Foundation
 import Logging
-import PKShared
-import PKUtilities
+import PKContracts
 import PositronicKit
 
 /// A `Workspace` implementation confined to a single root directory on disk.
 ///
 /// All file operations (`readFile`/`writeFile`/`listFiles`/`deleteFile`) and every
 /// routed tool (`cat`/`ls`/`find`/`search_files`/`grep`/`change_directory`, the same
-/// six PKShared filesystem tools used elsewhere in PositronicKit) are confined to
+/// six PositronicKit filesystem tools used elsewhere in PositronicKit) are confined to
 /// `rootURL`. Confinement is enforced twice, independently:
 ///
 /// 1. `confinedURL(for:)` below, used by the four direct file operations.
-/// 2. Each PKShared filesystem tool's own `jailRoot`/`PathSanitizer.safelyResolve`
+/// 2. Each filesystem tool's own `jailRoot`/`PathSanitizer.safelyResolve`
 ///    confinement, used when a tool id is routed through `executeTool`.
 ///
 /// Both paths standardize and resolve symlinks for the candidate *and* the root before
@@ -79,6 +78,12 @@ public actor FileSystemWorkspace: Workspace {
         let url = try confinedURL(for: path)
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            // PositronicKit's context pipeline treats the conventional Notes directory as
+            // optional for ordinary attached folders. An empty user workspace therefore has
+            // no notes to discover; it should not fail the whole turn during context gathering.
+            if path == "Notes" {
+                return []
+            }
             throw WorkspaceError.workspaceNotFound
         }
         do {
@@ -118,7 +123,7 @@ public actor FileSystemWorkspace: Workspace {
 
     // MARK: - Workspace: tool routing
 
-    /// The PKShared filesystem tool ids this workspace exposes, in display order.
+    /// The filesystem tool ids this workspace exposes, in display order.
     static let toolIds = ["cat", "ls", "find", "search_files", "grep", "change_directory"]
 
     public func listTools() async throws -> [ToolReference] {
@@ -126,31 +131,176 @@ public actor FileSystemWorkspace: Workspace {
     }
 
     public func executeTool(id toolId: String, parameters: [String: AnyCodable]) async throws -> ToolResult {
-        let tool: any Tool
-        let root = rootURL.path
         switch toolId {
         case "cat":
-            tool = ReadFileTool(currentDirectory: root, jailRoot: root)
+            do {
+                let path = try requiredString("path", from: parameters)
+                return .success(try await readFile(path: path))
+            } catch {
+                return .failure(error.localizedDescription)
+            }
         case "ls":
-            tool = ListDirectoryTool(currentDirectory: root, jailRoot: root)
+            do {
+                let path = parameters["path"]?.asString ?? "."
+                let url = try confinedURL(for: path)
+                var isDirectory: ObjCBool = false
+                guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+                    return .failure("Directory not found: \(path)")
+                }
+                let entries = try FileManager.default.contentsOfDirectory(
+                    at: url,
+                    includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey],
+                    options: [.skipsHiddenFiles]
+                ).map { entry -> String in
+                    let values = try? entry.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
+                    if values?.isDirectory == true { return "[DIR] \(entry.lastPathComponent)" }
+                    let size = Int64(values?.fileSize ?? 0)
+                    let sizeText = ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
+                    return "[FILE] \(entry.lastPathComponent) (\(sizeText))"
+                }.sorted()
+                return .success(entries.joined(separator: "\n"))
+            } catch {
+                return .failure(error.localizedDescription)
+            }
         case "find":
-            tool = FindFileTool(currentDirectory: root, jailRoot: root)
+            do {
+                let pattern = try requiredString("pattern", from: parameters)
+                let path = parameters["path"]?.asString ?? "."
+                let url = try confinedURL(for: path)
+                var isDirectory: ObjCBool = false
+                guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+                    return .failure("Directory not found: \(path)")
+                }
+                var matches: [String] = []
+                let enumerator = FileManager.default.enumerator(
+                    at: url,
+                    includingPropertiesForKeys: nil,
+                    options: [.skipsHiddenFiles]
+                )
+                while let entry = enumerator?.nextObject() as? URL {
+                    if entry.lastPathComponent.localizedCaseInsensitiveContains(pattern) {
+                        matches.append(Self.relativePath(for: entry, base: url))
+                    }
+                    if matches.count == 100 { break }
+                }
+                if matches.isEmpty { return .success("No files found matching '\(pattern)' in \(path)") }
+                if matches.count == 100 { matches.append("... (limit reached)") }
+                return .success(matches.sorted().joined(separator: "\n"))
+            } catch {
+                return .failure(error.localizedDescription)
+            }
         case "search_files":
-            tool = SearchFilesTool(currentDirectory: root, jailRoot: root)
+            return searchFiles(parameters: parameters, regex: true, recursive: true)
         case "grep":
-            tool = SearchFileContentTool(currentDirectory: root, jailRoot: root)
+            return searchFiles(
+                parameters: parameters,
+                regex: false,
+                recursive: {
+                    guard let value = parameters["recursive"] else { return false }
+                    if case let .boolean(result) = value { return result }
+                    return false
+                }()
+            )
         case "change_directory":
-            tool = ChangeDirectoryTool(currentPath: rootURL.path) { _ in
-                // No persistent "current directory" state on this workspace: every
-                // tool call is jailed to `rootURL` independently, so changing
-                // directory within the same root is a no-op beyond validating the
-                // target path exists and is a directory (which the tool itself does).
+            do {
+                let path = try requiredString("path", from: parameters)
+                let url = try confinedURL(for: path)
+                var isDirectory: ObjCBool = false
+                guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+                    return .failure("Directory not found: \(path)")
+                }
+                guard isDirectory.boolValue else {
+                    return .failure("Path exists but is not a directory: \(url.path)")
+                }
+                return .success("Changed directory to \(url.path)")
+            } catch {
+                return .failure(error.localizedDescription)
             }
         default:
             throw WorkspaceError.toolExecutionNotSupported
         }
+    }
 
-        return try await tool.execute(parameters: parameters)
+    private func searchFiles(
+        parameters: [String: AnyCodable],
+        regex: Bool,
+        recursive: Bool
+    ) -> ToolResult {
+        do {
+            let pattern = try requiredString("pattern", from: parameters)
+            let path = parameters["path"]?.asString ?? "."
+            let url = try confinedURL(for: path)
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+                return .failure("Path not found: \(path)")
+            }
+
+            let matcher: (String) -> Bool
+            if regex {
+                let expression = try NSRegularExpression(pattern: pattern)
+                matcher = { line in
+                    expression.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) != nil
+                }
+            } else {
+                matcher = { line in line.localizedCaseInsensitiveContains(pattern) }
+            }
+
+            let files: [URL]
+            if isDirectory.boolValue {
+                if recursive {
+                    files = Self.recursiveFiles(at: url)
+                } else {
+                    files = try FileManager.default.contentsOfDirectory(
+                        at: url,
+                        includingPropertiesForKeys: [.isDirectoryKey],
+                        options: [.skipsHiddenFiles]
+                    ).filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) != true }
+                }
+            } else {
+                files = [url]
+            }
+
+            var matches: [String] = []
+            for file in files {
+                guard let content = try? String(contentsOf: file, encoding: .utf8) else { continue }
+                for (index, line) in content.components(separatedBy: .newlines).enumerated() where matcher(line) {
+                    matches.append("\(Self.relativePath(for: file, base: url)):\(index + 1): \(line)")
+                    if matches.count == 100 { break }
+                }
+                if matches.count == 100 { break }
+            }
+
+            if matches.isEmpty { return .success("No matches found for '\(pattern)'") }
+            if matches.count == 100 { matches.append("... (limit reached)") }
+            return .success(matches.joined(separator: "\n"))
+        } catch {
+            return .failure("Search failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func requiredString(_ key: String, from parameters: [String: AnyCodable]) throws -> String {
+        guard let value = parameters[key]?.asString, !value.isEmpty else {
+            throw WorkspaceError.invalidWorkspaceType
+        }
+        return value
+    }
+
+    private static func recursiveFiles(at url: URL) -> [URL] {
+        let enumerator = FileManager.default.enumerator(
+            at: url,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        )
+        return (enumerator?.allObjects as? [URL] ?? []).filter {
+            (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) != true
+        }
+    }
+
+    private static func relativePath(for url: URL, base: URL) -> String {
+        let basePath = base.standardizedFileURL.path
+        let filePath = url.standardizedFileURL.path
+        guard filePath != basePath else { return "." }
+        return String(filePath.dropFirst(basePath.count + 1))
     }
 
     // MARK: - Confinement

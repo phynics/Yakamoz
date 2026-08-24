@@ -1,7 +1,7 @@
 import Foundation
 import MonadClient
 import MonadShared
-import PKShared
+import PKContracts
 
 /// YAK-MON-5: makes Yakamoz act as a Monad **attached-workspace provider** for folder
 /// workspaces — the client-side counterpart to Monad server's `RemoteWorkspace`.

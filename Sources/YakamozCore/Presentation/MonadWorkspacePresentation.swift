@@ -1,5 +1,5 @@
 import Foundation
-import PKShared
+import PKContracts
 
 /// App-target-safe projection of a Monad server `WorkspaceReference`, suitable for the
 /// `Yakamoz` app target to bind to without importing `PKShared` directly (per the

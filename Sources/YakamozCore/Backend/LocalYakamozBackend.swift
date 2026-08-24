@@ -1,5 +1,5 @@
 import Foundation
-import PKShared
+import PKContracts
 import PositronicKit
 import SwiftData
 
@@ -16,14 +16,14 @@ public struct LocalYakamozBackend: YakamozBackend {
     private let chatRunner: any ChatRunning
     private let health: any BackendHealthChecking
     private let modelContainer: ModelContainer
-    private let timelineStore: any TimelinePersistenceProtocol
+    private let timelineStore: any ThreadPersistenceProtocol
     public let inspectorAvailable: Bool
 
     public init(
         chatRunner: any ChatRunning,
         health: any BackendHealthChecking,
         modelContainer: ModelContainer,
-        timelineStore: any TimelinePersistenceProtocol,
+        timelineStore: any ThreadPersistenceProtocol,
         inspectorAvailable: Bool = true
     ) {
         self.chatRunner = chatRunner
@@ -41,7 +41,7 @@ public struct LocalYakamozBackend: YakamozBackend {
 
     // MARK: - ChatRunning
 
-    public func run(_ request: ChatRunRequest) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+    public func run(_ request: TurnRequest) async throws -> AsyncThrowingStream<TurnEvent, Error> {
         try await chatRunner.run(request)
     }
 

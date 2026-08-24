@@ -1,6 +1,6 @@
 import Foundation
 import JSONSchema
-import PKShared
+import PKContracts
 import PKTestSupport
 import SwiftData
 import Testing

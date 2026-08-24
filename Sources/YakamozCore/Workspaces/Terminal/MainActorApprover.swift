@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 
 /// A single outstanding approval request, surfaced to the UI for rendering (Task 20's banner).
 public struct PendingApproval: Identifiable, Sendable {

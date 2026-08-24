@@ -1,7 +1,7 @@
 import Foundation
 import MonadClient
 import MonadShared
-import PKShared
+import PKContracts
 import Testing
 @testable import YakamozCore
 
@@ -40,7 +40,7 @@ struct MonadProfileStatusViewModelTests {
             message _: String,
             toolOutputs _: [ToolOutputSubmission]?,
             clientTools _: [ToolReference]?
-        ) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+        ) async throws -> AsyncThrowingStream<TurnEvent, Error> {
             AsyncThrowingStream { $0.finish() }
         }
 

@@ -2,7 +2,7 @@ import ErrorKit
 import Foundation
 import MonadClient
 import Observation
-import PKShared
+import PKContracts
 import PositronicKit
 
 /// YAK-MON-6: main-actor view model backing the Monad-mode timeline workspace

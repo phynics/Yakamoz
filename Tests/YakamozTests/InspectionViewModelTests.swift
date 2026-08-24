@@ -1,6 +1,6 @@
 import Foundation
 import PKPrompt
-import PKShared
+import PKContracts
 import PositronicKit
 import SwiftData
 import Testing
@@ -56,8 +56,8 @@ struct InspectionViewModelTests {
         )
 
         return PromptInspection(
-            timelineId: conversationId,
-            agentInstanceId: nil,
+            threadID: conversationId,
+            agentID: nil,
             turnIndex: turnIndex,
             model: "gpt-test",
             rendered: rendered,

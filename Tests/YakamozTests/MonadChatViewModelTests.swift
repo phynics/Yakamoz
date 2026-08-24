@@ -2,13 +2,13 @@ import ErrorKit
 import Foundation
 import MonadClient
 import MonadShared
-import PKShared
+import PKContracts
 import PositronicKit
 import Testing
 @testable import YakamozCore
 
 /// YAK-MON-7: tests for `MonadChatViewModel` driving a Monad-mode transcript from
-/// scripted `ChatEvent` streams — no live network. The `ChatEventReducer` and
+/// scripted `TurnEvent` streams — no live network. The `ChatEventReducer` and
 /// `ChatViewModel` are exercised through the `ChatRunning` seam, proving
 /// Monad-mode streaming works end-to-end through the existing reducer.
 @Suite("MonadChatViewModel")
@@ -17,7 +17,7 @@ struct MonadChatViewModelTests {
     private final class ScriptedRunner: ChatRunning, @unchecked Sendable {
         private(set) var capturedMessages: [String] = []
         private(set) var lastSystemInstructions: String?
-        var continuation: AsyncThrowingStream<ChatEvent, Error>.Continuation?
+        var continuation: AsyncThrowingStream<TurnEvent, Error>.Continuation?
         var throwOnError: Error?
         private let runCounter = AsyncCounter()
         private let continuationCounter = AsyncCounter()
@@ -30,7 +30,7 @@ struct MonadChatViewModelTests {
             await continuationCounter.wait(until: count)
         }
 
-        func run(_ request: ChatRunRequest) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+        func run(_ request: TurnRequest) async throws -> AsyncThrowingStream<TurnEvent, Error> {
             capturedMessages.append(request.message)
             lastSystemInstructions = request.systemInstructions
             runCounter.increment()
@@ -50,7 +50,7 @@ struct MonadChatViewModelTests {
     fileprivate actor FakeTransport: MonadClientTransport {
         var statusResult: Result<StatusResponse, Error> = .failure(MonadClientError.serverNotReachable)
         var timelines: [TimelineResponse] = []
-        var executeResult: Result<[ChatEvent], Error> = .success([])
+        var executeResult: Result<[TurnEvent], Error> = .success([])
         var executeError: MonadClientError?
 
         func getStatus() async throws -> StatusResponse {
@@ -79,7 +79,7 @@ struct MonadChatViewModelTests {
             message: String,
             toolOutputs _: [ToolOutputSubmission]?,
             clientTools _: [ToolReference]?
-        ) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+        ) async throws -> AsyncThrowingStream<TurnEvent, Error> {
             if let executeError {
                 throw executeError
             }
@@ -192,11 +192,11 @@ struct MonadChatViewModelTests {
             index: 0, id: toolCallId, name: toolName, arguments: "{\"path\":\"/tmp/test.txt\"}"
         )))
         runner.continuation?.yield(.toolProgress(
-            toolCallId: toolCallId,
+            toolCallID: toolCallId,
             status: .attempting(name: toolName, reference: reference)
         ))
         runner.continuation?.yield(.toolCompleted(
-            toolCallId: toolCallId,
+            toolCallID: toolCallId,
             status: .success(ToolResult.success("File contents here"))
         ))
         runner.continuation?.yield(.generation("The file contains: File contents here"))
@@ -476,11 +476,11 @@ struct MonadChatViewModelTests {
             index: 0, id: toolCallId, name: toolName, arguments: "{}"
         )))
         runner.continuation?.yield(.toolProgress(
-            toolCallId: toolCallId,
+            toolCallID: toolCallId,
             status: .attempting(name: toolName, reference: reference)
         ))
         runner.continuation?.yield(.toolCallError(
-            toolCallId: toolCallId,
+            toolCallID: toolCallId,
             name: toolName,
             error: "Permission denied"
         ))
@@ -502,7 +502,7 @@ struct MonadChatViewModelTests {
 }
 
 private extension MonadChatViewModelTests.FakeTransport {
-    func setExecuteResult(_ result: Result<[ChatEvent], Error>) {
+    func setExecuteResult(_ result: Result<[TurnEvent], Error>) {
         executeResult = result
     }
 

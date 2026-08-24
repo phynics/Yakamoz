@@ -1,5 +1,5 @@
 import Foundation
-import PKShared
+import PKContracts
 import PositronicKit
 import Testing
 @testable import YakamozCore
@@ -47,8 +47,11 @@ struct TerminalWorkspaceTests {
         let approver = MockApprover(decision: .deny)
         let workspace = TerminalWorkspace(rootURL: URL(fileURLWithPath: "/tmp"), registry: registry, approver: approver)
 
-        await #expect(throws: WorkspaceError.toolExecutionNotSupported) {
+        do {
             try await workspace.readFile(path: "anything.txt")
+            Issue.record("Expected direct file reads on a terminal workspace to throw")
+        } catch {
+            #expect(String(describing: error) == String(describing: WorkspaceError.toolExecutionNotSupported))
         }
         await registry.terminateAll()
     }

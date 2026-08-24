@@ -1,5 +1,5 @@
 import Foundation
-import PKShared
+import PKContracts
 import PositronicKit
 
 /// The lifecycle state of a single tool invocation within a turn, mirrored from
@@ -52,7 +52,7 @@ public struct ToolTrace: Sendable, Equatable, Identifiable {
 }
 
 /// One ordered piece of a turn's chronology, as observed by `ChatEventReducer` while it
-/// folds a single ordered `ChatEvent` stream (UIX-4). Additive alongside
+/// folds a single ordered `TurnEvent` stream (UIX-4). Additive alongside
 /// `reconstructedText`/`toolOrder`: those flat structures remain the source of truth for
 /// existing consumers (Journal tab, `ResponseDTO` persistence); `turnSegments` exists only
 /// to let the transcript UI interleave tool rows between the text segments they actually
@@ -121,7 +121,7 @@ public struct ChatTurnState: Sendable, Equatable {
     /// sniffing `errorMessage` substrings (STAB-6). `nil` for bare-string
     /// `.error` events and non-`PKError` thrown errors, in which case the turn is
     /// intentionally classified as a plain failure rather than blocked.
-    public var errorIdentity: ChatEvent.ErrorIdentity?
+    public var errorIdentity: TurnEvent.ErrorIdentity?
 
     /// Final sidecar-directive outcomes for the turn (title, section title, ...),
     /// accumulated from `.completion(event: .sidecarsCompleted)`. Empty when the turn
@@ -290,6 +290,13 @@ public struct ChatTurnState: Sendable, Equatable {
             trace.name = reference.displayName
             trace.error = error
             trace.finishedAt = now
+        case let .workspaceFailed(reference, error, _, _),
+             let .workspacePersistenceFailed(reference, error, _, _),
+             let .persistenceFailed(reference, error):
+            trace.state = .failed
+            trace.name = reference.displayName
+            trace.error = error
+            trace.finishedAt = now
         case let .executionError(error):
             trace.state = .failed
             trace.error = error
@@ -310,11 +317,16 @@ public struct ChatTurnState: Sendable, Equatable {
     }
 
     /// Records the finish reason from a `completedEmpty` event (a successful stream with
-    /// no reconstructed assistant text). `isEmptyModelResponse` already derives the empty
-    /// state from `response.reconstructedText`, so there is nothing else to apply here.
+    /// no reconstructed assistant text). PositronicKit v4 uses this event as the terminal
+    /// compatibility shape for the old `streamCompleted()` factory, so preserve any
+    /// metadata already recorded by a preceding generation-completed event and close the
+    /// turn here.
     public mutating func apply(completedEmptyFinishReason finishReason: String?) {
         guard !isComplete else { return }
-        response.finishReason = finishReason
+        if let finishReason {
+            response.finishReason = finishReason
+        }
+        isComplete = true
     }
 
     /// Converts the accumulated state into the `ResponseDTO` shape persisted by the
@@ -379,14 +391,14 @@ public enum TranscriptItem: Sendable, Identifiable, Equatable {
     }
 }
 
-/// A pure, deterministic reducer that folds a single `ChatEvent` into a `ChatTurnState`.
+/// A pure, deterministic reducer that folds a single `TurnEvent` into a `ChatTurnState`.
 ///
 /// Driven by an injected `ContinuousClock.Instant` (`now`) rather than reading the
 /// clock itself, so reducer tests are fully deterministic and never sleep. Once
 /// `state.isComplete` is set (by `.streamCompleted`), later events are ignored: a new
 /// turn must never mutate a turn that has already finished.
 public enum ChatEventReducer {
-    public static func reduce(_ event: ChatEvent, into state: inout ChatTurnState, now: ContinuousClock.Instant) {
+    public static func reduce(_ event: TurnEvent, into state: inout ChatTurnState, now: ContinuousClock.Instant) {
         guard !state.isComplete else { return }
 
         if let text = event.textContent {
@@ -399,18 +411,18 @@ public enum ChatEventReducer {
         }
 
         switch event {
-        case let .delta(.toolExecution(toolCallId: id, status: status)),
-             let .completion(.toolExecution(toolCallId: id, status: status)):
+        case let .delta(.toolExecution(toolCallID: id, status: status)),
+             let .completion(.toolExecution(toolCallID: id, status: status)):
             state.applyToolStatus(id: id, status: status, now: now)
 
         case let .meta(.generationContext(metadata: metadata)):
             state.workspaceFiles = metadata.files
 
-        case let .delta(.toolCall(delta)):
-            state.applyToolCallDelta(delta)
-
         case let .meta(.generationCompleted(message: _, metadata: metadata)):
             state.apply(metadata)
+
+        case let .delta(.toolCall(delta)):
+            state.applyToolCallDelta(delta)
 
         case let .completion(.generationCompleted(message: _, metadata: metadata)):
             state.apply(metadata)
@@ -418,7 +430,7 @@ public enum ChatEventReducer {
         case let .completion(.completedEmpty(finishReason: finishReason)):
             state.apply(completedEmptyFinishReason: finishReason)
 
-        case let .error(.toolCallError(toolCallId: id, name: name, error: error)):
+        case let .error(.toolCallError(toolCallID: id, name: name, error: error)):
             var trace = state.tools[id] ?? ToolTrace(id: id, name: name)
             if !state.tools.keys.contains(id) {
                 state.toolOrder.append(id)
@@ -440,16 +452,22 @@ public enum ChatEventReducer {
         case .completion(.streamCompleted):
             state.isComplete = true
 
+        case .completion(.maxModelRoundsReached):
+            state.errorMessage = "The model reached the maximum number of tool rounds."
+
+        case .completion(.deferredForExternalTool):
+            state.errorMessage = "The turn requires external tool execution."
+
         // Sidecar deltas are observed for potential future live-preview UI but do not
         // mutate `response` (they are a separate JSON field, never part of the
         // user-visible generation). Only the final, fully-parsed results are recorded.
         case .delta(.sidecar):
             break
 
-        case let .completion(.sidecarsCompleted(results: results)):
-            state.sidecarResults = results
+        case let .completion(.sidecarsCompleted(completion)):
+            state.sidecarResults = completion.results
 
-        case .delta(.reasoning), .delta(.generation):
+        case .delta(.reasoning), .delta(.generation), .delta(.audio):
             break
         }
     }

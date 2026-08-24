@@ -1,7 +1,7 @@
 import ErrorKit
 import Foundation
 import Observation
-import PKShared
+import PKContracts
 import PositronicKit
 
 /// YAK-MON-7: main-actor view model driving a Monad-mode chat conversation. Wraps a

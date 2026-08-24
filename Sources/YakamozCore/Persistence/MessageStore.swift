@@ -1,6 +1,6 @@
 import Foundation
 import Logging
-import PKShared
+import PKContracts
 import PositronicKit
 import SwiftData
 
@@ -15,17 +15,17 @@ public enum PersistenceError: Error, Sendable {
 }
 
 extension MessageModel {
-    convenience init(_ message: ConversationMessage) throws {
+    convenience init(_ message: ThreadMessage) throws {
         let messageEnvelopeData: Data?
         do {
             messageEnvelopeData = try JSONEncoder().encode(MessageStoreEnvelope(message: message))
         } catch {
-            throw PersistenceError.encoding("ConversationMessage envelope: \(error)")
+            throw PersistenceError.encoding("ThreadMessage envelope: \(error)")
         }
         self.init(
             id: message.id,
-            conversationId: message.timelineId,
-            role: message.role,
+            conversationId: message.threadID,
+            role: message.messageRole.rawValue,
             content: message.content,
             messageEnvelopeData: messageEnvelopeData,
             createdAt: message.timestamp,
@@ -33,11 +33,11 @@ extension MessageModel {
         )
     }
 
-    func toConversationMessage() throws -> ConversationMessage {
+    func toThreadMessage() throws -> ThreadMessage {
         guard let messageEnvelopeData else {
-            return ConversationMessage(
+            return ThreadMessage(
                 id: id,
-                timelineId: conversationId,
+                threadID: conversationId,
                 role: Message.MessageRole(rawValue: role) ?? .user,
                 content: content,
                 timestamp: createdAt,
@@ -48,13 +48,13 @@ extension MessageModel {
         do {
             envelope = try JSONDecoder().decode(MessageStoreEnvelope.self, from: messageEnvelopeData)
         } catch {
-            throw PersistenceError.decoding("ConversationMessage envelope: \(error)")
+            throw PersistenceError.decoding("ThreadMessage envelope: \(error)")
         }
         var message = envelope.message
         // The model's scalar columns are authoritative for queryable fields;
         // the envelope carries everything else.
         message.id = id
-        message.timelineId = conversationId
+        message.threadID = conversationId
         message.content = content
         message.timestamp = createdAt
         message.remoteDepth = remoteDepth
@@ -62,60 +62,62 @@ extension MessageModel {
     }
 }
 
-/// Wraps the full `ConversationMessage` so non-scalar fields (recalledMemories,
+/// Wraps the full `ThreadMessage` so non-scalar fields (recalledMemories,
 /// parentId, think, toolCalls, toolCallId, agentInstanceId, snapshotData) survive
 /// the round trip through `MessageModel.messageEnvelopeData`.
 private struct MessageStoreEnvelope: Codable {
-    var message: ConversationMessage
+    var message: ThreadMessage
 }
 
-/// `MessageStoreProtocol` adapter that confines a SwiftData `ModelContext` to
-/// persist `ConversationMessage` values as `MessageModel` rows.
+/// `ThreadMessageStoreProtocol` adapter that confines a SwiftData `ModelContext` to
+/// persist `ThreadMessage` values as `MessageModel` rows.
 ///
 /// `ModelContext` is not `Sendable`; `@ModelActor` confines it to this actor so
 /// every method can do its `FetchDescriptor`/mapping/save inside the actor and
 /// return only `Sendable` PositronicKit values across the boundary.
 @ModelActor
-public actor SwiftDataMessageStore: MessageStoreProtocol {
-    public func saveMessage(_ message: ConversationMessage) async throws {
+public actor SwiftDataMessageStore: ThreadMessageStoreProtocol {
+    public nonisolated let isDurable = true
+
+    public func saveMessage(_ message: ThreadMessage) async throws {
         let model = try MessageModel(message)
         modelContext.insert(model)
         do {
             try modelContext.save()
         } catch {
-            Log.runtime.error("failed to save ConversationMessage", metadata: [
+            Log.runtime.error("failed to save ThreadMessage", metadata: [
                 "store": "MessageStore",
-                "timelineID": "\(message.timelineId)",
+                "threadID": "\(message.threadID)",
                 "messageID": "\(message.id)",
             ])
             throw error
         }
     }
 
-    public func fetchMessages(for timelineId: UUID) async throws -> [ConversationMessage] {
+    public func fetchMessages(for threadID: UUID) async throws -> [ThreadMessage] {
         let descriptor = FetchDescriptor<MessageModel>(
-            predicate: #Predicate { $0.conversationId == timelineId },
+            predicate: #Predicate { $0.conversationId == threadID },
             sortBy: [SortDescriptor(\.createdAt)]
         )
         do {
-            return try modelContext.fetch(descriptor).map { try $0.toConversationMessage() }
+            return try modelContext.fetch(descriptor).map { try $0.toThreadMessage() }
         } catch {
-            Log.runtime.warning("failed to fetch ConversationMessages", metadata: [
+            Log.runtime.warning("failed to fetch ThreadMessages", metadata: [
                 "store": "MessageStore",
-                "timelineID": "\(timelineId)",
+                "threadID": "\(threadID)",
             ])
             throw error
         }
     }
 
-    public func deleteMessages(for timelineId: UUID) async throws {
-        try modelContext.delete(model: MessageModel.self, where: #Predicate { $0.conversationId == timelineId })
+    public func deleteMessages(for threadID: UUID) async throws {
+        try modelContext.delete(model: MessageModel.self, where: #Predicate { $0.conversationId == threadID })
         do {
             try modelContext.save()
         } catch {
-            Log.runtime.error("failed to delete ConversationMessages", metadata: [
+            Log.runtime.error("failed to delete ThreadMessages", metadata: [
                 "store": "MessageStore",
-                "timelineID": "\(timelineId)",
+                "threadID": "\(threadID)",
             ])
             throw error
         }
@@ -132,7 +134,7 @@ public actor SwiftDataMessageStore: MessageStoreProtocol {
             do {
                 try modelContext.save()
             } catch {
-                Log.runtime.error("failed to prune ConversationMessages", metadata: [
+                Log.runtime.error("failed to prune ThreadMessages", metadata: [
                     "store": "MessageStore",
                     "count": "\(matches.count)",
                 ])
@@ -142,15 +144,15 @@ public actor SwiftDataMessageStore: MessageStoreProtocol {
         return matches.count
     }
 
-    public func fetchSnapshots(for timelineId: UUID) async throws -> [TurnSnapshot] {
+    public func fetchSnapshots(for threadID: UUID) async throws -> [TurnSnapshot] {
         let descriptor = FetchDescriptor<MessageModel>(
-            predicate: #Predicate { $0.conversationId == timelineId },
+            predicate: #Predicate { $0.conversationId == threadID },
             sortBy: [SortDescriptor(\.createdAt)]
         )
         let models = try modelContext.fetch(descriptor)
         var snapshots: [TurnSnapshot] = []
         for model in models {
-            let message = try model.toConversationMessage()
+            let message = try model.toThreadMessage()
             guard let data = message.snapshotData else { continue }
             do {
                 try snapshots.append(JSONDecoder().decode(TurnSnapshot.self, from: data))

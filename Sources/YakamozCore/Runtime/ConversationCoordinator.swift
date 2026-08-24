@@ -1,20 +1,20 @@
 import Foundation
-import PKShared
+import PKContracts
 import PositronicKit
 import SwiftData
 
 /// Creates a new conversation, pairing one `ConversationModel` row (Yakamoz's UI shell)
-/// with a `PositronicKit.Timeline` that shares the same `id` (see `YakamozRuntime` /
+/// with a `PositronicKit.Thread` that shares the same `id` (see `YakamozRuntime` /
 /// Task 7 integration notes: one `UUID` is used as both `ConversationModel.id` and the
 /// PositronicKit `timelineId` so `ChatViewModel`/`ChatEngine.run(timelineId:)` can hydrate
 /// the same conversation `ConversationListView` displays).
 ///
-/// `ChatEngine.prepareSession` reads `TimelineManager.timeline(id:)`/`touchTimeline(id:)`,
-/// which only consults its in-memory cache and tolerates a `nil` result (the rendered prompt
-/// simply omits timeline-specific context) — so a pre-existing `Timeline` is not strictly
+/// PositronicKit resolves the persisted Thread lazily during turn admission, which only
+/// consults its in-memory cache and tolerates a `nil` result (the rendered prompt simply
+/// omits thread-specific context) — so a pre-existing `Thread` is not strictly
 /// required for `run` to succeed. We still persist one eagerly here because
-/// `TimelinePersistenceProtocol` (and any future feature that lists/archives timelines,
-/// e.g. `fetchAllTimelines`) expects every conversation to have a corresponding row.
+/// `ThreadPersistenceProtocol` (and any future feature that lists/archives threads) expects
+/// every conversation to have a corresponding row.
 @MainActor
 public struct ConversationCoordinator {
     public enum OperatorError: Error, Equatable, LocalizedError {
@@ -31,16 +31,19 @@ public struct ConversationCoordinator {
         }
     }
     private let modelContext: ModelContext
-    private let timelineStore: any TimelinePersistenceProtocol
+    private let timelineStore: any ThreadPersistenceProtocol
+    private let agentStore: SwiftDataAgentStore
     private let vaultFactory: AgentVaultFactory
 
     public init(
         modelContext: ModelContext,
-        timelineStore: any TimelinePersistenceProtocol,
+        timelineStore: any ThreadPersistenceProtocol,
+        agentStore: SwiftDataAgentStore? = nil,
         vaultFactory: AgentVaultFactory = .init()
     ) {
         self.modelContext = modelContext
         self.timelineStore = timelineStore
+        self.agentStore = agentStore ?? SwiftDataAgentStore(modelContext: modelContext)
         self.vaultFactory = vaultFactory
     }
 
@@ -70,8 +73,8 @@ public struct ConversationCoordinator {
         modelContext.insert(conversation)
         try modelContext.save()
 
-        let timeline = Timeline(id: id, title: title, createdAt: now, updatedAt: now, attachedWorkspaceIds: attachedWorkspaceIds)
-        try await timelineStore.saveTimeline(timeline)
+        let thread = YakamozThread(id: id, title: title, createdAt: now, updatedAt: now)
+        try await timelineStore.saveThread(thread)
 
         if let agentId,
            let operatorModel = try agentModel(id: agentId)
@@ -113,7 +116,7 @@ public struct ConversationCoordinator {
         for conversation in conversations where conversation.agentId == id {
             if conversation.id == homeTimelineId || conversation.isHomeTimeline {
                 modelContext.delete(conversation)
-                try await timelineStore.deleteTimeline(id: conversation.id)
+                try await timelineStore.deleteThread(id: conversation.id)
             } else {
                 conversation.agentId = nil
                 try await OperatorBackendBinding(modelContext: modelContext, timelineStore: timelineStore)
@@ -155,15 +158,11 @@ public struct ConversationCoordinator {
 
     private func agentName(id: UUID?) throws -> String? {
         guard let id else { return nil }
-        var descriptor = FetchDescriptor<AgentModel>(predicate: #Predicate { $0.id == id })
-        descriptor.fetchLimit = 1
-        return try modelContext.fetch(descriptor).first?.name
+        return try agentStore.fetchAgent(id: id)?.name
     }
 
     private func agentModel(id: UUID) throws -> OperatorModel? {
-        var descriptor = FetchDescriptor<OperatorModel>(predicate: #Predicate { $0.id == id })
-        descriptor.fetchLimit = 1
-        return try modelContext.fetch(descriptor).first
+        try agentStore.fetchAgent(id: id)
     }
 
     public func fetchStandardConversations() throws -> [ConversationModel] {

@@ -18,7 +18,10 @@ settings:
 packages:
   PositronicKit:
     url: https://github.com/phynics/PositronicKit.git
-    from: "3.0.0"
+    exactVersion: "4.0.0"
+  swift-log:
+    url: https://github.com/apple/swift-log.git
+    from: "1.5.0"
   # Pin the transitive swift-json-schema to the same version PositronicKit builds
   # against on its public main branch. Without this,
   # Yakamoz can resolve a different release and the workspace ends up with a
@@ -78,7 +81,7 @@ targets:
       - package: PositronicKit
         product: PositronicKit
       - package: PositronicKit
-        product: PKShared
+        product: PKContracts
       - package: PositronicKit
         product: PKPrompt
       - package: PositronicKit
@@ -88,13 +91,16 @@ targets:
       - package: PositronicKit
         product: PKOllamaProvider
       - package: PositronicKit
-        product: PKUtilities
+      - package: PositronicKit
+        product: PKAnthropicProvider
       - package: SwiftTerm
         product: SwiftTerm
       - package: Monad
         product: MonadClient
       - package: Monad
         product: MonadShared
+      - package: swift-log
+        product: Logging
   YakamozTests:
     type: bundle.unit-test
     platform: macOS
@@ -109,11 +115,19 @@ targets:
     dependencies:
       - target: YakamozCore
       - package: PositronicKit
+        product: PositronicKit
+      - package: PositronicKit
+        product: PKContracts
+      - package: PositronicKit
+        product: PKPrompt
+      - package: PositronicKit
         product: PKTestSupport
       - package: Monad
         product: MonadClient
       - package: Monad
         product: MonadShared
+      - package: swift-log
+        product: Logging
 schemes:
   Yakamoz:
     build:

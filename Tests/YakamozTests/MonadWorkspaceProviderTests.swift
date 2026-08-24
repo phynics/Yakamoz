@@ -1,7 +1,7 @@
 import Foundation
 import MonadClient
 import MonadShared
-import PKShared
+import PKContracts
 import Testing
 @testable import YakamozCore
 
@@ -40,7 +40,7 @@ struct MonadWorkspaceProviderTests {
             let workspace = WorkspaceReference(
                 uri: uri,
                 location: .attached,
-                originId: originId,
+                originID: originId,
                 tools: tools,
                 rootPath: rootPath,
                 trustLevel: trustLevel

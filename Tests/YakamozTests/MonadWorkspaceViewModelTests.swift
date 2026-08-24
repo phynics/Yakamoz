@@ -1,7 +1,7 @@
 import Foundation
 import MonadClient
 import MonadShared
-import PKShared
+import PKContracts
 import PositronicKit
 import Testing
 @testable import YakamozCore
@@ -45,7 +45,7 @@ struct MonadWorkspaceViewModelTests {
             message _: String,
             toolOutputs _: [ToolOutputSubmission]?,
             clientTools _: [ToolReference]?
-        ) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+        ) async throws -> AsyncThrowingStream<TurnEvent, Error> {
             AsyncThrowingStream { $0.finish() }
         }
 
@@ -107,7 +107,7 @@ struct MonadWorkspaceViewModelTests {
             let workspace = WorkspaceReference(
                 uri: uri,
                 location: .attached,
-                originId: originId,
+                originID: originId,
                 tools: tools,
                 rootPath: rootPath,
                 trustLevel: trustLevel
@@ -472,7 +472,7 @@ private actor FailingDetachTransport: MonadClientTransport {
         message _: String,
         toolOutputs _: [ToolOutputSubmission]?,
         clientTools _: [ToolReference]?
-    ) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+    ) async throws -> AsyncThrowingStream<TurnEvent, Error> {
         AsyncThrowingStream { $0.finish() }
     }
 
@@ -508,7 +508,7 @@ private actor FailingLoadTransport: MonadClientTransport {
         message _: String,
         toolOutputs _: [ToolOutputSubmission]?,
         clientTools _: [ToolReference]?
-    ) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+    ) async throws -> AsyncThrowingStream<TurnEvent, Error> {
         AsyncThrowingStream { $0.finish() }
     }
 

@@ -1,5 +1,5 @@
 import Foundation
-import PKShared
+import PKContracts
 import PositronicKit
 
 /// A `Workspace` implementation backed by an agent-driven PTY shell session rooted at

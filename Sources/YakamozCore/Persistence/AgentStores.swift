@@ -1,6 +1,6 @@
 import Foundation
 import Logging
-import PKShared
+import PKContracts
 import PositronicKit
 import SwiftData
 
@@ -13,6 +13,12 @@ public final class SwiftDataAgentStore {
 
     public init(modelContainer: ModelContainer) {
         modelContext = modelContainer.mainContext
+    }
+
+    /// Builds a store over an already selected main-actor context. This is useful for
+    /// coordinators that share a context with their SwiftData UI models.
+    public init(modelContext: ModelContext) {
+        self.modelContext = modelContext
     }
 
     public func saveAgent(_ agent: AgentModel) throws {
@@ -51,39 +57,41 @@ public final class SwiftDataAgentStore {
 }
 
 extension AgentInstanceModel {
-    convenience init(_ instance: AgentInstance) throws {
+    convenience init(_ agent: Agent) throws {
         let metadataData: Data
         do {
-            metadataData = try JSONEncoder().encode(instance.metadata)
+            metadataData = try JSONEncoder().encode(agent.metadata)
         } catch {
-            throw PersistenceError.encoding("AgentInstance.metadata: \(error)")
+            throw PersistenceError.encoding("Agent.metadata: \(error)")
         }
         self.init(
-            id: instance.id,
-            name: instance.name,
-            instanceDescription: instance.description,
-            primaryWorkspaceId: instance.primaryWorkspaceId,
-            privateTimelineId: instance.privateTimelineId,
-            lastActiveAt: instance.lastActiveAt,
-            createdAt: instance.createdAt,
-            updatedAt: instance.updatedAt,
+            id: agent.id,
+            name: agent.name,
+            instanceDescription: agent.description,
+            lifecycle: agent.lifecycle,
+            primaryWorkspaceId: agent.primaryWorkspaceID,
+            privateTimelineId: agent.privateThreadID,
+            lastActiveAt: agent.lastActiveAt,
+            createdAt: agent.createdAt,
+            updatedAt: agent.updatedAt,
             metadataData: metadataData
         )
     }
 
-    func toAgentInstance() throws -> AgentInstance {
+    func toAgent() throws -> Agent {
         let metadata: [String: AnyCodable]
         do {
             metadata = try JSONDecoder().decode([String: AnyCodable].self, from: metadataData)
         } catch {
-            throw PersistenceError.decoding("AgentInstance.metadata: \(error)")
+            throw PersistenceError.decoding("Agent.metadata: \(error)")
         }
-        return AgentInstance(
+        return Agent(
             id: id,
             name: name,
             description: instanceDescription,
-            primaryWorkspaceId: primaryWorkspaceId,
-            privateTimelineId: privateTimelineId,
+            lifecycle: AgentLifecycleState(rawValue: lifecycleRaw) ?? .active,
+            primaryWorkspaceID: primaryWorkspaceId,
+            privateThreadID: privateTimelineId,
             lastActiveAt: lastActiveAt,
             createdAt: createdAt,
             updatedAt: updatedAt,
@@ -91,18 +99,19 @@ extension AgentInstanceModel {
         )
     }
 
-    func update(from instance: AgentInstance) throws {
+    func update(from agent: Agent) throws {
         let metadataData: Data
         do {
-            metadataData = try JSONEncoder().encode(instance.metadata)
+            metadataData = try JSONEncoder().encode(agent.metadata)
         } catch {
-            throw PersistenceError.encoding("AgentInstance.metadata: \(error)")
+            throw PersistenceError.encoding("Agent.metadata: \(error)")
         }
-        name = instance.name
-        instanceDescription = instance.description
-        primaryWorkspaceId = instance.primaryWorkspaceId
-        lastActiveAt = instance.lastActiveAt
-        updatedAt = instance.updatedAt
+        name = agent.name
+        instanceDescription = agent.description
+        lifecycleRaw = agent.lifecycle.rawValue
+        primaryWorkspaceId = agent.primaryWorkspaceID
+        lastActiveAt = agent.lastActiveAt
+        updatedAt = agent.updatedAt
         self.metadataData = metadataData
     }
 }
@@ -170,77 +179,79 @@ extension AgentTemplateModel {
 /// `TimelineModel.attachedAgentInstanceId` directly rather than maintaining a
 /// separate join table.
 @ModelActor
-public actor SwiftDataAgentInstanceStore: AgentInstanceStoreProtocol {
-    public func saveAgentInstance(_ instance: AgentInstance) async throws {
-        let id = instance.id
+public actor SwiftDataAgentInstanceStore: AgentStoreProtocol {
+    public nonisolated let isDurable = true
+
+    public func saveAgent(_ agent: Agent) async throws {
+        let id = agent.id
         let descriptor = FetchDescriptor<AgentInstanceModel>(predicate: #Predicate { $0.id == id })
         if let existing = try modelContext.fetch(descriptor).first {
-            try existing.update(from: instance)
+            try existing.update(from: agent)
         } else {
-            try modelContext.insert(AgentInstanceModel(instance))
+            try modelContext.insert(AgentInstanceModel(agent))
         }
         do {
             try modelContext.save()
         } catch {
-            Log.runtime.error("failed to save AgentInstance", metadata: [
+            Log.runtime.error("failed to save Agent", metadata: [
                 "store": "AgentInstanceStore",
-                "agentInstanceID": "\(id)",
+                "agentID": "\(id)",
             ])
             throw error
         }
     }
 
-    public func fetchAgentInstance(id: UUID) async throws -> AgentInstance? {
+    public func fetchAgent(id: UUID) async throws -> Agent? {
         var descriptor = FetchDescriptor<AgentInstanceModel>(predicate: #Predicate { $0.id == id })
         descriptor.fetchLimit = 1
         do {
             guard let model = try modelContext.fetch(descriptor).first else { return nil }
-            return try model.toAgentInstance()
+            return try model.toAgent()
         } catch {
-            Log.runtime.warning("failed to fetch AgentInstance", metadata: [
+            Log.runtime.warning("failed to fetch Agent", metadata: [
                 "store": "AgentInstanceStore",
-                "agentInstanceID": "\(id)",
+                "agentID": "\(id)",
             ])
             throw error
         }
     }
 
-    public func fetchAllAgentInstances() async throws -> [AgentInstance] {
+    public func fetchAllAgents() async throws -> [Agent] {
         let descriptor = FetchDescriptor<AgentInstanceModel>(sortBy: [SortDescriptor(\.createdAt)])
         do {
-            return try modelContext.fetch(descriptor).map { try $0.toAgentInstance() }
+            return try modelContext.fetch(descriptor).map { try $0.toAgent() }
         } catch {
-            Log.runtime.warning("failed to fetch all AgentInstances", metadata: [
+            Log.runtime.warning("failed to fetch all Agents", metadata: [
                 "store": "AgentInstanceStore",
             ])
             throw error
         }
     }
 
-    public func deleteAgentInstance(id: UUID) async throws {
+    public func deleteAgent(id: UUID) async throws {
         try modelContext.delete(model: AgentInstanceModel.self, where: #Predicate { $0.id == id })
         do {
             try modelContext.save()
         } catch {
-            Log.runtime.error("failed to delete AgentInstance", metadata: [
+            Log.runtime.error("failed to delete Agent", metadata: [
                 "store": "AgentInstanceStore",
-                "agentInstanceID": "\(id)",
+                "agentID": "\(id)",
             ])
             throw error
         }
     }
 
-    public func fetchTimelines(attachedToAgent agentInstanceId: UUID) async throws -> [Timeline] {
+    public func fetchThreads(attachedToAgent agentId: UUID) async throws -> [YakamozThread] {
         let descriptor = FetchDescriptor<TimelineModel>(
-            predicate: #Predicate { $0.attachedAgentInstanceId == agentInstanceId },
+            predicate: #Predicate { $0.attachedAgentInstanceId == agentId },
             sortBy: [SortDescriptor(\.createdAt)]
         )
         do {
-            return try modelContext.fetch(descriptor).map { try $0.toTimeline() }
+            return try modelContext.fetch(descriptor).map { try $0.toThread() }
         } catch {
-            Log.runtime.warning("failed to fetch Timelines for AgentInstance", metadata: [
+            Log.runtime.warning("failed to fetch Threads for Agent", metadata: [
                 "store": "AgentInstanceStore",
-                "agentInstanceID": "\(agentInstanceId)",
+                "agentID": "\(agentId)",
             ])
             throw error
         }
@@ -255,6 +266,8 @@ public actor SwiftDataAgentInstanceStore: AgentInstanceStoreProtocol {
 /// the value type.
 @ModelActor
 public actor SwiftDataAgentTemplateStore: AgentTemplateStoreProtocol {
+    public nonisolated let isDurable = true
+
     public func saveAgentTemplate(_ agent: AgentTemplate) async throws {
         let id = agent.id
         let descriptor = FetchDescriptor<AgentTemplateModel>(predicate: #Predicate { $0.id == id })

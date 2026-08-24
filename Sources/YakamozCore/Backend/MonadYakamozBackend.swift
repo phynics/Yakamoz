@@ -2,7 +2,7 @@ import ErrorKit
 import Foundation
 import MonadClient
 import MonadShared
-import PKShared
+import PKContracts
 import PositronicKit
 
 /// YAK-MON-3: the first concrete Monad-backed `YakamozBackend` slice, built on
@@ -162,10 +162,10 @@ extension MonadYakamozBackend: BackendInspectorProviding {
 
 extension MonadYakamozBackend: ChatRunning {
     /// Streams one chat turn against the configured Monad server. Maps the
-    /// transport-neutral `ChatRunRequest` directly onto `MonadChatClient.execute`, which
-    /// already decodes SSE frames into `PKShared.ChatEvent` — the exact type
+    /// transport-neutral `TurnRequest` directly onto `MonadChatClient.execute`, which
+    /// already decodes SSE frames into `PKContracts.TurnEvent` — the exact type
     /// `ChatRunning` expects — so no separate event-translation layer is needed here.
-    public func run(_ request: ChatRunRequest) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+    public func run(_ request: TurnRequest) async throws -> AsyncThrowingStream<TurnEvent, Error> {
         do {
             return try await transport.execute(
                 timelineId: request.timelineId,

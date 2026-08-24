@@ -1,6 +1,6 @@
 import Foundation
 import Observation
-import PKShared
+import PKContracts
 import PositronicKit
 
 /// Identifies a well-known LLM provider endpoint, or a user-supplied custom one.
@@ -86,25 +86,25 @@ public struct ProviderSettingsSnapshot: Sendable, Equatable {
 
     /// Maps this snapshot onto the real PositronicKit configuration type.
     public func configuration(apiKey: String) -> LLMConfiguration {
-        let provider = preset.llmProvider
-        var providerConfig = ProviderConfiguration.defaultFor(provider)
-        providerConfig.endpoint = baseURL.absoluteString
-        providerConfig.modelName = model
-        providerConfig.utilityModel = model
-        providerConfig.fastModel = model
-        providerConfig.apiKey = apiKey
-        providerConfig.timeoutInterval = timeoutInterval
-        providerConfig.maxRetries = maxRetries
-        providerConfig.temperature = temperature
-        providerConfig.maxTokens = maxTokens
-        providerConfig.topP = topP
-        providerConfig.frequencyPenalty = frequencyPenalty
-        providerConfig.presencePenalty = presencePenalty
-        providerConfig.seed = seed
-
+        let providerConfiguration = ProviderConfiguration(
+            endpoint: baseURL.absoluteString,
+            apiKey: apiKey,
+            modelName: model,
+            utilityModel: model,
+            fastModel: model,
+            toolFormat: .openAI,
+            timeoutInterval: timeoutInterval,
+            maxRetries: maxRetries,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            topP: topP,
+            frequencyPenalty: frequencyPenalty,
+            presencePenalty: presencePenalty,
+            seed: seed
+        )
         return LLMConfiguration(
-            activeProvider: provider,
-            providers: [provider: providerConfig]
+            activeProvider: preset.llmProvider,
+            providers: [preset.llmProvider: providerConfiguration]
         )
     }
 

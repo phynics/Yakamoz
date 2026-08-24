@@ -7,9 +7,9 @@ import SwiftData
 @MainActor
 public struct OperatorBackendBinding {
     private let modelContext: ModelContext
-    private let timelineStore: any TimelinePersistenceProtocol
+    private let timelineStore: any ThreadPersistenceProtocol
 
-    public init(modelContext: ModelContext, timelineStore: any TimelinePersistenceProtocol) {
+    public init(modelContext: ModelContext, timelineStore: any ThreadPersistenceProtocol) {
         self.modelContext = modelContext
         self.timelineStore = timelineStore
     }
@@ -38,10 +38,10 @@ public struct OperatorBackendBinding {
         operatorModel.backendInstanceId = backendInstanceId
         try modelContext.save()
 
-        try await timelineStore.saveTimeline(Timeline(
+        try await timelineStore.saveThread(YakamozThread(
             id: privateTimelineId,
             title: "[\(operatorModel.name)] Private",
-            attachedAgentInstanceId: backendInstanceId,
+            attachedAgentID: backendInstanceId,
             isPrivate: true
         ))
         return backendInstanceId
@@ -49,16 +49,16 @@ public struct OperatorBackendBinding {
 
     public func attachOperator(_ operatorModel: OperatorModel, to timelineId: UUID) async throws {
         let backendInstanceId = try await ensureBackendInstance(for: operatorModel)
-        guard var timeline = try await timelineStore.fetchTimeline(id: timelineId) else { return }
-        timeline.attachedAgentInstanceId = backendInstanceId
-        timeline.updatedAt = Date()
-        try await timelineStore.saveTimeline(timeline)
+        guard var thread = try await timelineStore.fetchThread(id: timelineId) else { return }
+        thread.attachedAgentID = backendInstanceId
+        thread.updatedAt = Date()
+        try await timelineStore.saveThread(thread)
     }
 
     public func detachOperator(from timelineId: UUID) async throws {
-        guard var timeline = try await timelineStore.fetchTimeline(id: timelineId) else { return }
-        timeline.attachedAgentInstanceId = nil
-        timeline.updatedAt = Date()
-        try await timelineStore.saveTimeline(timeline)
+        guard var thread = try await timelineStore.fetchThread(id: timelineId) else { return }
+        thread.attachedAgentID = nil
+        thread.updatedAt = Date()
+        try await timelineStore.saveThread(thread)
     }
 }

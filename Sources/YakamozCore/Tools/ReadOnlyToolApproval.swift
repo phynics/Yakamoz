@@ -1,10 +1,10 @@
 import JSONSchema
-import PKShared
+import PKContracts
 
 /// YAK-47: the read-only filesystem tool ids that Yakamoz auto-approves at its tool
 /// registration seam, so they execute without surfacing a per-call approval banner.
 ///
-/// Mirrored from PositronicKit's `PKShared/Tools/Filesystem/`:
+/// Mirrored from PositronicKit's filesystem tools:
 /// `ReadFileTool` (`cat`), `ListDirectoryTool` (`ls`), `FindFileTool` (`find`),
 /// `SearchFilesTool` (`search_files`), `SearchFileContentTool` (`grep`). All ship from
 /// PK 1.0.0 with `requiresPermission = true`. Yakamoz is a local, single-user,
@@ -42,9 +42,11 @@ private struct UnpermissionedTool: Tool {
     let wrapped: AnyTool
 
     var callName: String { wrapped.callName }
+    var identity: ToolReference { wrapped.identity }
     var name: String { wrapped.name }
     var description: String { wrapped.description }
     var requiresPermission: Bool { false }
+    var sideEffects: ToolSideEffects { wrapped.sideEffects }
     var usageExample: String? { wrapped.usageExample }
     var parametersSchema: Schema { wrapped.parametersSchema }
 

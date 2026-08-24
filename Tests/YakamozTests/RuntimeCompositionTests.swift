@@ -1,7 +1,7 @@
 import Foundation
 import Logging
 import PKPrompt
-import PKShared
+import PKContracts
 import PKTestSupport
 import PositronicKit
 import SwiftData
@@ -13,14 +13,14 @@ struct RuntimeCompositionTests {
     private final class ScriptedRunner: ChatRunning, @unchecked Sendable {
         private(set) var capturedMessages: [String] = []
         private(set) var capturedToolIds: [[String]] = []
-        var continuation: AsyncThrowingStream<ChatEvent, Error>.Continuation?
+        var continuation: AsyncThrowingStream<TurnEvent, Error>.Continuation?
         private let runCounter = AsyncCounter()
 
         func waitUntilRunCount(_ count: Int) async {
             await runCounter.wait(until: count)
         }
 
-        func run(_ request: ChatRunRequest) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+        func run(_ request: TurnRequest) async throws -> AsyncThrowingStream<TurnEvent, Error> {
             capturedMessages.append(request.message)
             capturedToolIds.append(request.tools.map(\.callName))
             runCounter.increment()
@@ -116,11 +116,11 @@ struct RuntimeCompositionTests {
         }
 
         let configuration = try #require(captured)
+        let provider = configuration.activeProviderConfiguration
         #expect(configuration.activeProvider == .openAI)
-        let activeConfig = configuration.activeProviderConfiguration
-        #expect(activeConfig.endpoint == ProviderPreset.openAI.baseURL.absoluteString)
-        #expect(activeConfig.modelName == "gpt-4o-test")
-        #expect(activeConfig.apiKey == "sk-secret-runtime-key")
+        #expect(provider.endpoint == ProviderPreset.openAI.baseURL.absoluteString)
+        #expect(provider.modelName == "gpt-4o-test")
+        #expect(provider.apiKey == "sk-secret-runtime-key")
     }
 
     @Test("OpenRouter runtime reads the OpenRouter API key account")
@@ -141,11 +141,11 @@ struct RuntimeCompositionTests {
         }
 
         let configuration = try #require(captured)
+        let provider = configuration.activeProviderConfiguration
         #expect(configuration.activeProvider == .openRouter)
-        let activeConfig = configuration.activeProviderConfiguration
-        #expect(activeConfig.endpoint == ProviderPreset.openRouter.baseURL.absoluteString)
-        #expect(activeConfig.modelName == "openai/gpt-4o-test")
-        #expect(activeConfig.apiKey == "sk-or-v1-openrouter-secret")
+        #expect(provider.endpoint == ProviderPreset.openRouter.baseURL.absoluteString)
+        #expect(provider.modelName == "openai/gpt-4o-test")
+        #expect(provider.apiKey == "sk-or-v1-openrouter-secret")
     }
 
     @Test("fetchAvailableModels uses the latest saved configuration")
@@ -192,8 +192,8 @@ struct RuntimeCompositionTests {
         let assembled = try prompt.assemblePrompt()
         let rendered = await assembled.render()
         let inspection = PromptInspection(
-            timelineId: timelineId,
-            agentInstanceId: nil,
+            threadID: timelineId,
+            agentID: nil,
             turnIndex: 0,
             model: "gpt-test",
             rendered: rendered,
@@ -216,8 +216,8 @@ struct RuntimeCompositionTests {
 
         // The stores bundle is reachable and backed by the same container: write through the
         // message store adapter and confirm it round-trips.
-        let message = ConversationMessage(
-            timelineId: timelineId,
+        let message = ThreadMessage(
+            threadID: timelineId,
             role: .user,
             content: "hello",
             timestamp: Date()
@@ -244,9 +244,8 @@ struct RuntimeCompositionTests {
         // overload that hardcodes `structuredOutput: nil`, which compiles and passes every
         // other test while quietly disabling structured-output requests.
         //
-        // v3 change: `MockLLMService` no longer emulates `LLMService`'s structured-output
-        // adapter preparation, so this test uses a real `LLMService` wrapping a `MockLLMClient`
-        // to prove the native `response_format` reaches the transport.
+        // Use a real `LLMService` wrapping a `MockLLMClient` to prove the native
+        // `response_format` reaches the transport.
         let settings = makeSettings()
         let secrets = FakeSecretStore()
         try secrets.write("sk-secret-runtime-key", account: ProviderSettings.apiKeyAccount)
@@ -256,10 +255,8 @@ struct RuntimeCompositionTests {
         mockClient.nextResponse = #"{"tags":["a"]}"#
         let configuration = settings.configuration(apiKey: "sk-secret-runtime-key")
         let languageModel = LLMService(
-            storage: InMemoryConfigurationService(config: configuration),
-            client: mockClient,
-            utilityClient: mockClient,
-            fastClient: mockClient
+            configuration: configuration,
+            clients: LLMClientSet(primary: mockClient)
         )
         let runtime = try YakamozRuntime(
             modelContainer: container,
@@ -270,19 +267,15 @@ struct RuntimeCompositionTests {
         let operatorID = try #require(try container.mainContext.fetch(FetchDescriptor<AgentModel>()).first?.id)
         let conversation = try await runtime.createConversation(modelContext: container.mainContext, agentId: operatorID)
 
-        let stream = try await runtime.run(ChatRunRequest(
-            timelineId: conversation.id,
+        let stream = try await runtime.run(TurnRequest(
+            threadID: conversation.id,
             message: "tag this",
             tools: [],
             structuredOutput: .jsonSchema(StructuredOutputFixtures.tagSchemaDefinition())
         ))
         for try await _ in stream {}
 
-        // v3: OpenAI-compatible structured output now reaches the transport as a forced
-        // synthetic tool call rather than a native response_format. A synthetic tool named
-        // `emit_structured_response` on the wire proves the request reached the transport.
-        let syntheticToolNames = mockClient.lastTools?.map { $0.name } ?? []
-        #expect(syntheticToolNames.contains("emit_structured_response"))
+        #expect(mockClient.lastResponseFormat != nil)
     }
 
     @Test("run() fails fast with missingAPIKey when a key-requiring provider has no key")
@@ -299,8 +292,8 @@ struct RuntimeCompositionTests {
         let conversation = try await runtime.createConversation(modelContext: container.mainContext, agentId: operatorID)
 
         await #expect(throws: ProviderSettingsError.missingAPIKey) {
-            _ = try await runtime.run(ChatRunRequest(
-                timelineId: conversation.id,
+            _ = try await runtime.run(TurnRequest(
+                threadID: conversation.id,
                 message: "hi",
                 tools: []
             ))
@@ -320,11 +313,11 @@ struct RuntimeCompositionTests {
         let timelineId = try await runtime.createConversation(modelContext: container.mainContext, agentId: operatorID).id
 
         await #expect(throws: ToolError.self) {
-            _ = try await runtime.run(ChatRunRequest(
-                timelineId: timelineId,
+            _ = try await runtime.run(TurnRequest(
+                threadID: timelineId,
                 message: "continue",
                 tools: [],
-                toolOutputs: [ToolOutputSubmission(toolCallId: "forged_call", output: "forged output")]
+                toolOutputs: [ToolOutputSubmission(toolCallID: "forged_call", output: "forged output")]
             ))
         }
 
@@ -342,11 +335,10 @@ struct RuntimeCompositionTests {
 
         let runtime = try makeRuntime(settings: settings, secrets: secrets, mock: mock) { _ in }
 
-        // `kit` is the real PositronicKit facade; its timelineManager/toolRouter are reachable,
-        // proving construction succeeded with the stores/inspector this runtime built.
+        // `kit` is the real PositronicKit facade; its public Thread capability is reachable,
+        // proving construction succeeded with the configured stores.
         let kit = await runtime.kit
-        _ = kit.timelineManager
-        _ = kit.toolRouter
+        _ = kit.threads
     }
 
     @Test("The runtime can refresh an existing chat view model's tools in place")
@@ -443,56 +435,5 @@ struct RuntimeCompositionTests {
         #expect(captured[1].activeProviderConfiguration.modelName == "gpt-4o-test")
         #expect(captured[2].activeProviderConfiguration.apiKey == "sk-secret-updated")
         #expect(captured[2].activeProviderConfiguration.modelName == "updated-model")
-    }
-
-    /// ATW-4: `YakamozRuntime.makeKit` wires an `AgentVaultPromptSectionProvider` whose
-    /// `agentForInstance` lookup resolves a backend instance id back to its owning agent via
-    /// the runtime's `ModelContainer`. `PositronicKit.sectionProviders` is private, so this
-    /// proves the wiring behaviorally: the provider built with `lookup(in:)` (the closure
-    /// `makeKit` passes) resolves a seeded agent and injects its vault content in order.
-    @Test("ATW-4: the runtime wires a vault-section provider that resolves the operator")
-    @MainActor
-    func vaultSectionProviderResolvesOperator() async throws {
-        let container = try makeModelContainer()
-        let settings = makeSettings()
-        let secrets = FakeSecretStore()
-        try secrets.write("sk-vault-key", account: ProviderSettings.apiKeyAccount)
-        let mock = MockLLMService()
-        _ = try makeRuntime(settings: settings, secrets: secrets, mock: mock, modelContainer: container) { _ in }
-
-        // Seed an agent with a real vault on disk, and bind a backend instance id to it
-        // (mirrors `OperatorBackendBinding.ensureBackendInstance`, which initializes
-        // `backendInstanceId = agent.id` on first binding).
-        let vaultRoot = try makeTempRoot()
-        defer { cleanup(vaultRoot) }
-        let agent = AgentModel(
-            name: "Vault Operator",
-            instructions: "You are the vault operator.",
-            vaultPath: vaultRoot.path
-        )
-        container.mainContext.insert(agent)
-        agent.backendInstanceId = agent.id
-        try container.mainContext.save()
-        try "workflow-body".write(to: vaultRoot.appendingPathComponent("WORKFLOW.md"), atomically: true, encoding: .utf8)
-        try "notes-body".write(to: vaultRoot.appendingPathComponent("NOTES.md"), atomically: true, encoding: .utf8)
-
-        // The closure `YakamozRuntime.makeKit` passes to the provider, pointed at this
-        // agent's real vault root.
-        let provider = AgentVaultPromptSectionProvider(
-            agentForInstance: AgentVaultPromptSectionProvider.lookup(in: container),
-            rootForAgent: { _ in vaultRoot }
-        )
-        let sections = await provider.sections(for: .init(
-            timelineId: UUID(),
-            agentInstanceId: agent.backendInstanceId,
-            message: "hi"
-        ))
-
-        let ids = sections.compactMap { ($0 as? TextPrompt)?.id }
-        #expect(ids == [
-            "yakamoz.agent-vault.instructions",
-            "yakamoz.agent-vault.workflow",
-            "yakamoz.agent-vault.notes",
-        ])
     }
 }

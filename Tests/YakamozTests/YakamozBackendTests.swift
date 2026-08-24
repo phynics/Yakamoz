@@ -1,5 +1,5 @@
 import Foundation
-import PKShared
+import PKContracts
 import PositronicKit
 import SwiftData
 import Testing
@@ -18,14 +18,14 @@ struct YakamozBackendSeamTests {
         var workspaces: [BackendWorkspaceSummary] = []
         var selectedAgentByTimeline: [UUID: UUID?] = [:]
         var attachedWorkspacesByTimeline: [UUID: Set<UUID>] = [:]
-        var lastRunRequest: ChatRunRequest?
+        var lastRunRequest: TurnRequest?
         let inspectorAvailable = true
 
         func backendHealthCheck() async -> AppHealthStatus {
             .ok
         }
 
-        func run(_ request: ChatRunRequest) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+        func run(_ request: TurnRequest) async throws -> AsyncThrowingStream<TurnEvent, Error> {
             lastRunRequest = request
             return AsyncThrowingStream { $0.finish() }
         }
@@ -88,8 +88,8 @@ struct YakamozBackendSeamTests {
         try await backend.attachWorkspace(workspaceId, toTimeline: timeline.id)
         try await backend.detachWorkspace(workspaceId, fromTimeline: timeline.id)
 
-        let stream = try await backend.run(ChatRunRequest(timelineId: timeline.id, message: "hi", tools: []))
-        var events: [ChatEvent] = []
+        let stream = try await backend.run(TurnRequest(timelineId: timeline.id, message: "hi", tools: []))
+        var events: [TurnEvent] = []
         for try await event in stream {
             events.append(event)
         }
@@ -105,9 +105,9 @@ struct YakamozBackendSeamTests {
 @MainActor
 struct LocalYakamozBackendTests {
     private final class ScriptedRunner: ChatRunning, @unchecked Sendable {
-        private(set) var capturedRequests: [ChatRunRequest] = []
+        private(set) var capturedRequests: [TurnRequest] = []
 
-        func run(_ request: ChatRunRequest) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+        func run(_ request: TurnRequest) async throws -> AsyncThrowingStream<TurnEvent, Error> {
             capturedRequests.append(request)
             return AsyncThrowingStream { $0.finish() }
         }
@@ -152,7 +152,7 @@ struct LocalYakamozBackendTests {
         let backend = makeBackend(container: container, runner: runner)
 
         let timelineId = UUID()
-        let request = ChatRunRequest(timelineId: timelineId, message: "hello", tools: [])
+        let request = TurnRequest(timelineId: timelineId, message: "hello", tools: [])
         _ = try await backend.run(request)
 
         #expect(runner.capturedRequests.count == 1)
@@ -306,7 +306,7 @@ struct MonadYakamozBackendStubTests {
             try await stub.detachWorkspace(UUID(), fromTimeline: UUID())
         }
         await #expect(throws: MonadBackendUnavailable.self) {
-            try await stub.run(ChatRunRequest(timelineId: UUID(), message: "hi", tools: []))
+            try await stub.run(TurnRequest(timelineId: UUID(), message: "hi", tools: []))
         }
     }
 }

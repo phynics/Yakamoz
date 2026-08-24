@@ -1,5 +1,5 @@
 import Foundation
-import PKShared
+import PKContracts
 import PKTestSupport
 import PositronicKit
 import SwiftData
@@ -30,7 +30,7 @@ struct ConversationCoordinatorTests {
 
         #expect(conversation.title == "Hello World")
 
-        let timeline = try await stores.timelines.fetchTimeline(id: conversation.id)
+        let timeline = try await stores.timelines.fetchThread(id: conversation.id)
         #expect(timeline != nil)
         #expect(timeline?.id == conversation.id)
         #expect(timeline?.title == "Hello World")
@@ -58,8 +58,10 @@ struct ConversationCoordinatorTests {
         #expect(conversation.agentId == agent.id)
         #expect(conversation.attachedWorkspaceIds == [workspaceId])
         #expect(agent.backendInstanceId == agent.id)
-        let timeline = try #require(await stores.timelines.fetchTimeline(id: conversation.id))
-        #expect(timeline.attachedAgentInstanceId == agent.id)
+        let templates = try container.mainContext.fetch(FetchDescriptor<AgentTemplateModel>())
+        #expect(templates.first(where: { $0.id == agent.id })?.systemPrompt == agent.instructions)
+        let timeline = try #require(await stores.timelines.fetchThread(id: conversation.id))
+        #expect(timeline.attachedAgentID == agent.id)
     }
 
     @Test("operator swap updates the agent and appends one named system marker")
@@ -89,8 +91,8 @@ struct ConversationCoordinatorTests {
         #expect(messages.last?.content == "Operator changed: Ada → Grace")
         #expect(first.backendInstanceId == first.id)
         #expect(second.backendInstanceId == second.id)
-        let timeline = try #require(await stores.timelines.fetchTimeline(id: conversation.id))
-        #expect(timeline.attachedAgentInstanceId == second.id)
+        let timeline = try #require(await stores.timelines.fetchThread(id: conversation.id))
+        #expect(timeline.attachedAgentID == second.id)
     }
 
     @Test("createConversation persists workspace order and home timeline flag")
@@ -107,7 +109,7 @@ struct ConversationCoordinatorTests {
 
         #expect(conversation.attachedWorkspaceIds == ids)
         #expect(conversation.isHomeTimeline)
-        #expect(try await stores.timelines.fetchTimeline(id: conversation.id)?.attachedWorkspaceIds == ids)
+        #expect(try await stores.timelines.fetchThread(id: conversation.id)?.id == conversation.id)
     }
 
     @Test("operator transitions to and from none each append exactly one marker")
@@ -153,7 +155,7 @@ struct ConversationCoordinatorTests {
         let runtime = try YakamozRuntime(modelContainer: container, settings: ProviderSettings(defaults: defaults), secrets: FakeSecretStore(), llmServiceFactory: { _ in MockLLMService() })
         let conversation = try await runtime.createConversation(modelContext: container.mainContext)
         await #expect(throws: ConversationRunError.operatorRequired) {
-            _ = try await runtime.run(ChatRunRequest(timelineId: conversation.id, message: "hello", tools: []))
+            _ = try await runtime.run(TurnRequest(threadID: conversation.id, message: "hello", tools: []))
         }
     }
 
@@ -177,7 +179,7 @@ struct ConversationCoordinatorTests {
             title: "Runtime Chat"
         )
 
-        let timeline = try await runtime.stores.timelines.fetchTimeline(id: conversation.id)
+        let timeline = try await runtime.stores.timelines.fetchThread(id: conversation.id)
         #expect(timeline?.id == conversation.id)
         #expect(timeline?.title == "Runtime Chat")
     }

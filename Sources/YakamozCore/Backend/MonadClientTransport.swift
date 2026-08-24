@@ -1,7 +1,7 @@
 import Foundation
 import MonadClient
 import MonadShared
-import PKShared
+import PKContracts
 
 /// The narrow slice of `MonadClient` that `MonadYakamozBackend` actually drives: status,
 /// timeline list/create/load, and one chat-turn stream.
@@ -24,7 +24,7 @@ public protocol MonadClientTransport: Sendable {
         message: String,
         toolOutputs: [ToolOutputSubmission]?,
         clientTools: [ToolReference]?
-    ) async throws -> AsyncThrowingStream<ChatEvent, Error>
+    ) async throws -> AsyncThrowingStream<TurnEvent, Error>
 
     // MARK: - YAK-MON-4: server agent instances/templates
 
@@ -69,7 +69,7 @@ public struct LiveMonadClientTransport: MonadClientTransport {
         message: String,
         toolOutputs: [ToolOutputSubmission]?,
         clientTools: [ToolReference]?
-    ) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+    ) async throws -> AsyncThrowingStream<TurnEvent, Error> {
         try await client.chat.execute(
             timelineId: timelineId,
             message: message,

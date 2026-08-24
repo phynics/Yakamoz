@@ -1,4 +1,6 @@
 import Foundation
+import Observation
+import PKContracts
 import PositronicKit
 
 /// A node in the prompt section tree: an `InspectionSectionDTO` plus its children,

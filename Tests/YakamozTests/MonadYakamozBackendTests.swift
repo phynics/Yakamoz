@@ -1,7 +1,7 @@
 import Foundation
 import MonadClient
 import MonadShared
-import PKShared
+import PKContracts
 import PositronicKit
 import Testing
 @testable import YakamozCore
@@ -18,7 +18,7 @@ struct MonadYakamozBackendTests {
         var statusResult: Result<StatusResponse, Error> = .failure(MonadClientError.serverNotReachable)
         var timelines: [TimelineResponse] = []
         var createdTitle: String?
-        var executeResult: Result<[ChatEvent], Error> = .success([])
+        var executeResult: Result<[TurnEvent], Error> = .success([])
         var lastExecuteRequest: (
             timelineId: UUID,
             message: String,
@@ -71,7 +71,7 @@ struct MonadYakamozBackendTests {
             message: String,
             toolOutputs: [ToolOutputSubmission]?,
             clientTools: [ToolReference]?
-        ) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+        ) async throws -> AsyncThrowingStream<TurnEvent, Error> {
             lastExecuteRequest = (timelineId, message, toolOutputs, clientTools)
             let events = try executeResult.get()
             return AsyncThrowingStream { continuation in
@@ -268,10 +268,10 @@ struct MonadYakamozBackendTests {
         let backend = MonadYakamozBackend(transport: transport)
 
         let timelineId = UUID()
-        let request = ChatRunRequest(timelineId: timelineId, message: "Hello")
+        let request = TurnRequest(timelineId: timelineId, message: "Hello")
         let stream = try await backend.run(request)
 
-        var received: [ChatEvent] = []
+        var received: [TurnEvent] = []
         for try await event in stream {
             received.append(event)
         }
@@ -288,10 +288,10 @@ struct MonadYakamozBackendTests {
     func runForwardsDeferredWorkspaceToolOutputs() async throws {
         let transport = FakeTransport()
         let backend = MonadYakamozBackend(transport: transport)
-        let toolOutput = ToolOutputSubmission(toolCallId: "workspace-call", output: "README contents")
+        let toolOutput = ToolOutputSubmission(toolCallID: "workspace-call", output: "README contents")
 
         _ = try await backend.run(
-            ChatRunRequest(
+            TurnRequest(
                 timelineId: UUID(),
                 message: "Continue after the workspace result.",
                 toolOutputs: [toolOutput]
@@ -300,7 +300,7 @@ struct MonadYakamozBackendTests {
 
         let recorded = await transport.lastExecuteRequest
         #expect(recorded?.toolOutputs?.count == 1)
-        #expect(recorded?.toolOutputs?.first?.toolCallId == "workspace-call")
+        #expect(recorded?.toolOutputs?.first?.toolCallID == "workspace-call")
         #expect(recorded?.toolOutputs?.first?.output == "README contents")
         #expect(recorded?.clientTools == nil)
     }
@@ -312,7 +312,7 @@ struct MonadYakamozBackendTests {
         let backend = MonadYakamozBackend(transport: transport)
 
         await #expect(throws: MonadBackendHealthError.self) {
-            _ = try await backend.run(ChatRunRequest(timelineId: UUID(), message: "Hello"))
+            _ = try await backend.run(TurnRequest(timelineId: UUID(), message: "Hello"))
         }
     }
 
@@ -472,7 +472,7 @@ struct MonadYakamozBackendTests {
         let transport = FakeTransport()
         let timelineId = UUID()
         let primary = WorkspaceReference(
-            uri: .timelineWorkspace(timelineId),
+            uri: .threadWorkspace(timelineId),
             location: .runtime,
             rootPath: "/tmp/primary"
         )
@@ -556,7 +556,7 @@ private extension MonadYakamozBackendTests.FakeTransport {
         timelines.append(timeline)
     }
 
-    func setExecuteResult(_ result: Result<[ChatEvent], Error>) {
+    func setExecuteResult(_ result: Result<[TurnEvent], Error>) {
         executeResult = result
     }
 

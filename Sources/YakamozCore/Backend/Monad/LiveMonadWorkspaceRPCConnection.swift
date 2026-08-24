@@ -1,5 +1,5 @@
 import Foundation
-import PKShared
+import PKContracts
 
 /// `URLSessionWebSocketTask`-backed `MonadWorkspaceRPCConnection` implementing the
 /// documented client half of Monad's `/v1/connect` wire format: connect with an

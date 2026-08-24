@@ -2,7 +2,7 @@ import Foundation
 import JSONSchema
 import JSONSchemaBuilder
 import Logging
-import PKShared
+import PKContracts
 
 // MARK: - Truncation and rendering (YAK-T6)
 

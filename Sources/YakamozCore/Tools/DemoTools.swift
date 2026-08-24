@@ -1,7 +1,7 @@
 import Foundation
 import JSONSchema
 import JSONSchemaBuilder
-import PKShared
+import PKContracts
 
 /// Errors produced by `CalculatorTool`'s hand-written recursive-descent parser.
 public enum CalculatorError: PKError, Sendable, Equatable {

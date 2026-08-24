@@ -1,6 +1,5 @@
 import Foundation
-import PKPrompt
-import PKShared
+import PKContracts
 import PositronicKit
 import Testing
 @testable import YakamozCore
@@ -57,28 +56,29 @@ struct AgentExtensionTests {
         #expect(decoded.isBuiltIn == false)
     }
 
-    // MARK: - Current-time prompt section
+    // MARK: - Current-time turn context
 
     @Test
     func currentTimeSectionIsDeterministicWithFixedClock() async throws {
         let fixed = Date(timeIntervalSince1970: 1_700_000_000) // 2023-11-14T22:13:20Z
-        let provider = CurrentTimeSectionProvider(now: { fixed })
-        let context = PromptBuildContext(timelineId: UUID(), agentInstanceId: nil, message: "hi")
+        let provider = CurrentTimeContextSource(now: { fixed })
+        let request = TurnContextRequest(
+            threadID: UUID(),
+            turnID: UUID(),
+            requestID: UUID(),
+            agentID: nil,
+            executionKind: .agentManaged,
+            message: "hi"
+        )
 
-        let sections = await provider.sections(for: context)
-        #expect(sections.count == 1)
+        let contributions = try await provider.contributions(for: request)
+        #expect(contributions.count == 1)
 
-        let expectedContent = CurrentTimeSectionProvider.content(for: fixed)
+        let expectedContent = CurrentTimeContextSource.content(for: fixed)
         #expect(expectedContent == "Current time (UTC): 2023-11-14T22:13:20Z")
-
-        // The section must carry the stable id, low priority, volatile cache, .keep compression.
-        // `TextPrompt` exposes these traits publicly; the concrete `PromptSection`/`PromptNode`
-        // accessors are `package` and not reachable from the app/test boundary.
-        let textPrompt = try #require(sections.first as? TextPrompt)
-        #expect(textPrompt.id == CurrentTimeSectionProvider.sectionID)
-        #expect(textPrompt.priority == PromptPriority.low.rawValue)
-        #expect(textPrompt.cachePolicy == .volatile)
-        #expect(textPrompt.compression == .keep)
+        #expect(contributions[0].namespace == "yakamoz")
+        #expect(contributions[0].key == "current-time")
+        #expect(contributions[0].value.textValue == expectedContent)
     }
 
 }

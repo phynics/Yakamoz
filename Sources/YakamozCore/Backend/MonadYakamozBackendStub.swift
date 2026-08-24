@@ -1,5 +1,5 @@
 import Foundation
-import PKShared
+import PKContracts
 import PositronicKit
 
 /// Placeholder Monad-backed `YakamozBackend`. Concrete HTTP/SSE transport against a
@@ -21,7 +21,7 @@ public struct MonadYakamozBackendStub: YakamozBackend {
         .down
     }
 
-    public func run(_: ChatRunRequest) async throws -> AsyncThrowingStream<ChatEvent, Error> {
+    public func run(_: TurnRequest) async throws -> AsyncThrowingStream<TurnEvent, Error> {
         throw MonadBackendUnavailable()
     }
 

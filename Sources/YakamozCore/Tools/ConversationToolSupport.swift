@@ -1,6 +1,6 @@
 import Foundation
 import Logging
-import PKShared
+import PKContracts
 import SwiftData
 
 public struct ConversationToolOption: Sendable, Equatable, Identifiable {

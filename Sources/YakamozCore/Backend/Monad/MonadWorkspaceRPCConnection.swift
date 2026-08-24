@@ -1,5 +1,5 @@
 import Foundation
-import PKShared
+import PKContracts
 
 /// The client side of Monad's `/v1/connect` WebSocket RPC channel — the seam
 /// `MonadWorkspaceProvider` uses to receive server-pushed `workspace/*` requests and send

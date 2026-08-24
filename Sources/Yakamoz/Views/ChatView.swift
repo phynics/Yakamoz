@@ -520,7 +520,7 @@ struct ChatView: View {
         // context for the upcoming turn's `section_title` directive (mirrors SID-1's
         // current-title feed). Fetched via the runtime so the app target does not need
         // to construct a `ConversationCoordinator` (which would name
-        // `TimelinePersistenceProtocol`, a PositronicKit type the app target must not
+        // `ThreadPersistenceProtocol`, a PositronicKit type the app target must not
         // import per the architecture boundary).
         let currentSectionTitle = await runtime.fetchCurrentSectionTitle(conversationId: conversation.id)
         let chat = await runtime.makeChatViewModel(
