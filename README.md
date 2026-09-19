@@ -2,7 +2,7 @@
 
 A native macOS chat client that puts the **prompt pipeline under glass**. Yakamoz drives
 the shared [`PositronicKit`](https://github.com/phynics/PositronicKit) agent runtime and, for every assistant turn,
-exposes exactly what was assembled, sent, journaled, and returned — through a six-tab
+exposes exactly what was assembled, sent, journaled, and returned — through a five-tab
 inspector drawer. It is a showcase/dev app, not a shipping product. Work is tracked as
 [GitHub issues](https://github.com/phynics/Yakamoz/issues).
 
@@ -52,13 +52,14 @@ scheme (the app target links only `YakamozCore`; see the boundary note below).
 ## Providers, presets, and secret storage
 
 Provider configuration lives in **Settings** (⌘,) and is backed by `ProviderSettings`.
-Three presets ship, each mapped to a `PositronicKit` provider adapter:
+Four presets ship, each mapped to a `PositronicKit` provider adapter:
 
 | Preset       | Adapter                | Notes                                        |
 | ------------ | ---------------------- | -------------------------------------------- |
 | **OpenAI**   | `PKOpenAIProvider`     | Default. `https://api.openai.com/v1`.        |
 | **OpenRouter** | `PKOpenRouterProvider` | `https://openrouter.ai/api/v1`.              |
 | **Ollama**   | `PKOllamaProvider`     | Local; typically no API key required.        |
+| **Custom**   | `PKOpenAIProvider`     | OpenAI-compatible; defaults to `http://localhost:8080/v1` and requires an API key. |
 
 - **API keys are stored in `UserDefaults`, in plaintext.** Keys are stored in a dedicated
   preferences suite under provider-specific accounts, so switching presets does not clobber
@@ -104,10 +105,11 @@ On a normal (non-sandboxed) run the SwiftData database lives under the user's
 and reports the resolved path if the persistent container fails to open. Tests use in-memory
 or temporary `ModelContainer`s and do not touch this location.
 
-## The inspector — six tabs
+## The inspector — five tabs
 
-Open with the toolbar info button or **⌘I**. Each tab inspects the currently selected
-assistant turn:
+Open with the toolbar info button or **⌘I**. The drawer has two modes. **Compose** shows the
+conversation's provider, workspace, and tool settings; **Inspect** shows the currently
+selected assistant turn in five tabs:
 
 1. **Prompt** — the assembled section tree (role, priority, compression, cache policy,
    estimated tokens, and per-section compression outcome).
@@ -115,12 +117,16 @@ assistant turn:
    selectable JSON view.
 3. **Journal** — the turn's `PromptJournal` evolution: changed/added/removed semi-stable
    sections, stable-prefix count, and whether compaction ran.
-4. **Response** — reconstructed text/thinking, model, finish reason, token usage, and (for
-   typed-reply conversations) the requested schema / parsed JSON / validation error.
-5. **Tools** — every tool call in the turn, with status, output/error, and elapsed time.
-6. **Workspace** — the attached folder's contents and the files touched during the turn.
+4. **Response** — reconstructed text/thinking, model, finish reason, and token usage.
+5. **Tools** — every tool call in the turn, with status, output/error, and elapsed time; a
+   turn still live in memory also lists the workspace files it touched (a reloaded turn
+   shows none).
 
-Keyboard: **⌘1…⌘6** jump directly to a tab (opening the drawer if closed).
+The attached workspace itself (identity, path, health, tools, and detach) is shown in
+**Compose → Workspace**; the toolbar's workspace chip attaches folders and creates terminals.
+
+Keyboard: **⌘1…⌘5** jump directly to an inspect tab (opening the drawer if closed); with no
+turn selected, Compose mode has no tabs and the shortcuts are a no-op.
 
 ## Exact-vs-projected data boundary
 
@@ -162,7 +168,7 @@ from disk.
 | -------- | ------------------------------ |
 | ⌘N       | New chat                       |
 | ⌘I       | Toggle the inspector drawer    |
-| ⌘1 … ⌘6  | Select an inspector tab        |
+| ⌘1 … ⌘5  | Select an inspect tab (turn selected) |
 | ↩        | Send (⇧↩ inserts a newline)    |
 
 The composer regains focus after each send.
