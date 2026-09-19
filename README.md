@@ -3,7 +3,8 @@
 A native macOS chat client that puts the **prompt pipeline under glass**. Yakamoz drives
 the shared [`PositronicKit`](https://github.com/phynics/PositronicKit) agent runtime and, for every assistant turn,
 exposes exactly what was assembled, sent, journaled, and returned — through a six-tab
-inspector drawer. It is a showcase/dev app, not a shipping product.
+inspector drawer. It is a showcase/dev app, not a shipping product. Work is tracked as
+[GitHub issues](https://github.com/phynics/Yakamoz/issues).
 
 ## Prerequisites
 
@@ -44,9 +45,6 @@ make test TEST_FILTER=InspectableChatIntegrationTests
 `make verify` is the CI gate. It runs `xcodegen generate`, then
 `xcodebuild test -scheme Yakamoz -destination 'platform=macOS' -skipMacroValidation`,
 and parses the `xcodebuild` output to fail the command if the executed test count is zero.
-
-For the Local-versus-Monad operating model and the real-server verification checklist, see
-[Monad mode: operation guide and manual smoke](docs/monad-mode-manual-smoke.md).
 
 To run the app, open the generated `Yakamoz.xcodeproj` in Xcode and run the **Yakamoz**
 scheme (the app target links only `YakamozCore`; see the boundary note below).
@@ -177,18 +175,19 @@ memory, embedding-backed context gathering) and the broader multi-stage retrieva
 The runtime composes without them so the inspector story stays focused on prompt assembly,
 sending, journaling, response, tools, and workspaces.
 
-When the delayed YAK-5 embeddings pipeline resumes, any Yakamoz document/note/workspace
-ingestion must apply `EmbeddingInputBudget.default` before calling local embeddings:
-64 texts per batch, 64 KiB per text, and 256 KiB total per batch. Larger inputs should be
-chunked within that budget or rejected before invoking PositronicKit.
+If/when an embeddings pipeline lands, any Yakamoz document/note/workspace ingestion must
+apply `EmbeddingInputBudget.default` before calling local embeddings: 64 texts per batch,
+64 KiB per text, and 256 KiB total per batch. Larger inputs should be chunked within that
+budget or rejected before invoking PositronicKit.
 
 ## Architecture boundary
 
 The **app target** (`Sources/Yakamoz`) imports only `SwiftUI`, `SwiftData`, and
-`YakamozCore`. It never names a `PositronicKit`/`PKShared` type directly — boundary mirror
-types (e.g. `AppHealthStatus`, `UICoordinator`) live in the app/core so the optimized test
-build's linker never needs the unembedded framework metadata. All shared runtime logic lives
-in `YakamozCore` (which links PositronicKit) or upstream in `PositronicKit` itself.
+`YakamozCore`. It never names a `PositronicKit`/`PKContracts` type directly — boundary
+mirror types (e.g. `AppHealthStatus`, `UICoordinator`) live in the app/core so the
+optimized test build's linker never needs the unembedded framework metadata. All shared
+runtime logic lives in `YakamozCore` (which links PositronicKit) or upstream in
+`PositronicKit` itself.
 
 ## License
 

@@ -85,11 +85,6 @@ struct YakamozApp: App {
     private let terminalApprover: MainActorApprover
     private let toolApprover: MainActorToolApprover
     private let providerStatus: ProviderStatusViewModel?
-    /// YAK-MON-9: read-only Monad server connection status, separate from `providerStatus`
-    /// (local LLM provider settings) — always constructible (doesn't depend on `runtime`
-    /// having initialized), so the Monad settings tab is available even if local runtime
-    /// setup failed.
-    private let monadProfileStatus: MonadProfileStatusViewModel
     private let setupError: String?
 
     @State private var coordinator = UICoordinator()
@@ -138,7 +133,6 @@ struct YakamozApp: App {
         }
         runtime = builtRuntime
         providerStatus = builtRuntime.map { ProviderStatusViewModel(settings: settings, secrets: secrets, runtime: $0) }
-        monadProfileStatus = MonadProfileStatusViewModel(secrets: secrets)
     }
 
     /// Bundle identifier used as the per-app subdirectory under Application Support, and as
@@ -267,25 +261,14 @@ struct YakamozApp: App {
         .defaultSize(width: 1200, height: 820)
 
         Settings {
-            TabView {
-                Group {
-                    if let providerStatus {
-                        SettingsView(providerStatus: providerStatus, settings: settings, secrets: secrets)
-                    } else {
-                        ContentUnavailableView(
-                            "Settings Unavailable",
-                            systemImage: "exclamationmark.triangle",
-                            description: Text(setupError ?? "The app runtime failed to initialize.")
-                        )
-                    }
-                }
-                .tabItem { Label("Local Provider", systemImage: "cpu") }
-
-                // YAK-MON-9: a separate tab for the active Monad server profile, kept out of
-                // `SettingsView` so local provider settings are never mixed with server-owned
-                // configuration.
-                MonadServerSettingsView(status: monadProfileStatus)
-                    .tabItem { Label("Monad Server", systemImage: "server.rack") }
+            if let providerStatus {
+                SettingsView(providerStatus: providerStatus, settings: settings, secrets: secrets)
+            } else {
+                ContentUnavailableView(
+                    "Settings Unavailable",
+                    systemImage: "exclamationmark.triangle",
+                    description: Text(setupError ?? "The app runtime failed to initialize.")
+                )
             }
         }
     }

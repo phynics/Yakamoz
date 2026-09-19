@@ -8,7 +8,7 @@ import Testing
 /// YAK-MON-2: exercises the `YakamozBackend` seam itself — a fully in-memory fake
 /// conforming to the composed protocol (no `LocalYakamozBackend`, no `YakamozRuntime`,
 /// no network) — proving the protocols are narrow enough to fake end to end, and that
-/// `LocalYakamozBackend`/`MonadYakamozBackendStub` both satisfy the same seam.
+/// `LocalYakamozBackend` satisfies the same seam.
 @Suite("YakamozBackend seam")
 struct YakamozBackendSeamTests {
     /// A minimal in-memory fake backend: no SwiftData, no `YakamozRuntime`, no network.
@@ -88,7 +88,7 @@ struct YakamozBackendSeamTests {
         try await backend.attachWorkspace(workspaceId, toTimeline: timeline.id)
         try await backend.detachWorkspace(workspaceId, fromTimeline: timeline.id)
 
-        let stream = try await backend.run(TurnRequest(timelineId: timeline.id, message: "hi", tools: []))
+        let stream = try await backend.run(TurnRequest(threadID: timeline.id, message: "hi", tools: []))
         var events: [TurnEvent] = []
         for try await event in stream {
             events.append(event)
@@ -152,11 +152,11 @@ struct LocalYakamozBackendTests {
         let backend = makeBackend(container: container, runner: runner)
 
         let timelineId = UUID()
-        let request = TurnRequest(timelineId: timelineId, message: "hello", tools: [])
+        let request = TurnRequest(threadID: timelineId, message: "hello", tools: [])
         _ = try await backend.run(request)
 
         #expect(runner.capturedRequests.count == 1)
-        #expect(runner.capturedRequests.first?.timelineId == timelineId)
+        #expect(runner.capturedRequests.first?.threadID == timelineId)
         #expect(runner.capturedRequests.first?.message == "hello")
     }
 
@@ -266,47 +266,5 @@ struct LocalYakamozBackendTests {
         let container = try makeContainer()
         let backend = makeBackend(container: container)
         #expect(backend.inspectorAvailable)
-    }
-}
-
-/// `MonadYakamozBackendStub` is a placeholder that compiles against the seam but has no
-/// real transport yet (later ticket). Every operation should fail loudly rather than
-/// silently behaving like an empty local workspace.
-@Suite("MonadYakamozBackendStub")
-struct MonadYakamozBackendStubTests {
-    @Test("every backend operation throws MonadBackendUnavailable")
-    func allOperationsThrow() async throws {
-        let stub = MonadYakamozBackendStub()
-
-        #expect(await stub.backendHealthCheck() == .down)
-        #expect(!stub.inspectorAvailable)
-
-        await #expect(throws: MonadBackendUnavailable.self) {
-            try await stub.listTimelines()
-        }
-        await #expect(throws: MonadBackendUnavailable.self) {
-            try await stub.createTimeline(title: "x")
-        }
-        await #expect(throws: MonadBackendUnavailable.self) {
-            try await stub.loadTimeline(id: UUID())
-        }
-        await #expect(throws: MonadBackendUnavailable.self) {
-            try await stub.listAgents()
-        }
-        await #expect(throws: MonadBackendUnavailable.self) {
-            try await stub.selectAgent(nil, forTimeline: UUID())
-        }
-        await #expect(throws: MonadBackendUnavailable.self) {
-            try await stub.listWorkspaces()
-        }
-        await #expect(throws: MonadBackendUnavailable.self) {
-            try await stub.attachWorkspace(UUID(), toTimeline: UUID())
-        }
-        await #expect(throws: MonadBackendUnavailable.self) {
-            try await stub.detachWorkspace(UUID(), fromTimeline: UUID())
-        }
-        await #expect(throws: MonadBackendUnavailable.self) {
-            try await stub.run(TurnRequest(timelineId: UUID(), message: "hi", tools: []))
-        }
     }
 }

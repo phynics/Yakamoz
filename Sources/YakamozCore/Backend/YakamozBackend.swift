@@ -1,10 +1,9 @@
 import Foundation
 import PositronicKit
 
-// YAK-MON-2: the backend seam so UI/view models can eventually run against either the
-// existing local runtime (`LocalYakamozBackend`) or a future Monad-backed adapter
-// (`MonadYakamozBackendStub`, concrete transport lands in a later ticket) without
-// forcing server concepts into the local model.
+// The backend seam so UI/view models can run against the local runtime
+// (`LocalYakamozBackend`) without coupling to concrete runtime types, and so tests can
+// substitute fakes at a narrow protocol boundary.
 //
 // Each sub-protocol below covers exactly one surface the UI needs. They compose into
 // `YakamozBackend` via a typealias rather than one fat protocol, so a fake backend used
@@ -12,8 +11,7 @@ import PositronicKit
 // through a narrower alias.
 
 /// App-safe summary of a chat timeline/conversation, independent of the SwiftData
-/// `ConversationModel` type so a Monad-backed adapter can produce the same shape from a
-/// server response with no local persistence involved.
+/// `ConversationModel` type.
 public struct BackendTimelineSummary: Sendable, Identifiable, Equatable, Hashable {
     public let id: UUID
     public let title: String
@@ -79,8 +77,7 @@ public protocol BackendWorkspaceManaging: Sendable {
 }
 
 /// Whether the turn-inspector ("prompt pipeline under glass") tab has anything to show
-/// for this backend. Local mode always does (`SwiftDataPromptInspector`); a Monad-backed
-/// adapter may not until a later ticket wires a remote inspector surface.
+/// for this backend. The local backend always does (`SwiftDataPromptInspector`).
 public protocol BackendInspectorProviding: Sendable {
     var inspectorAvailable: Bool { get }
 }

@@ -1,60 +1,60 @@
 # CLAUDE.md — Yakamoz
 
-Yakamoz-specific workflow only. Workspace-wide rules (repo ownership, per-subproject
-build commands, shared conventions): [../CLAUDE.md](../CLAUDE.md). Product, feature, and
-architecture detail: [README.md](README.md). `AGENTS.md` is identical to this file.
+Yakamoz is a standalone repository. Product, feature, and architecture detail:
+[README.md](README.md). `AGENTS.md` is identical to this file.
 
 Local, non-sandboxed, single-user macOS SwiftUI showcase app driving `PositronicKit`.
 No server/client — all workspaces are local.
 
 ## Build notes
 
-Commands are in [../CLAUDE.md](../CLAUDE.md) ("Commands"). Gotchas: run `make generate`
-after editing `project.yml`; trust `make verify` (a bare `swift test` can pass having run
-**0** tests); if a build fails with `missing Metal Toolchain`, run
-`xcodebuild -downloadComponent MetalToolchain` once.
+All commands run from this directory and go through the [`Makefile`](Makefile), which wraps
+`xcodegen` + `xcodebuild` with a project-local `DerivedData`/`SourcePackages` path:
+
+```bash
+make generate   # regenerate Yakamoz.xcodeproj from project.yml
+make build      # generate + build the app
+make test       # generate + run the full test suite (macOS destination)
+make verify     # generate + headless xcodebuild test, failing if zero tests execute
+
+make test TEST_FILTER=InspectableChatIntegrationTests   # single suite/class
+```
+
+Gotchas: run `make generate` after editing `project.yml`; trust `make verify` (a bare
+`swift test` can pass having run **0** tests); if a build fails with `missing Metal
+Toolchain`, run `xcodebuild -downloadComponent MetalToolchain` once.
 
 ## Boundaries
 
 App target (`Sources/Yakamoz`) imports only SwiftUI/SwiftData/`YakamozCore`, never a
-`PositronicKit`/`PKShared` type (README "Architecture boundary"). Put reusable logic in
-`YakamozCore` or upstream in `PositronicKit`, not the app. Match a file's existing test
-framework; don't mix within a file.
+`PositronicKit` type (README "Architecture boundary"). Put reusable logic in `YakamozCore`
+or upstream in `PositronicKit`, not the app. Match a file's existing test framework; don't
+mix within a file.
 
-## Workflow: plan → ticket → review → ticket → …
+Dependencies resolve from released versions: `PositronicKit` is pinned in `project.yml` to
+an exact semver (`exactVersion`), never a local path. To develop against an unreleased
+PositronicKit change, use an Xcode local package override in your working copy only; do not
+commit a path dependency.
 
-A loop, not a line:
+## Workflow: issue → implement → review → issue → …
 
-- **Plan** — spec + ticket-by-ticket plan in [`../workflow/Yakamoz/`](../workflow/Yakamoz/)
-  (`specs/`, `plans/`, `checkpoints/`); read before implementing.
-- **Ticket** — decompose into tickets in [`../workflow/Yakamoz/tickets/`](../workflow/Yakamoz/tickets/); implement.
-- **Review** — review the landed merge (correctness first), **capturing findings as tickets**
-  rather than only reporting inline.
-- **Repeat** — review tickets are the next implementation round.
+A loop, not a line. Work is tracked as GitHub issues on
+[`phynics/Yakamoz`](https://github.com/phynics/Yakamoz/issues) — there is no local ticket
+directory.
 
-All tickets live in `../workflow/Yakamoz/tickets/` — one file `YAK-<id>-<slug>.md`, each with a `Status`
-line (new tickets also carry a `Triage:` line — root `../CLAUDE.md`, "Triage labels") and
-(problem / affected `file:line` / before-after code / tests / acceptance criteria).
-Numeric `YAK-N` for the backlog; a lettered batch (e.g. `YAK-TF*`) for a cohesive review set.
-**Update the index** [`../workflow/Yakamoz/tickets/README.md`](../workflow/Yakamoz/tickets/README.md) in the same change
-(table row + Open/Delayed summary; tag titles `[BUG]`/`[SECURITY]`).
-**Archive on close:** move `Done`/`Discarded` ticket files to `../workflow/Yakamoz/tickets/archive/`
-and condense their index rows into the batch's closed-summary line — the tickets directory
-holds only the live backlog (Open/Delayed). Full lifecycle rules: root `../CLAUDE.md`
-("Ticketing system").
+- **Plan** — discuss in an issue; write the spec/plan into the issue (or a repo doc)
+  before implementing.
+- **Implement** — one issue at a time; keep the change scoped to the issue.
+- **Review** — review the landed change (correctness first), **capturing findings as new
+  issues** rather than only reporting inline.
+- **Repeat** — review issues are the next implementation round.
 
-### Executing a ticket
+### Executing an issue
 
-TDD throughout (red → green → refactor). On completion: flip the ticket `Status` to `Done`
-with a short resolution note, update the index in the same change, and run `make verify`
-(must be green; trust it over bare `swift test`). Pick one execution mode:
-
-- **Inline** — implement on the current branch; **commit per ticket at the end**. Before
-  committing, `git status` and **warn about any unrelated uncommitted files**; stage only the
-  ticket's own files, never blanket `git add -A`.
-- **Multi-agent worktrees** — dispatch each independent ticket to a subagent in its own git
-  worktree (commits land in the worktree); the originating thread stays out of implementation
-  and only **reviews and merges** completed worktrees back. Use for batches of independent
-  tickets; see `superpowers:using-git-worktrees` and `superpowers:dispatching-parallel-agents`.
+TDD throughout (red → green → refactor). On completion, run `make verify` (must be green;
+trust it over bare `swift test`), then close the issue with a short resolution note.
+Implement on the current branch and commit per issue at the end; before committing,
+`git status` and **warn about any unrelated uncommitted files**; stage only the issue's own
+files, never blanket `git add -A`.
 
 Commit/push only when asked.
