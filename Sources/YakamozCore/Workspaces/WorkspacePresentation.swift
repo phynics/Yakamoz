@@ -52,7 +52,7 @@ public struct WorkspacePresentation: Sendable, Equatable {
     /// walks the workspace's root directory — the Workspace tab shows identity/health/tools
     /// only, so the (potentially expensive) file enumeration is skipped entirely.
     public static func build(from workspace: FileSystemWorkspace, displayName: String) async -> WorkspacePresentation {
-        let isHealthy = await workspace.healthCheck()
+        let isHealthy = await workspace.isHealthy
         let rootURL = workspace.rootURL
         let toolNames = (try? await workspace.listTools().map(\.toolID)) ?? []
 

@@ -64,7 +64,7 @@ struct TerminalWorkspaceTests {
 
         let result = try await workspace.executeTool(id: "terminal_run", parameters: ["command": AnyCodable("echo hi")])
 
-        #expect(result.success)
+        #expect(result.isSuccess)
         #expect(result.output.contains("hi"))
         await registry.terminateAll()
     }

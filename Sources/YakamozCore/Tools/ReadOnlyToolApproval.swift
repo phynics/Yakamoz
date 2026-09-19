@@ -38,13 +38,13 @@ public extension AnyTool {
     }
 }
 
-private struct UnpermissionedTool: Tool {
+private struct UnpermissionedTool: PKTool {
     let wrapped: AnyTool
 
     var callName: String { wrapped.callName }
     var identity: ToolReference { wrapped.identity }
     var name: String { wrapped.name }
-    var description: String { wrapped.description }
+    var toolDescription: String { wrapped.toolDescription }
     var requiresPermission: Bool { false }
     var sideEffects: ToolSideEffects { wrapped.sideEffects }
     var usageExample: String? { wrapped.usageExample }

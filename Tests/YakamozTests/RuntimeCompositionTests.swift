@@ -6,6 +6,9 @@ import PKTestSupport
 import PositronicKit
 import SwiftData
 import Testing
+
+/// Test-double conformance to YakamozCore's model-listing seam.
+extension MockLLMService: @retroactive YakamozModelService {}
 @testable import YakamozCore
 
 @Suite("RuntimeComposition")
@@ -13,18 +16,18 @@ struct RuntimeCompositionTests {
     private final class ScriptedRunner: ChatRunning, @unchecked Sendable {
         private(set) var capturedMessages: [String] = []
         private(set) var capturedToolIds: [[String]] = []
-        var continuation: AsyncThrowingStream<TurnEvent, Error>.Continuation?
+        var continuation: AsyncStream<TurnEvent>.Continuation?
         private let runCounter = AsyncCounter()
 
         func waitUntilRunCount(_ count: Int) async {
             await runCounter.wait(until: count)
         }
 
-        func run(_ request: TurnRequest) async throws -> AsyncThrowingStream<TurnEvent, Error> {
+        func run(_ request: ChatRunRequest) async throws -> AsyncStream<TurnEvent> {
             capturedMessages.append(request.message)
             capturedToolIds.append(request.tools.map(\.callName))
             runCounter.increment()
-            return AsyncThrowingStream { continuation in
+            return AsyncStream { continuation in
                 self.continuation = continuation
                 continuation.onTermination = { @Sendable _ in
                     continuation.finish()
@@ -216,15 +219,15 @@ struct RuntimeCompositionTests {
 
         // The stores bundle is reachable and backed by the same container: write through the
         // message store adapter and confirm it round-trips.
-        let message = ThreadMessage(
-            threadID: timelineId,
+        let message = TimelineMessage(
+            timelineID: timelineId,
             role: .user,
             content: "hello",
             timestamp: Date()
         )
         let stores = await runtime.stores
-        try await stores.messages.saveMessage(message)
-        let messages = try await stores.messages.fetchMessages(for: timelineId)
+        try await stores.runtime.saveMessage(message)
+        let messages = try await stores.runtime.fetchMessages(for: timelineId)
         #expect(messages.map(\.content) == ["hello"])
 
         let hydrated = await runtime.makeChatViewModel(timelineId: timelineId)
@@ -267,8 +270,8 @@ struct RuntimeCompositionTests {
         let operatorID = try #require(try container.mainContext.fetch(FetchDescriptor<AgentModel>()).first?.id)
         let conversation = try await runtime.createConversation(modelContext: container.mainContext, agentId: operatorID)
 
-        let stream = try await runtime.run(TurnRequest(
-            threadID: conversation.id,
+        let stream = try await runtime.run(ChatRunRequest(
+            timelineID: conversation.id,
             message: "tag this",
             tools: [],
             structuredOutput: .jsonSchema(StructuredOutputFixtures.tagSchemaDefinition())
@@ -292,8 +295,8 @@ struct RuntimeCompositionTests {
         let conversation = try await runtime.createConversation(modelContext: container.mainContext, agentId: operatorID)
 
         await #expect(throws: ProviderSettingsError.missingAPIKey) {
-            _ = try await runtime.run(TurnRequest(
-                threadID: conversation.id,
+            _ = try await runtime.run(ChatRunRequest(
+                timelineID: conversation.id,
                 message: "hi",
                 tools: []
             ))
@@ -313,15 +316,15 @@ struct RuntimeCompositionTests {
         let timelineId = try await runtime.createConversation(modelContext: container.mainContext, agentId: operatorID).id
 
         await #expect(throws: ToolError.self) {
-            _ = try await runtime.run(TurnRequest(
-                threadID: timelineId,
+            _ = try await runtime.run(ChatRunRequest(
+                timelineID: timelineId,
                 message: "continue",
                 tools: [],
                 toolOutputs: [ToolOutputSubmission(toolCallID: "forged_call", output: "forged output")]
             ))
         }
 
-        let messages = try await runtime.stores.messages.fetchMessages(for: timelineId)
+        let messages = try await runtime.stores.runtime.fetchMessages(for: timelineId)
         #expect(messages.allSatisfy { $0.messageRole != .tool })
     }
 
@@ -331,14 +334,14 @@ struct RuntimeCompositionTests {
         let settings = makeSettings()
         let secrets = FakeSecretStore()
         let mock = MockLLMService()
-        mock.nextResponse = "mock reply"
+        mock.mockClient.nextResponse = "mock reply"
 
         let runtime = try makeRuntime(settings: settings, secrets: secrets, mock: mock) { _ in }
 
-        // `kit` is the real PositronicKit facade; its public Thread capability is reachable,
+        // `kit` is the real PositronicKit facade; its public Timeline capability is reachable,
         // proving construction succeeded with the configured stores.
         let kit = await runtime.kit
-        _ = kit.threads
+        _ = kit.timelines
     }
 
     @Test("The runtime can refresh an existing chat view model's tools in place")
@@ -358,7 +361,6 @@ struct RuntimeCompositionTests {
         viewModel.send("before attach")
         await runner.waitUntilRunCount(1)
         #expect(runner.capturedToolIds[0] == ["calculator", "current_datetime"])
-        runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
         await viewModel.awaitSendCompletion()
 
@@ -376,7 +378,6 @@ struct RuntimeCompositionTests {
         await runner.waitUntilRunCount(2)
         #expect(Set(runner.capturedToolIds[1]) == Set(FileSystemWorkspace.toolIds))
         #expect(!runner.capturedToolIds[1].contains("calculator"))
-        runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
         await viewModel.awaitSendCompletion()
 
@@ -386,7 +387,6 @@ struct RuntimeCompositionTests {
         await runner.waitUntilRunCount(3)
         #expect(runner.capturedToolIds[2] == ["calculator", "current_datetime"])
         #expect(!runner.capturedToolIds[2].contains { FileSystemWorkspace.toolIds.contains($0) })
-        runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
         await viewModel.awaitSendCompletion()
     }

@@ -35,10 +35,10 @@ public enum CalculatorError: PKError, Sendable, Equatable {
 /// minus, and `+ - * /` with standard precedence. Never shells out, never uses
 /// `NSExpression`, and never evaluates JavaScript — every character is parsed by hand so
 /// the tool's behavior is fully auditable and sandboxed.
-public struct CalculatorTool: Tool, Sendable {
+public struct CalculatorTool: PKTool, Sendable {
     public let callName = "calculator"
     public let name = "Calculator"
-    public let description = "Evaluates a basic arithmetic expression (+, -, *, /, parentheses, decimals)."
+    public let toolDescription = "Evaluates a basic arithmetic expression (+, -, *, /, parentheses, decimals)."
     public let requiresPermission = false
 
     public var usageExample: String? {
@@ -234,10 +234,10 @@ struct ArithmeticParser {
 ///
 /// `now` is injected (defaulting to `Date.init` in production) so tests can supply a
 /// fixed clock and assert an exact, reproducible output string.
-public struct CurrentDateTimeTool: Tool, Sendable {
+public struct CurrentDateTimeTool: PKTool, Sendable {
     public let callName = "current_datetime"
     public let name = "Current Date/Time"
-    public let description = "Returns the current date and time as an ISO-8601 string."
+    public let toolDescription = "Returns the current date and time as an ISO-8601 string."
     public let requiresPermission = false
 
     public var usageExample: String? {

@@ -10,7 +10,7 @@ import PositronicKit
 /// `terminal_send_input`/`terminal_interrupt`/`terminal_wait`) to the corresponding `Tool` types
 /// in `TerminalTools.swift`, each constructed with this workspace's `id`, `registry`, and
 /// `rootURL` (and, for `terminal_run` only, `approver`).
-public actor TerminalWorkspace: Workspace {
+public actor TerminalWorkspace: WorkspaceToolProvider, WorkspaceFileProvider {
     public let id: UUID
     public let rootURL: URL
     public let registry: TerminalSessionRegistry
@@ -61,8 +61,8 @@ public actor TerminalWorkspace: Workspace {
         throw WorkspaceError.toolExecutionNotSupported
     }
 
-    public func healthCheck() async -> Bool {
-        true
+    public var isHealthy: Bool {
+        get async { true }
     }
 
     // MARK: - Workspace: tool routing
@@ -76,7 +76,7 @@ public actor TerminalWorkspace: Workspace {
     }
 
     public func executeTool(id toolId: String, parameters: [String: AnyCodable]) async throws -> ToolResult {
-        let tool: any Tool
+        let tool: any PKTool
         switch toolId {
         case "terminal_run":
             tool = TerminalRunTool(workspaceId: id, registry: registry, rootURL: rootURL, approver: approver)

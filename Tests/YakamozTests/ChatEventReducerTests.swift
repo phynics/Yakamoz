@@ -369,20 +369,6 @@ struct ChatEventReducerTests {
         #expect(state.orderedTools.map(\.id) == ["call-b", "call-a"])
     }
 
-    @Test("generationContext meta event records touched workspace files")
-    func generationContextRecordsFiles() {
-        var state = ChatTurnState(turnIndex: 0)
-        let now = clock.now
-
-        ChatEventReducer.reduce(
-            .generationContext(GenerationMetadata(memories: [], files: ["notes/today.md", "todo.txt"])),
-            into: &state,
-            now: now
-        )
-
-        #expect(state.workspaceFiles == ["notes/today.md", "todo.txt"])
-    }
-
     @Test("generationCancelled marks the turn cancelled without completing it")
     func generationCancelledMarksCancelled() {
         var state = ChatTurnState(turnIndex: 0)
@@ -455,24 +441,13 @@ struct ChatEventReducerTests {
         let now = clock.now
 
         ChatEventReducer.reduce(
-            .error(ToolError.attachedToolsDisallowedOnPrivateThread),
+            .error(ToolError.attachedToolsDisallowedOnPrivateTimeline),
             into: &state,
             now: now
         )
 
         #expect(state.errorIdentity == TurnEvent.ErrorIdentity(domain: PKErrorDomain.tool, code: 207))
         #expect(state.timelineState == .blocked)
-    }
-
-    @Test("streamCompleted marks the turn complete (terminal)")
-    func streamCompletedMarksComplete() {
-        var state = ChatTurnState(turnIndex: 0)
-        let now = clock.now
-
-        ChatEventReducer.reduce(.streamCompleted(), into: &state, now: now)
-
-        #expect(state.isComplete)
-        #expect(state.timelineState == .completed)
     }
 
     @Test("attempting tool execution maps the timeline to tooling")
@@ -494,11 +469,9 @@ struct ChatEventReducerTests {
         var state = ChatTurnState(turnIndex: 0)
         let now = clock.now
         let message = Message(content: "Final answer", role: .assistant)
-        let metadata = APIResponseMetadata(
+        let metadata = LLMResponse(
             model: "gpt-test",
-            promptTokens: 12,
-            completionTokens: 34,
-            totalTokens: 46,
+            usage: LLMTokenUsage(promptTokens: 12, completionTokens: 34, totalTokens: 46),
             finishReason: "stop"
         )
 
@@ -510,13 +483,40 @@ struct ChatEventReducerTests {
         #expect(state.response.outputTokens == 34)
     }
 
-    @Test("A completed turn never mutates: events after streamCompleted are ignored")
+    @Test("completion(completedEmpty) records the finish reason and completes")
+    func completedEmptyRecordsFinishReason() {
+        var state = ChatTurnState(turnIndex: 0)
+        let now = clock.now
+
+        ChatEventReducer.reduce(.completion(.completedEmpty(finishReason: "length")), into: &state, now: now)
+
+        #expect(state.response.finishReason == "length")
+        #expect(state.isComplete)
+    }
+
+    @Test("durabilityFailure surfaces an error without a fabricated outcome")
+    func durabilityFailureSurfacesError() {
+        var state = ChatTurnState(turnIndex: 0)
+        let now = clock.now
+
+        ChatEventReducer.reduce(
+            .error(.durabilityFailure(message: "commit failed", identity: nil)),
+            into: &state,
+            now: now
+        )
+
+        #expect(state.errorMessage == "commit failed")
+        #expect(state.errorIdentity == nil)
+    }
+
+    @Test("A completed turn never mutates: events after completion are ignored")
     func completedTurnNeverMutates() {
         var state = ChatTurnState(turnIndex: 0)
         let now = clock.now
 
         ChatEventReducer.reduce(.generation("first"), into: &state, now: now)
-        ChatEventReducer.reduce(.streamCompleted(), into: &state, now: now)
+        // PK 6 completes on stream end; the view model sets this flag at that point.
+        state.isComplete = true
         #expect(state.isComplete)
 
         // Late/stray events after completion must not mutate the finalized state.
@@ -526,7 +526,7 @@ struct ChatEventReducerTests {
             into: &state,
             now: now
         )
-        let metadata = APIResponseMetadata(model: "should-not-apply")
+        let metadata = LLMResponse(model: "should-not-apply")
         ChatEventReducer.reduce(.generationCompleted(message: Message(content: "x", role: .assistant), metadata: metadata), into: &state, now: now)
 
         #expect(state.response.reconstructedText == "first")
@@ -750,7 +750,7 @@ struct ChatEventReducerTests {
 
         ChatEventReducer.reduce(.reasoning("pondering"), into: &state, now: now)
         ChatEventReducer.reduce(.generation("answer"), into: &state, now: now)
-        let metadata = APIResponseMetadata(model: "gpt-test", promptTokens: 1, completionTokens: 2, finishReason: "stop")
+        let metadata = LLMResponse(model: "gpt-test", usage: LLMTokenUsage(promptTokens: 1, completionTokens: 2), finishReason: "stop")
         ChatEventReducer.reduce(.generationCompleted(message: Message(content: "answer", role: .assistant), metadata: metadata), into: &state, now: now)
 
         let dto = state.responseDTO
@@ -770,7 +770,7 @@ struct ChatEventReducerTests {
             SidecarResult(name: "title", outcome: .value(AnyCodable("Fixing the auth bug"))),
             SidecarResult(name: "section_title", outcome: .declined)
         ]
-        ChatEventReducer.reduce(.sidecarsCompleted(results), into: &state, now: now)
+        ChatEventReducer.reduce(.sidecarsCompleted(SidecarCompletion(identity: TurnIdentity(turnID: UUID(), requestID: UUID(), modelRoundIndex: 0), results: results)), into: &state, now: now)
         #expect(state.sidecarResults == results)
         #expect(!state.isComplete)
     }

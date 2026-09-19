@@ -20,19 +20,19 @@ struct ReadOnlyToolApprovalTests {
 
     @Test("withoutPermissionRequirement flips the flag and forwards everything else")
     func decoratorFlipsFlagAndForwardsMembers() async throws {
-        let base = StubPermissionedTool().toAnyTool()
+        let base = AnyTool(StubPermissionedTool())
         let unpermissioned = base.withoutPermissionRequirement()
 
         #expect(unpermissioned.callName == "stub-perm")
         #expect(unpermissioned.name == "Stub Perm")
-        #expect(unpermissioned.description == "A stub permissioned tool")
+        #expect(unpermissioned.toolDescription == "A stub permissioned tool")
         #expect(unpermissioned.requiresPermission == false)
         #expect(unpermissioned.usageExample == base.usageExample)
         #expect(unpermissioned.parametersSchema.asDictionary == base.parametersSchema.asDictionary)
         #expect(await unpermissioned.canExecute() == true)
 
         let result = try await unpermissioned.execute(parameters: ["path": AnyCodable("x")])
-        #expect(result.success)
+        #expect(result.isSuccess)
         #expect(result.output == "ran:x")
 
         // Summarize is forwarded (not overridden).
@@ -45,7 +45,7 @@ struct ReadOnlyToolApprovalTests {
 
     @Test("Decorator composes with withExplanationParameter preserving schema + flag (both orders)")
     func decoratorComposesWithExplanation() {
-        let base = StubPermissionedTool().toAnyTool()
+        let base = AnyTool(StubPermissionedTool())
 
         // Order 1: explanation first, then unpermission (the order resolveTools uses).
         let order1 = base.withExplanationParameter().withoutPermissionRequirement()
@@ -202,10 +202,10 @@ struct ReadOnlyToolApprovalTests {
 }
 
 /// A permissioned stub used to assert the decorator forwards every member except the flag.
-private struct StubPermissionedTool: Tool {
+private struct StubPermissionedTool: PKTool {
     var callName: String { "stub-perm" }
     var name: String { "Stub Perm" }
-    var description: String { "A stub permissioned tool" }
+    var toolDescription: String { "A stub permissioned tool" }
     var requiresPermission: Bool { true }
     var usageExample: String? { #"{"path": "x"}"# }
     var parametersSchema: JSONSchema.Schema {

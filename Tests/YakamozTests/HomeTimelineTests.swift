@@ -115,14 +115,14 @@ struct HomeTimelineTests {
         container.mainContext.insert(agent)
         try vaults.createVault(for: agent)
         try container.mainContext.save()
-        let coordinator = ConversationCoordinator(modelContext: container.mainContext, timelineStore: stores.timelines, vaultFactory: vaults)
+        let coordinator = ConversationCoordinator(modelContext: container.mainContext, timelineStore: stores.runtime, vaultFactory: vaults)
         let home = try await coordinator.homeTimeline(for: agent.id)
 
         try await coordinator.deleteAgent(id: agent.id)
 
         #expect(try container.mainContext.fetch(FetchDescriptor<AgentModel>()).contains(where: { $0.id == agent.id }) == false)
         #expect(try container.mainContext.fetch(FetchDescriptor<ConversationModel>()).isEmpty)
-        #expect(try await stores.timelines.fetchThread(id: home.id) == nil)
+        #expect(try await stores.runtime.fetchTimeline(id: home.id) == nil)
         #expect(!FileManager.default.fileExists(atPath: vaults.vaultRoot(for: agent.id).path))
     }
 

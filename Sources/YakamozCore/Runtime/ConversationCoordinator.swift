@@ -31,13 +31,13 @@ public struct ConversationCoordinator {
         }
     }
     private let modelContext: ModelContext
-    private let timelineStore: any ThreadPersistenceProtocol
+    private let timelineStore: any TimelinePersistenceProtocol
     private let agentStore: SwiftDataAgentStore
     private let vaultFactory: AgentVaultFactory
 
     public init(
         modelContext: ModelContext,
-        timelineStore: any ThreadPersistenceProtocol,
+        timelineStore: any TimelinePersistenceProtocol,
         agentStore: SwiftDataAgentStore? = nil,
         vaultFactory: AgentVaultFactory = .init()
     ) {
@@ -74,7 +74,7 @@ public struct ConversationCoordinator {
         try modelContext.save()
 
         let thread = YakamozThread(id: id, title: title, createdAt: now, updatedAt: now)
-        try await timelineStore.saveThread(thread)
+        try await timelineStore.saveTimeline(thread)
 
         if let agentId,
            let operatorModel = try agentModel(id: agentId)
@@ -116,7 +116,7 @@ public struct ConversationCoordinator {
         for conversation in conversations where conversation.agentId == id {
             if conversation.id == homeTimelineId || conversation.isHomeTimeline {
                 modelContext.delete(conversation)
-                try await timelineStore.deleteThread(id: conversation.id)
+                try await timelineStore.deleteTimeline(id: conversation.id)
             } else {
                 conversation.agentId = nil
                 try await OperatorBackendBinding(modelContext: modelContext, timelineStore: timelineStore)

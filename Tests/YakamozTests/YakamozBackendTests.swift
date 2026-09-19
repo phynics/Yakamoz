@@ -18,16 +18,16 @@ struct YakamozBackendSeamTests {
         var workspaces: [BackendWorkspaceSummary] = []
         var selectedAgentByTimeline: [UUID: UUID?] = [:]
         var attachedWorkspacesByTimeline: [UUID: Set<UUID>] = [:]
-        var lastRunRequest: TurnRequest?
+        var lastRunRequest: ChatRunRequest?
         let inspectorAvailable = true
 
         func backendHealthCheck() async -> AppHealthStatus {
             .ok
         }
 
-        func run(_ request: TurnRequest) async throws -> AsyncThrowingStream<TurnEvent, Error> {
+        func run(_ request: ChatRunRequest) async throws -> AsyncStream<TurnEvent> {
             lastRunRequest = request
-            return AsyncThrowingStream { $0.finish() }
+            return AsyncStream { $0.finish() }
         }
 
         func listTimelines() async throws -> [BackendTimelineSummary] {
@@ -88,7 +88,7 @@ struct YakamozBackendSeamTests {
         try await backend.attachWorkspace(workspaceId, toTimeline: timeline.id)
         try await backend.detachWorkspace(workspaceId, fromTimeline: timeline.id)
 
-        let stream = try await backend.run(TurnRequest(threadID: timeline.id, message: "hi", tools: []))
+        let stream = try await backend.run(ChatRunRequest(timelineID: timeline.id, message: "hi", tools: []))
         var events: [TurnEvent] = []
         for try await event in stream {
             events.append(event)
@@ -105,11 +105,11 @@ struct YakamozBackendSeamTests {
 @MainActor
 struct LocalYakamozBackendTests {
     private final class ScriptedRunner: ChatRunning, @unchecked Sendable {
-        private(set) var capturedRequests: [TurnRequest] = []
+        private(set) var capturedRequests: [ChatRunRequest] = []
 
-        func run(_ request: TurnRequest) async throws -> AsyncThrowingStream<TurnEvent, Error> {
+        func run(_ request: ChatRunRequest) async throws -> AsyncStream<TurnEvent> {
             capturedRequests.append(request)
-            return AsyncThrowingStream { $0.finish() }
+            return AsyncStream { $0.finish() }
         }
     }
 
@@ -134,7 +134,7 @@ struct LocalYakamozBackendTests {
             chatRunner: runner,
             health: ScriptedHealth(status: health),
             modelContainer: container,
-            timelineStore: stores.timelines
+            timelineStore: stores.runtime
         )
     }
 
@@ -152,11 +152,11 @@ struct LocalYakamozBackendTests {
         let backend = makeBackend(container: container, runner: runner)
 
         let timelineId = UUID()
-        let request = TurnRequest(threadID: timelineId, message: "hello", tools: [])
+        let request = ChatRunRequest(timelineID: timelineId, message: "hello", tools: [])
         _ = try await backend.run(request)
 
         #expect(runner.capturedRequests.count == 1)
-        #expect(runner.capturedRequests.first?.threadID == timelineId)
+        #expect(runner.capturedRequests.first?.timelineID == timelineId)
         #expect(runner.capturedRequests.first?.message == "hello")
     }
 

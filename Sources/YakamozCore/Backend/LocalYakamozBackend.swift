@@ -16,14 +16,14 @@ public struct LocalYakamozBackend: YakamozBackend {
     private let chatRunner: any ChatRunning
     private let health: any BackendHealthChecking
     private let modelContainer: ModelContainer
-    private let timelineStore: any ThreadPersistenceProtocol
+    private let timelineStore: any TimelinePersistenceProtocol
     public let inspectorAvailable: Bool
 
     public init(
         chatRunner: any ChatRunning,
         health: any BackendHealthChecking,
         modelContainer: ModelContainer,
-        timelineStore: any ThreadPersistenceProtocol,
+        timelineStore: any TimelinePersistenceProtocol,
         inspectorAvailable: Bool = true
     ) {
         self.chatRunner = chatRunner
@@ -41,7 +41,7 @@ public struct LocalYakamozBackend: YakamozBackend {
 
     // MARK: - ChatRunning
 
-    public func run(_ request: TurnRequest) async throws -> AsyncThrowingStream<TurnEvent, Error> {
+    public func run(_ request: ChatRunRequest) async throws -> AsyncStream<TurnEvent> {
         try await chatRunner.run(request)
     }
 

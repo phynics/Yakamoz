@@ -66,62 +66,62 @@ extension RequestOriginModel {
 public actor SwiftDataToolStore: ToolPersistenceProtocol {
     public nonisolated let isDurable = true
 
-    public func addToolToWorkspace(workspaceId: UUID, tool: ToolReference) async throws {
+    public func addToolToWorkspace(workspaceID: UUID, tool: ToolReference) async throws {
         let toolId = tool.toolID
-        let compositeId = "\(workspaceId.uuidString):\(toolId)"
+        let compositeId = "\(workspaceID.uuidString):\(toolId)"
         let descriptor = FetchDescriptor<ToolReferenceModel>(predicate: #Predicate { $0.id == compositeId })
         if let existing = try modelContext.fetch(descriptor).first {
             existing.referenceData = try JSONEncoder().encode(tool)
         } else {
-            try modelContext.insert(ToolReferenceModel(workspaceId: workspaceId, tool: tool))
+            try modelContext.insert(ToolReferenceModel(workspaceId: workspaceID, tool: tool))
         }
         do {
             try modelContext.save()
         } catch {
             Log.runtime.error("failed to add tool to workspace", metadata: [
                 "store": "ToolStore",
-                "workspaceID": "\(workspaceId)",
+                "workspaceID": "\(workspaceID)",
                 "toolID": .string(toolId),
             ])
             throw error
         }
     }
 
-    public func syncTools(workspaceId: UUID, tools: [ToolReference]) async throws {
-        try modelContext.delete(model: ToolReferenceModel.self, where: #Predicate { $0.workspaceId == workspaceId })
+    public func syncTools(workspaceID: UUID, tools: [ToolReference]) async throws {
+        try modelContext.delete(model: ToolReferenceModel.self, where: #Predicate { $0.workspaceId == workspaceID })
         for tool in tools {
-            try modelContext.insert(ToolReferenceModel(workspaceId: workspaceId, tool: tool))
+            try modelContext.insert(ToolReferenceModel(workspaceId: workspaceID, tool: tool))
         }
         do {
             try modelContext.save()
         } catch {
             Log.runtime.error("failed to sync tools", metadata: [
                 "store": "ToolStore",
-                "workspaceID": "\(workspaceId)",
+                "workspaceID": "\(workspaceID)",
                 "count": "\(tools.count)",
             ])
             throw error
         }
     }
 
-    public func fetchTools(forWorkspaces workspaceIds: [UUID]) async throws -> [ToolReference] {
+    public func fetchTools(forWorkspaces workspaceIDs: [UUID]) async throws -> [ToolReference] {
         let descriptor = FetchDescriptor<ToolReferenceModel>(
-            predicate: #Predicate { workspaceIds.contains($0.workspaceId) }
+            predicate: #Predicate { workspaceIDs.contains($0.workspaceId) }
         )
         do {
             return try modelContext.fetch(descriptor).map { try $0.toToolReference() }
         } catch {
             Log.runtime.warning("failed to fetch tools", metadata: [
                 "store": "ToolStore",
-                "workspaceCount": "\(workspaceIds.count)",
+                "workspaceCount": "\(workspaceIDs.count)",
             ])
             throw error
         }
     }
 
-    public func fetchOriginTools(originId: UUID) async throws -> [ToolReference] {
+    public func fetchOriginTools(originID: UUID) async throws -> [ToolReference] {
         let workspaceDescriptor = FetchDescriptor<WorkspaceReferenceModel>(
-            predicate: #Predicate { $0.originId == originId }
+            predicate: #Predicate { $0.originId == originID }
         )
         let workspaceIds = try modelContext.fetch(workspaceDescriptor).map(\.id)
         guard !workspaceIds.isEmpty else { return [] }
@@ -133,15 +133,15 @@ public actor SwiftDataToolStore: ToolPersistenceProtocol {
         } catch {
             Log.runtime.warning("failed to fetch origin tools", metadata: [
                 "store": "ToolStore",
-                "originID": "\(originId)",
+                "originID": "\(originID)",
             ])
             throw error
         }
     }
 
-    public func findWorkspaceId(forToolId toolId: String, in workspaceIds: [UUID]) async throws -> UUID? {
+    public func findWorkspace(hostingToolNamed toolName: String, in workspaceIDs: [UUID]) async throws -> UUID? {
         var descriptor = FetchDescriptor<ToolReferenceModel>(
-            predicate: #Predicate { $0.toolId == toolId && workspaceIds.contains($0.workspaceId) }
+            predicate: #Predicate { $0.toolId == toolName && workspaceIDs.contains($0.workspaceId) }
         )
         descriptor.fetchLimit = 1
         do {
@@ -149,26 +149,26 @@ public actor SwiftDataToolStore: ToolPersistenceProtocol {
         } catch {
             Log.runtime.warning("failed to find workspace for tool", metadata: [
                 "store": "ToolStore",
-                "toolID": .string(toolId),
+                "toolID": .string(toolName),
             ])
             throw error
         }
     }
 
     public func fetchToolSource(
-        toolId: String, workspaceIds: [UUID], primaryWorkspaceId: UUID?
+        named toolName: String, in workspaceIDs: [UUID], preferring primaryWorkspaceID: UUID?
     ) async throws -> String? {
-        if let primaryWorkspaceId {
-            let primaryCompositeId = "\(primaryWorkspaceId.uuidString):\(toolId)"
+        if let primaryWorkspaceID {
+            let primaryCompositeId = "\(primaryWorkspaceID.uuidString):\(toolName)"
             var primaryDescriptor = FetchDescriptor<ToolReferenceModel>(
                 predicate: #Predicate { $0.id == primaryCompositeId }
             )
             primaryDescriptor.fetchLimit = 1
             if try modelContext.fetch(primaryDescriptor).first != nil {
-                return primaryWorkspaceId.uuidString
+                return primaryWorkspaceID.uuidString
             }
         }
-        return try await findWorkspaceId(forToolId: toolId, in: workspaceIds)?.uuidString
+        return try await findWorkspace(hostingToolNamed: toolName, in: workspaceIDs)?.uuidString
     }
 }
 

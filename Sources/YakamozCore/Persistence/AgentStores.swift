@@ -70,7 +70,7 @@ extension AgentInstanceModel {
             instanceDescription: agent.description,
             lifecycle: agent.lifecycle,
             primaryWorkspaceId: agent.primaryWorkspaceID,
-            privateTimelineId: agent.privateThreadID,
+            privateTimelineId: agent.privateTimelineID,
             lastActiveAt: agent.lastActiveAt,
             createdAt: agent.createdAt,
             updatedAt: agent.updatedAt,
@@ -91,7 +91,7 @@ extension AgentInstanceModel {
             description: instanceDescription,
             lifecycle: AgentLifecycleState(rawValue: lifecycleRaw) ?? .active,
             primaryWorkspaceID: primaryWorkspaceId,
-            privateThreadID: privateTimelineId,
+            privateTimelineID: privateTimelineId,
             lastActiveAt: lastActiveAt,
             createdAt: createdAt,
             updatedAt: updatedAt,
@@ -241,17 +241,17 @@ public actor SwiftDataAgentInstanceStore: AgentStoreProtocol {
         }
     }
 
-    public func fetchThreads(attachedToAgent agentId: UUID) async throws -> [YakamozThread] {
+    public func fetchTimelines(attachedToAgent agentID: UUID) async throws -> [TimelineRecord] {
         let descriptor = FetchDescriptor<TimelineModel>(
-            predicate: #Predicate { $0.attachedAgentInstanceId == agentId },
+            predicate: #Predicate { $0.attachedAgentInstanceId == agentID },
             sortBy: [SortDescriptor(\.createdAt)]
         )
         do {
-            return try modelContext.fetch(descriptor).map { try $0.toThread() }
+            return try modelContext.fetch(descriptor).map { $0.toTimelineRecord() }
         } catch {
-            Log.runtime.warning("failed to fetch Threads for Agent", metadata: [
+            Log.runtime.warning("failed to fetch Timelines for Agent", metadata: [
                 "store": "AgentInstanceStore",
-                "agentID": "\(agentId)",
+                "agentID": "\(agentID)",
             ])
             throw error
         }
@@ -347,8 +347,8 @@ public actor SwiftDataAgentTemplateStore: AgentTemplateStoreProtocol {
 /// `ModelContext` (per-actor, never shared — see `@ModelActor` docs on
 /// `SwiftDataMessageStore`).
 public struct YakamozStores: Sendable {
-    public let messages: SwiftDataMessageStore
-    public let timelines: SwiftDataTimelineStore
+    /// Cohesive Timeline history + Turn lifecycle owner (`TimelineRuntimeRepository`).
+    public let runtime: SwiftDataTimelineRuntimeRepository
     public let workspaces: SwiftDataWorkspaceStore
     public let tools: SwiftDataToolStore
     public let agents: SwiftDataAgentInstanceStore
@@ -356,8 +356,7 @@ public struct YakamozStores: Sendable {
     public let origins: SwiftDataRequestOriginStore
 
     public init(modelContainer: ModelContainer) {
-        messages = SwiftDataMessageStore(modelContainer: modelContainer)
-        timelines = SwiftDataTimelineStore(modelContainer: modelContainer)
+        runtime = SwiftDataTimelineRuntimeRepository(modelContainer: modelContainer)
         workspaces = SwiftDataWorkspaceStore(modelContainer: modelContainer)
         tools = SwiftDataToolStore(modelContainer: modelContainer)
         agents = SwiftDataAgentInstanceStore(modelContainer: modelContainer)

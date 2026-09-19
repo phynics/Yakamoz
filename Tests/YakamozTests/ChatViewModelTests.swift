@@ -24,7 +24,7 @@ private final class ScriptedRunner: ChatRunning, @unchecked Sendable {
     private(set) var lastSidecars: [SidecarDirective] = []
     private(set) var lastSendId: UUID?
     private(set) var lastSystemInstructions: String?
-    var continuation: AsyncThrowingStream<TurnEvent, Error>.Continuation?
+    var continuation: AsyncStream<TurnEvent>.Continuation?
     var onRun: (@Sendable (String) -> Void)?
     private let runCounter = AsyncCounter()
     private let continuationCounter = AsyncCounter()
@@ -37,14 +37,14 @@ private final class ScriptedRunner: ChatRunning, @unchecked Sendable {
         await continuationCounter.wait(until: count)
     }
 
-    func run(_ request: TurnRequest) async throws -> AsyncThrowingStream<TurnEvent, Error> {
+    func run(_ request: ChatRunRequest) async throws -> AsyncStream<TurnEvent> {
         capturedMessages.append(request.message)
         lastSidecars = request.sidecars
         lastSendId = request.requestID
         lastSystemInstructions = request.systemInstructions
         onRun?(request.message)
         runCounter.increment()
-        return AsyncThrowingStream { continuation in
+        return AsyncStream { continuation in
             self.continuation = continuation
             self.continuationCounter.increment()
             // Mirrors the real `ChatEngine` behavior (see `ChatEngine.swift`:
@@ -95,8 +95,6 @@ struct ChatViewModelTests {
         await runner.waitUntilRunCount(1)
         #expect(viewModel.transcript.count == 2)
         #expect(runner.capturedMessages == ["hello there"])
-
-        runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
         await viewModel.awaitSendCompletion()
     }
@@ -115,8 +113,6 @@ struct ChatViewModelTests {
 
         viewModel.send("hello there")
         try await waitUntilAsync { await states.snapshot().first == .running }
-
-        runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
         await viewModel.awaitSendCompletion()
 
@@ -148,8 +144,6 @@ struct ChatViewModelTests {
 
         // Only the first message should have reached the runner.
         #expect(runner.capturedMessages == ["first"])
-
-        runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
         await viewModel.awaitSendCompletion()
     }
@@ -176,8 +170,6 @@ struct ChatViewModelTests {
 
         await runner.waitUntilRunCount(1)
         #expect(runner.lastSidecars == [titleDirective])
-
-        runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
         await viewModel.awaitSendCompletion()
     }
@@ -226,9 +218,8 @@ struct ChatViewModelTests {
             SidecarResult(name: "title", outcome: .value(AnyCodable("Fixing the auth bug"))),
             SidecarResult(name: "section_title", outcome: .declined)
         ]
-        runner.continuation?.yield(.sidecarsCompleted(results))
+        runner.continuation?.yield(.sidecarsCompleted(SidecarCompletion(identity: TurnIdentity(turnID: UUID(), requestID: UUID(), modelRoundIndex: 0), results: results)))
         runner.continuation?.yield(.generation("answer"))
-        runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
 
         await viewModel.awaitSendCompletion()
@@ -255,7 +246,6 @@ struct ChatViewModelTests {
         await runner.waitUntilContinuationCount(1)
 
         runner.continuation?.yield(.generation("answer"))
-        runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
 
         await viewModel.awaitSendCompletion()
@@ -283,8 +273,6 @@ struct ChatViewModelTests {
             guard case let .assistant(_, turn) = viewModel.transcript.last else { return false }
             return turn.response.reconstructedText == "Once upon a time"
         }
-
-        runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
         await viewModel.awaitSendCompletion()
 
@@ -335,9 +323,8 @@ struct ChatViewModelTests {
         runner.continuation?.yield(.generation("hello back"))
         runner.continuation?.yield(.generationCompleted(
             message: Message(content: "hello back", role: .assistant),
-            metadata: APIResponseMetadata(model: "gpt-test", finishReason: "stop")
+            metadata: LLMResponse(model: "gpt-test", finishReason: "stop")
         ))
-        runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
 
         await viewModel.awaitSendCompletion()
@@ -407,7 +394,7 @@ struct ChatViewModelTests {
         let viewModel = ChatViewModel(
             timelineId: UUID(),
             runner: runner,
-            tools: [CalculatorTool().toAnyTool()],
+            tools: [AnyTool(CalculatorTool())],
             systemInstructions: "You are a helpful assistant."
         )
 
@@ -447,7 +434,7 @@ struct ChatViewModelTests {
         let viewModel = ChatViewModel(
             timelineId: UUID(),
             runner: runner,
-            tools: [CalculatorTool().toAnyTool()],
+            tools: [AnyTool(CalculatorTool())],
             systemInstructions: nil
         )
 
@@ -466,7 +453,7 @@ struct ChatViewModelTests {
         let viewModel = ChatViewModel(
             timelineId: UUID(),
             runner: runner,
-            tools: [CalculatorTool().toAnyTool()]
+            tools: [AnyTool(CalculatorTool())]
         )
 
         viewModel.send("use a tool if needed")
@@ -581,8 +568,6 @@ struct ChatViewModelTests {
             }
             return false
         }))
-
-        runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
         await viewModel.awaitSendCompletion()
         #expect(await states.snapshot().suffix(1).first == .failed)
@@ -730,8 +715,6 @@ struct ChatViewModelTests {
         await runner.waitUntilRunCount(1)
 
         #expect(viewModel.selectedTurnIndex == 4)
-
-        runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
         await viewModel.awaitSendCompletion()
     }
@@ -744,16 +727,12 @@ struct ChatViewModelTests {
         viewModel.send("first turn")
         await runner.waitUntilRunCount(1)
         #expect(viewModel.selectedTurnIndex == 0)
-
-        runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
         await viewModel.awaitSendCompletion()
 
         viewModel.send("second turn")
         await runner.waitUntilRunCount(2)
         #expect(viewModel.selectedTurnIndex == 1)
-
-        runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
         await viewModel.awaitSendCompletion()
     }
@@ -881,8 +860,6 @@ struct ChatViewModelTests {
 
         #expect(runner.capturedMessages == ["retry me please", "retry me please"])
         #expect(!viewModel.transcript.contains { $0.id == errorId })
-
-        runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
         await viewModel.awaitSendCompletion()
     }
@@ -922,8 +899,6 @@ struct ChatViewModelTests {
 
         #expect(runner.capturedMessages == ["in flight"])
         #expect(viewModel.isSending)
-
-        runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
         await viewModel.awaitSendCompletion()
     }
@@ -996,8 +971,6 @@ struct ChatViewModelTests {
         #expect(!streamTurn.isComplete)
         // The recorded index is still pointing at the streaming item mid-turn.
         #expect(viewModel.activeAssistantItemIndex == 5)
-
-        runner.continuation?.yield(.streamCompleted())
         runner.continuation?.finish()
         await viewModel.awaitSendCompletion()
 
@@ -1139,7 +1112,7 @@ private actor LockedStateLog {
 private struct ThrowingRunner: ChatRunning {
     let error: any Error
 
-    func run(_: TurnRequest) async throws -> AsyncThrowingStream<TurnEvent, Error> {
+    func run(_: ChatRunRequest) async throws -> AsyncStream<TurnEvent> {
         throw error
     }
 }

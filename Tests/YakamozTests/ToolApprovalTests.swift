@@ -6,10 +6,10 @@ import Testing
 
 /// Minimal permissioned tool used to exercise `MainActorToolApprover` without standing up a real
 /// filesystem/terminal tool.
-private struct StubPermissionedTool: Tool, @unchecked Sendable {
+private struct StubPermissionedTool: PKTool, @unchecked Sendable {
     let callName: String
     let name: String
-    let description = "stub"
+    let toolDescription = "stub"
     let requiresPermission = true
     var parametersSchema: JSONSchema.Schema {
         Schema([:])

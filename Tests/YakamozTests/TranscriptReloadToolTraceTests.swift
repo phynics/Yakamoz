@@ -5,7 +5,7 @@ import Testing
 @testable import YakamozCore
 
 /// Exercises `YakamozRuntime.transcriptItems(from:)`'s reconstruction of tool-call /
-/// tool-result traces from persisted `ThreadMessage` rows (STAB-3). A reloaded
+/// tool-result traces from persisted `TimelineMessage` rows (STAB-3). A reloaded
 /// conversation must surface the same tool badges/traces that were visible live, so the
 /// "prompt pipeline under glass" story does not silently lose tool visibility across
 /// restarts.
@@ -16,21 +16,21 @@ struct TranscriptReloadToolTraceTests {
     @Test("assistant turn with one tool call reconstructs a single tool trace")
     func singleToolCallReconstructsTrace() throws {
         let timelineId = UUID()
-        let userMsg = ThreadMessage(
-            threadID: timelineId, role: .user, content: "what is 2+2?"
+        let userMsg = TimelineMessage(
+            timelineID: timelineId, role: .user, content: "what is 2+2?"
         )
         let assistantCallId = "call_abc"
         let toolCallsJSON = try Self.encodeJSON([
             ToolCall(id: assistantCallId, name: "calculator", arguments: ["expression": AnyCodable("2+2")]),
         ])
-        let assistantToolMsg = ThreadMessage(
-            threadID: timelineId, role: .assistant, content: "", toolCalls: toolCallsJSON
+        let assistantToolMsg = TimelineMessage(
+            timelineID: timelineId, role: .assistant, content: "", toolCalls: toolCallsJSON
         )
-        let toolMsg = ThreadMessage(
-            threadID: timelineId, role: .tool, content: "4", toolCallID: assistantCallId
+        let toolMsg = TimelineMessage(
+            timelineID: timelineId, role: .tool, content: "4", toolCallID: assistantCallId
         )
-        let assistantFinalMsg = ThreadMessage(
-            threadID: timelineId, role: .assistant, content: "The answer is 4."
+        let assistantFinalMsg = TimelineMessage(
+            timelineID: timelineId, role: .assistant, content: "The answer is 4."
         )
 
         let transcript = YakamozRuntime.transcriptItems(from: [
@@ -71,14 +71,14 @@ struct TranscriptReloadToolTraceTests {
         let toolCallsJSON = try Self.encodeJSON([
             ToolCall(id: assistantCallId, name: "read_file", arguments: ["path": AnyCodable("/secret")]),
         ])
-        let assistantToolMsg = ThreadMessage(
-            threadID: timelineId, role: .assistant, content: "", toolCalls: toolCallsJSON
+        let assistantToolMsg = TimelineMessage(
+            timelineID: timelineId, role: .assistant, content: "", toolCalls: toolCallsJSON
         )
-        let toolMsg = ThreadMessage(
-            threadID: timelineId, role: .tool, content: "Error: permission denied", toolCallID: assistantCallId
+        let toolMsg = TimelineMessage(
+            timelineID: timelineId, role: .tool, content: "Error: permission denied", toolCallID: assistantCallId
         )
-        let assistantFinalMsg = ThreadMessage(
-            threadID: timelineId, role: .assistant, content: "I couldn't read the file."
+        let assistantFinalMsg = TimelineMessage(
+            timelineID: timelineId, role: .assistant, content: "I couldn't read the file."
         )
 
         let transcript = YakamozRuntime.transcriptItems(from: [assistantToolMsg, toolMsg, assistantFinalMsg])
@@ -109,13 +109,13 @@ struct TranscriptReloadToolTraceTests {
             ToolCall(id: secondCallId, name: "read_file", arguments: ["path": AnyCodable("/tmp/a")]),
         ])
 
-        let messages: [ThreadMessage] = [
-            ThreadMessage(threadID: timelineId, role: .user, content: "show me the files"),
-            ThreadMessage(threadID: timelineId, role: .assistant, content: "", toolCalls: firstToolCalls),
-            ThreadMessage(threadID: timelineId, role: .tool, content: "a\nb", toolCallID: firstCallId),
-            ThreadMessage(threadID: timelineId, role: .assistant, content: "", toolCalls: secondToolCalls),
-            ThreadMessage(threadID: timelineId, role: .tool, content: "contents", toolCallID: secondCallId),
-            ThreadMessage(threadID: timelineId, role: .assistant, content: "Here are your files and a.txt."),
+        let messages: [TimelineMessage] = [
+            TimelineMessage(timelineID: timelineId, role: .user, content: "show me the files"),
+            TimelineMessage(timelineID: timelineId, role: .assistant, content: "", toolCalls: firstToolCalls),
+            TimelineMessage(timelineID: timelineId, role: .tool, content: "a\nb", toolCallID: firstCallId),
+            TimelineMessage(timelineID: timelineId, role: .assistant, content: "", toolCalls: secondToolCalls),
+            TimelineMessage(timelineID: timelineId, role: .tool, content: "contents", toolCallID: secondCallId),
+            TimelineMessage(timelineID: timelineId, role: .assistant, content: "Here are your files and a.txt."),
         ]
 
         let transcript = YakamozRuntime.transcriptItems(from: messages)
@@ -148,22 +148,22 @@ struct TranscriptReloadToolTraceTests {
         let callA = "call_a"
         let callB = "call_b"
 
-        let messages: [ThreadMessage] = try [
-            ThreadMessage(threadID: timelineId, role: .user, content: "turn 1"),
-            ThreadMessage(
-                threadID: timelineId, role: .assistant, content: "",
+        let messages: [TimelineMessage] = try [
+            TimelineMessage(timelineID: timelineId, role: .user, content: "turn 1"),
+            TimelineMessage(
+                timelineID: timelineId, role: .assistant, content: "",
                 toolCalls: Self.encodeJSON([ToolCall(id: callA, name: "calcul", arguments: ["e": AnyCodable("1+1")])])
             ),
-            ThreadMessage(threadID: timelineId, role: .tool, content: "2", toolCallID: callA),
-            ThreadMessage(threadID: timelineId, role: .assistant, content: "It's 2."),
+            TimelineMessage(timelineID: timelineId, role: .tool, content: "2", toolCallID: callA),
+            TimelineMessage(timelineID: timelineId, role: .assistant, content: "It's 2."),
             // Second send.
-            ThreadMessage(threadID: timelineId, role: .user, content: "turn 2"),
-            ThreadMessage(
-                threadID: timelineId, role: .assistant, content: "",
+            TimelineMessage(timelineID: timelineId, role: .user, content: "turn 2"),
+            TimelineMessage(
+                timelineID: timelineId, role: .assistant, content: "",
                 toolCalls: Self.encodeJSON([ToolCall(id: callB, name: "calcul", arguments: ["e": AnyCodable("3+3")])])
             ),
-            ThreadMessage(threadID: timelineId, role: .tool, content: "6", toolCallID: callB),
-            ThreadMessage(threadID: timelineId, role: .assistant, content: "It's 6."),
+            TimelineMessage(timelineID: timelineId, role: .tool, content: "6", toolCallID: callB),
+            TimelineMessage(timelineID: timelineId, role: .assistant, content: "It's 6."),
         ]
 
         let transcript = YakamozRuntime.transcriptItems(from: messages)
@@ -188,9 +188,9 @@ struct TranscriptReloadToolTraceTests {
     @Test("plain assistant turn keeps an empty tool map")
     func plainAssistantTurnHasNoTools() {
         let timelineId = UUID()
-        let messages: [ThreadMessage] = [
-            ThreadMessage(threadID: timelineId, role: .user, content: "hi"),
-            ThreadMessage(threadID: timelineId, role: .assistant, content: "hello!", reasoning: "greeting"),
+        let messages: [TimelineMessage] = [
+            TimelineMessage(timelineID: timelineId, role: .user, content: "hi"),
+            TimelineMessage(timelineID: timelineId, role: .assistant, content: "hello!", reasoning: "greeting"),
         ]
 
         let transcript = YakamozRuntime.transcriptItems(from: messages)
@@ -217,16 +217,16 @@ struct TranscriptReloadToolTraceTests {
         // nor natural string/dictionary order of the call ids matches the expected
         // (timestamp-ascending) order — this would fail under nondeterministic dictionary
         // iteration if the fix regresses.
-        let orphanZ = ThreadMessage(
-            threadID: timelineId, role: .tool, content: "third",
+        let orphanZ = TimelineMessage(
+            timelineID: timelineId, role: .tool, content: "third",
             toolCallID: "call_zzz_last"
         )
-        let orphanA = ThreadMessage(
-            threadID: timelineId, role: .tool, content: "first",
+        let orphanA = TimelineMessage(
+            timelineID: timelineId, role: .tool, content: "first",
             toolCallID: "call_aaa_first"
         )
-        let orphanM = ThreadMessage(
-            threadID: timelineId, role: .tool, content: "second",
+        let orphanM = TimelineMessage(
+            timelineID: timelineId, role: .tool, content: "second",
             toolCallID: "call_mmm_middle"
         )
 
@@ -239,8 +239,8 @@ struct TranscriptReloadToolTraceTests {
         var latest = orphanA
         latest.timestamp = base.addingTimeInterval(2)
 
-        let assistantFinalMsg = ThreadMessage(
-            threadID: timelineId, role: .assistant, content: "done"
+        let assistantFinalMsg = TimelineMessage(
+            timelineID: timelineId, role: .assistant, content: "done"
         )
 
         // Insertion order into the reconstruction is A, M, Z (reverse of expected
@@ -272,16 +272,16 @@ struct TranscriptReloadToolTraceTests {
         let idLow = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
         let idHigh = try #require(UUID(uuidString: "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF"))
 
-        let orphanHigh = ThreadMessage(
-            id: idHigh, threadID: timelineId, role: .tool, content: "high",
+        let orphanHigh = TimelineMessage(
+            id: idHigh, timelineID: timelineId, role: .tool, content: "high",
             timestamp: sameTimestamp, toolCallID: "call_high"
         )
-        let orphanLow = ThreadMessage(
-            id: idLow, threadID: timelineId, role: .tool, content: "low",
+        let orphanLow = TimelineMessage(
+            id: idLow, timelineID: timelineId, role: .tool, content: "low",
             timestamp: sameTimestamp, toolCallID: "call_low"
         )
-        let assistantFinalMsg = ThreadMessage(
-            threadID: timelineId, role: .assistant, content: "done"
+        let assistantFinalMsg = TimelineMessage(
+            timelineID: timelineId, role: .assistant, content: "done"
         )
 
         // Insert the higher-id orphan first so a bug that preserves insertion order
@@ -318,14 +318,14 @@ struct TranscriptReloadToolTraceTests {
                 ]
             ),
         ])
-        let assistantToolMsg = ThreadMessage(
-            threadID: timelineId, role: .assistant, content: "", toolCalls: toolCallsJSON
+        let assistantToolMsg = TimelineMessage(
+            timelineID: timelineId, role: .assistant, content: "", toolCalls: toolCallsJSON
         )
-        let toolMsg = ThreadMessage(
-            threadID: timelineId, role: .tool, content: "4", toolCallID: callId
+        let toolMsg = TimelineMessage(
+            timelineID: timelineId, role: .tool, content: "4", toolCallID: callId
         )
-        let assistantFinalMsg = ThreadMessage(
-            threadID: timelineId, role: .assistant, content: "The answer is 4."
+        let assistantFinalMsg = TimelineMessage(
+            timelineID: timelineId, role: .assistant, content: "The answer is 4."
         )
 
         let transcript = YakamozRuntime.transcriptItems(from: [
@@ -362,14 +362,14 @@ struct TranscriptReloadToolTraceTests {
         let toolCallsJSON = try Self.encodeJSON([
             ToolCall(id: callId, name: "calculator", arguments: ["expression": AnyCodable("2+2")]),
         ])
-        let assistantToolMsg = ThreadMessage(
-            threadID: timelineId, role: .assistant, content: "", toolCalls: toolCallsJSON
+        let assistantToolMsg = TimelineMessage(
+            timelineID: timelineId, role: .assistant, content: "", toolCalls: toolCallsJSON
         )
-        let toolMsg = ThreadMessage(
-            threadID: timelineId, role: .tool, content: "4", toolCallID: callId
+        let toolMsg = TimelineMessage(
+            timelineID: timelineId, role: .tool, content: "4", toolCallID: callId
         )
-        let assistantFinalMsg = ThreadMessage(
-            threadID: timelineId, role: .assistant, content: "The answer is 4."
+        let assistantFinalMsg = TimelineMessage(
+            timelineID: timelineId, role: .assistant, content: "The answer is 4."
         )
 
         let transcript = YakamozRuntime.transcriptItems(from: [

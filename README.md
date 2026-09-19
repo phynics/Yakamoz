@@ -9,8 +9,9 @@ inspector drawer. It is a showcase/dev app, not a shipping product. Work is trac
 ## Prerequisites
 
 - **macOS 15** (Sequoia) or later — the deployment target is `macOS 15.0`.
-- **Xcode 16+** with the Swift 6 toolchain (the project builds with
-  `SWIFT_VERSION = 6.0` and `SWIFT_STRICT_CONCURRENCY = complete`).
+- **Xcode 27+** with the Swift 6.4 toolchain (PositronicKit 6 requires
+  `swift-tools-version: 6.4`; the project builds with `SWIFT_VERSION = 6.0` and
+  `SWIFT_STRICT_CONCURRENCY = complete`).
 - **[XcodeGen](https://github.com/yonsei/XcodeGen)** (`brew install xcodegen`) — the
   `.xcodeproj` is generated from [`project.yml`](project.yml) and is not the source of truth.
 - This repository is a **source release**, not a signed or notarized binary distribution.

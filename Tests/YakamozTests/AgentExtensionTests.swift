@@ -63,7 +63,7 @@ struct AgentExtensionTests {
         let fixed = Date(timeIntervalSince1970: 1_700_000_000) // 2023-11-14T22:13:20Z
         let provider = CurrentTimeContextSource(now: { fixed })
         let request = TurnContextRequest(
-            threadID: UUID(),
+            timelineID: UUID(),
             turnID: UUID(),
             requestID: UUID(),
             agentID: nil,

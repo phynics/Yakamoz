@@ -83,7 +83,7 @@ struct InspectableChatIntegrationTests {
         defer { try? FileManager.default.removeItem(at: workspaceURL) }
 
         let workspace = WorkspaceReference(
-            uri: .threadWorkspace(timelineId),
+            uri: .timelineWorkspace(timelineId),
             location: .runtime,
             rootPath: workspaceURL.path,
             trustLevel: .full
@@ -91,7 +91,7 @@ struct InspectableChatIntegrationTests {
         let kit = await runtime.kit
         let stores = await runtime.stores
         try await stores.workspaces.saveWorkspace(workspace)
-        try await kit.threads.attachWorkspace(workspace.id, to: timelineId)
+        try await kit.timelines.attachWorkspace(workspace.id, to: timelineId)
 
         let viewModel = await runtime.makeChatViewModel(
             timelineId: timelineId,
@@ -148,8 +148,8 @@ struct InspectableChatIntegrationTests {
         #expect(viewModel.selectedInspectionTurnIndex == 1)
         #expect(viewModel.selectedInspectionIdentity == terminalIdentity)
 
-        // The transcript persisted as ThreadMessage rows (user + assistant).
-        let messages = try await stores.messages.fetchMessages(for: timelineId)
+        // The transcript persisted as TimelineMessage rows (user + assistant).
+        let messages = try await stores.runtime.fetchMessages(for: timelineId)
         #expect(messages.contains { $0.role == "user" && $0.content == "Inspect this" })
         #expect(messages.contains { $0.role == "assistant" && $0.content.contains("Inspection complete") })
 
@@ -281,7 +281,7 @@ struct InspectableChatIntegrationTests {
         defer { try? FileManager.default.removeItem(at: workspaceURL) }
 
         let workspace = WorkspaceReference(
-            uri: .threadWorkspace(timelineId),
+            uri: .timelineWorkspace(timelineId),
             location: .runtime,
             rootPath: workspaceURL.path,
             trustLevel: .full
@@ -289,7 +289,7 @@ struct InspectableChatIntegrationTests {
         let kit = await runtime.kit
         let stores = await runtime.stores
         try await stores.workspaces.saveWorkspace(workspace)
-        try await kit.threads.attachWorkspace(workspace.id, to: timelineId)
+        try await kit.timelines.attachWorkspace(workspace.id, to: timelineId)
 
         let viewModel = await runtime.makeChatViewModel(
             timelineId: timelineId,

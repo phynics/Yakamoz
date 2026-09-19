@@ -23,14 +23,14 @@ struct ConversationCoordinatorTests {
         let stores = YakamozStores(modelContainer: container)
         let coordinator = ConversationCoordinator(
             modelContext: container.mainContext,
-            timelineStore: stores.timelines
+            timelineStore: stores.runtime
         )
 
         let conversation = try await coordinator.createConversation(title: "Hello World")
 
         #expect(conversation.title == "Hello World")
 
-        let timeline = try await stores.timelines.fetchThread(id: conversation.id)
+        let timeline = try await stores.runtime.fetchTimeline(id: conversation.id)
         #expect(timeline != nil)
         #expect(timeline?.id == conversation.id)
         #expect(timeline?.title == "Hello World")
@@ -42,7 +42,7 @@ struct ConversationCoordinatorTests {
         let stores = YakamozStores(modelContainer: container)
         let coordinator = ConversationCoordinator(
             modelContext: container.mainContext,
-            timelineStore: stores.timelines
+            timelineStore: stores.runtime
         )
         let agent = AgentModel(name: "Ada", instructions: "A", vaultPath: "/tmp/a")
         container.mainContext.insert(agent)
@@ -60,7 +60,7 @@ struct ConversationCoordinatorTests {
         #expect(agent.backendInstanceId == agent.id)
         let templates = try container.mainContext.fetch(FetchDescriptor<AgentTemplateModel>())
         #expect(templates.first(where: { $0.id == agent.id })?.systemPrompt == agent.instructions)
-        let timeline = try #require(await stores.timelines.fetchThread(id: conversation.id))
+        let timeline = try #require(await stores.runtime.fetchTimeline(id: conversation.id))
         #expect(timeline.attachedAgentID == agent.id)
     }
 
@@ -75,7 +75,7 @@ struct ConversationCoordinatorTests {
         try container.mainContext.save()
         let coordinator = ConversationCoordinator(
             modelContext: container.mainContext,
-            timelineStore: stores.timelines
+            timelineStore: stores.runtime
         )
         let conversation = try await coordinator.createConversation(title: "Swap", agentId: first.id)
         container.mainContext.insert(MessageModel(conversationId: conversation.id, role: "user", content: "existing"))
@@ -84,14 +84,14 @@ struct ConversationCoordinatorTests {
         try await coordinator.setOperator(conversationId: conversation.id, agentId: second.id)
 
         #expect(conversation.agentId == second.id)
-        let messages = try await stores.messages.fetchMessages(for: conversation.id)
+        let messages = try await stores.runtime.fetchMessages(for: conversation.id)
         #expect(messages.count == 2)
         #expect(messages.first?.content == "existing")
         #expect(messages.last?.role == "system")
         #expect(messages.last?.content == "Operator changed: Ada → Grace")
         #expect(first.backendInstanceId == first.id)
         #expect(second.backendInstanceId == second.id)
-        let timeline = try #require(await stores.timelines.fetchThread(id: conversation.id))
+        let timeline = try #require(await stores.runtime.fetchTimeline(id: conversation.id))
         #expect(timeline.attachedAgentID == second.id)
     }
 
@@ -99,7 +99,7 @@ struct ConversationCoordinatorTests {
     func persistsWorkspaceOrderAndHomeFlag() async throws {
         let container = try makeContainer()
         let stores = YakamozStores(modelContainer: container)
-        let coordinator = ConversationCoordinator(modelContext: container.mainContext, timelineStore: stores.timelines)
+        let coordinator = ConversationCoordinator(modelContext: container.mainContext, timelineStore: stores.runtime)
         let ids = [UUID(), UUID()]
 
         let conversation = try await coordinator.createConversation(
@@ -109,7 +109,7 @@ struct ConversationCoordinatorTests {
 
         #expect(conversation.attachedWorkspaceIds == ids)
         #expect(conversation.isHomeTimeline)
-        #expect(try await stores.timelines.fetchThread(id: conversation.id)?.id == conversation.id)
+        #expect(try await stores.runtime.fetchTimeline(id: conversation.id)?.id == conversation.id)
     }
 
     @Test("operator transitions to and from none each append exactly one marker")
@@ -119,11 +119,11 @@ struct ConversationCoordinatorTests {
         let agent = AgentModel(name: "Ada", instructions: "A", vaultPath: "/tmp/a")
         container.mainContext.insert(agent)
         try container.mainContext.save()
-        let coordinator = ConversationCoordinator(modelContext: container.mainContext, timelineStore: stores.timelines)
+        let coordinator = ConversationCoordinator(modelContext: container.mainContext, timelineStore: stores.runtime)
         let conversation = try await coordinator.createConversation()
         try await coordinator.setOperator(conversationId: conversation.id, agentId: agent.id)
         try await coordinator.setOperator(conversationId: conversation.id, agentId: nil)
-        let messages = try await stores.messages.fetchMessages(for: conversation.id)
+        let messages = try await stores.runtime.fetchMessages(for: conversation.id)
         #expect(messages.map(\.content) == ["Operator changed: none → Ada", "Operator changed: Ada → none"])
     }
 
@@ -131,7 +131,7 @@ struct ConversationCoordinatorTests {
     func homeOperatorIsFixed() async throws {
         let container = try makeContainer()
         let stores = YakamozStores(modelContainer: container)
-        let coordinator = ConversationCoordinator(modelContext: container.mainContext, timelineStore: stores.timelines)
+        let coordinator = ConversationCoordinator(modelContext: container.mainContext, timelineStore: stores.runtime)
         let conversation = try await coordinator.createConversation(isHomeTimeline: true)
         await #expect(throws: ConversationCoordinator.OperatorError.homeTimelineOperatorIsFixed) {
             try await coordinator.setOperator(conversationId: conversation.id, agentId: nil)
@@ -142,7 +142,7 @@ struct ConversationCoordinatorTests {
     func standardQueryExcludesHomes() async throws {
         let container = try makeContainer()
         let stores = YakamozStores(modelContainer: container)
-        let coordinator = ConversationCoordinator(modelContext: container.mainContext, timelineStore: stores.timelines)
+        let coordinator = ConversationCoordinator(modelContext: container.mainContext, timelineStore: stores.runtime)
         let standard = try await coordinator.createConversation(title: "Standard")
         _ = try await coordinator.createConversation(title: "Home", isHomeTimeline: true)
         #expect(try coordinator.fetchStandardConversations().map(\.id) == [standard.id])
@@ -155,7 +155,7 @@ struct ConversationCoordinatorTests {
         let runtime = try YakamozRuntime(modelContainer: container, settings: ProviderSettings(defaults: defaults), secrets: FakeSecretStore(), llmServiceFactory: { _ in MockLLMService() })
         let conversation = try await runtime.createConversation(modelContext: container.mainContext)
         await #expect(throws: ConversationRunError.operatorRequired) {
-            _ = try await runtime.run(TurnRequest(threadID: conversation.id, message: "hello", tools: []))
+            _ = try await runtime.run(ChatRunRequest(timelineID: conversation.id, message: "hello", tools: []))
         }
     }
 
@@ -179,7 +179,7 @@ struct ConversationCoordinatorTests {
             title: "Runtime Chat"
         )
 
-        let timeline = try await runtime.stores.timelines.fetchThread(id: conversation.id)
+        let timeline = try await runtime.stores.runtime.fetchTimeline(id: conversation.id)
         #expect(timeline?.id == conversation.id)
         #expect(timeline?.title == "Runtime Chat")
     }
@@ -190,7 +190,7 @@ struct ConversationCoordinatorTests {
         let stores = YakamozStores(modelContainer: container)
         let coordinator = ConversationCoordinator(
             modelContext: container.mainContext,
-            timelineStore: stores.timelines
+            timelineStore: stores.runtime
         )
         let conversation = try await coordinator.createConversation(title: "New Chat")
         let conversationId = conversation.id
@@ -221,7 +221,7 @@ struct ConversationCoordinatorTests {
         let stores = YakamozStores(modelContainer: container)
         let coordinator = ConversationCoordinator(
             modelContext: container.mainContext,
-            timelineStore: stores.timelines
+            timelineStore: stores.runtime
         )
         let conversation = try await coordinator.createConversation(title: "New Chat")
         let conversationId = conversation.id
@@ -250,7 +250,7 @@ struct ConversationCoordinatorTests {
         let stores = YakamozStores(modelContainer: container)
         let coordinator = ConversationCoordinator(
             modelContext: container.mainContext,
-            timelineStore: stores.timelines
+            timelineStore: stores.runtime
         )
         let conversation = try await coordinator.createConversation(title: "New Chat")
         let conversationId = conversation.id
@@ -280,7 +280,7 @@ struct ConversationCoordinatorTests {
         let stores = YakamozStores(modelContainer: container)
         let coordinator = ConversationCoordinator(
             modelContext: container.mainContext,
-            timelineStore: stores.timelines
+            timelineStore: stores.runtime
         )
         let conversation = try await coordinator.createConversation(title: "New Chat")
         let conversationId = conversation.id
@@ -303,7 +303,7 @@ struct ConversationCoordinatorTests {
         let stores = YakamozStores(modelContainer: container)
         let coordinator = ConversationCoordinator(
             modelContext: container.mainContext,
-            timelineStore: stores.timelines
+            timelineStore: stores.runtime
         )
         let conversation = try await coordinator.createConversation(title: "New Chat")
         let conversationId = conversation.id
@@ -326,7 +326,7 @@ struct ConversationCoordinatorTests {
         let stores = YakamozStores(modelContainer: container)
         let coordinator = ConversationCoordinator(
             modelContext: container.mainContext,
-            timelineStore: stores.timelines
+            timelineStore: stores.runtime
         )
         // A stale/cancelled turn racing conversation deletion must not throw — the
         // caller's post-turn hook cannot recovery from a missing row, so it is
@@ -343,7 +343,7 @@ struct ConversationCoordinatorTests {
         let stores = YakamozStores(modelContainer: container)
         let coordinator = ConversationCoordinator(
             modelContext: container.mainContext,
-            timelineStore: stores.timelines
+            timelineStore: stores.runtime
         )
         let conversation = try await coordinator.createConversation(title: "New Chat")
         let conversationId = conversation.id
@@ -375,7 +375,7 @@ struct ConversationCoordinatorTests {
         let stores = YakamozStores(modelContainer: container)
         let coordinator = ConversationCoordinator(
             modelContext: container.mainContext,
-            timelineStore: stores.timelines
+            timelineStore: stores.runtime
         )
         let conversation = try await coordinator.createConversation(title: "New Chat")
         let conversationId = conversation.id
@@ -405,7 +405,7 @@ struct ConversationCoordinatorTests {
         let stores = YakamozStores(modelContainer: container)
         let coordinator = ConversationCoordinator(
             modelContext: container.mainContext,
-            timelineStore: stores.timelines
+            timelineStore: stores.runtime
         )
         let conversation = try await coordinator.createConversation(title: "New Chat")
         let conversationId = conversation.id
@@ -433,7 +433,7 @@ struct ConversationCoordinatorTests {
         let stores = YakamozStores(modelContainer: container)
         let coordinator = ConversationCoordinator(
             modelContext: container.mainContext,
-            timelineStore: stores.timelines
+            timelineStore: stores.runtime
         )
         let conversation = try await coordinator.createConversation(title: "New Chat")
         let conversationId = conversation.id
@@ -456,7 +456,7 @@ struct ConversationCoordinatorTests {
         let stores = YakamozStores(modelContainer: container)
         let coordinator = ConversationCoordinator(
             modelContext: container.mainContext,
-            timelineStore: stores.timelines
+            timelineStore: stores.runtime
         )
         let conversation = try await coordinator.createConversation(title: "New Chat")
         let conversationId = conversation.id
@@ -479,7 +479,7 @@ struct ConversationCoordinatorTests {
         let stores = YakamozStores(modelContainer: container)
         let coordinator = ConversationCoordinator(
             modelContext: container.mainContext,
-            timelineStore: stores.timelines
+            timelineStore: stores.runtime
         )
         let conversation = try await coordinator.createConversation(title: "New Chat")
         let conversationId = conversation.id
@@ -502,7 +502,7 @@ struct ConversationCoordinatorTests {
         let stores = YakamozStores(modelContainer: container)
         let coordinator = ConversationCoordinator(
             modelContext: container.mainContext,
-            timelineStore: stores.timelines
+            timelineStore: stores.runtime
         )
         let conversation = try await coordinator.createConversation(title: "New Chat")
         let conversationId = conversation.id
@@ -534,7 +534,7 @@ struct ConversationCoordinatorTests {
         let stores = YakamozStores(modelContainer: container)
         let coordinator = ConversationCoordinator(
             modelContext: container.mainContext,
-            timelineStore: stores.timelines
+            timelineStore: stores.runtime
         )
         let conversation = try await coordinator.createConversation(title: "New Chat")
 
@@ -548,7 +548,7 @@ struct ConversationCoordinatorTests {
         let stores = YakamozStores(modelContainer: container)
         let coordinator = ConversationCoordinator(
             modelContext: container.mainContext,
-            timelineStore: stores.timelines
+            timelineStore: stores.runtime
         )
         let conversation = try await coordinator.createConversation(title: "New Chat")
         let conversationId = conversation.id
@@ -583,7 +583,7 @@ struct ConversationCoordinatorTests {
         let stores = YakamozStores(modelContainer: container)
         let coordinator = ConversationCoordinator(
             modelContext: container.mainContext,
-            timelineStore: stores.timelines
+            timelineStore: stores.runtime
         )
         let conversation = try await coordinator.createConversation(title: "New Chat")
 
@@ -597,7 +597,7 @@ struct ConversationCoordinatorTests {
         let stores = YakamozStores(modelContainer: container)
         let coordinator = ConversationCoordinator(
             modelContext: container.mainContext,
-            timelineStore: stores.timelines
+            timelineStore: stores.runtime
         )
         let a = try await coordinator.createConversation(title: "A")
         let b = try await coordinator.createConversation(title: "B")

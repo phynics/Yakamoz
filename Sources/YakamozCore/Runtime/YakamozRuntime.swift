@@ -14,20 +14,29 @@ import SwiftData
 /// Defaults to the real provider-backed `LLMService`. Tests substitute a factory
 /// that returns a mock (e.g. `PKTestSupport.MockLLMService`) so no network call ever happens
 /// during `make test`.
-public typealias LLMServiceFactory = @Sendable (LLMConfiguration) -> any LanguageModel & HealthCheckable
+public typealias LLMServiceFactory = @Sendable (LLMConfiguration) -> any LLMStreamClient & HealthCheckable
+
+/// Model-listing seam: `LLMStreamClient` has no model-catalog operation, but the
+/// Settings UI's available-models list needs one. `LLMService` and test doubles
+/// declare this conformance.
+public protocol YakamozModelService: LLMStreamClient, HealthCheckable {
+    func fetchAvailableModels() async throws -> [String]?
+}
+
+extension LLMService: YakamozModelService {}
 
 /// The default factory used in production: constructs the configured provider client and wraps it
 /// in a real `LLMService`.
-public func defaultLLMServiceFactory(configuration: LLMConfiguration) -> any LanguageModel & HealthCheckable {
+public func defaultLLMServiceFactory(configuration: LLMConfiguration) -> any LLMStreamClient & HealthCheckable {
     let client: any LLMClientProtocol = switch configuration.activeProvider {
     case .openAI, .openAICompatible:
-        PKOpenAIProvider.makeClient(configuration: configuration)
+        PKOpenAI.makeClient(configuration: configuration)
     case .openRouter:
-        PKOpenRouterProvider.makeClient(configuration: configuration)
+        PKOpenRouter.makeClient(configuration: configuration)
     case .ollama:
-        PKOllamaProvider.makeClient(configuration: configuration)
+        PKOllama.makeClient(configuration: configuration)
     case .anthropic:
-        PKAnthropicProvider.makeClient(configuration: configuration)
+        PKAnthropic.makeClient(configuration: configuration)
     }
     return LLMService(
         configuration: configuration,
@@ -72,7 +81,7 @@ public enum ConversationRunError: Error, Sendable, Equatable, LocalizedError {
 /// factory that returns `PKTestSupport.MockLLMService` (or any other conformer of the same seam)
 /// instead of relying on the default `PKOpenAIProvider`/`LLMService` wiring.
 public actor YakamozRuntime: ChatRunning {
-    public let kit: PositronicKit
+    public let kit: PKRuntime
     public let stores: YakamozStores
     public let inspector: SwiftDataPromptInspector
 
@@ -304,7 +313,12 @@ public actor YakamozRuntime: ChatRunning {
     public func fetchAvailableModels() async throws -> [String] {
         let llmService = try await makeConfiguredLLMService()
         let currentModel = await currentSettingsSnapshot().model
-        let available = try await llmService.fetchAvailableModels() ?? []
+        // `fetchAvailableModels` is not part of `LLMStreamClient`; both `LLMService`
+        // and the test double declare the `YakamozModelService` seam for it.
+        guard let service = llmService as? any YakamozModelService else {
+            return ModelCatalogService().normalize(models: [], currentModel: currentModel)
+        }
+        let available = try await service.fetchAvailableModels() ?? []
         return ModelCatalogService().normalize(models: available, currentModel: currentModel)
     }
 
@@ -370,7 +384,7 @@ public actor YakamozRuntime: ChatRunning {
         // own silent-no-op for missing conversations).
         let conversationCoordinator = ConversationCoordinator(
             modelContext: modelContainer.mainContext,
-            timelineStore: stores.timelines
+            timelineStore: stores.runtime
         )
         let sidecarTimelineId = timelineId
         let onSidecarResults: (@MainActor @Sendable (Int, [SidecarResult]) async -> Void) = { turnIndex, results in
@@ -434,7 +448,7 @@ public actor YakamozRuntime: ChatRunning {
     public func fetchCurrentSectionTitle(conversationId: UUID) async -> String? {
         let coordinator = ConversationCoordinator(
             modelContext: modelContainer.mainContext,
-            timelineStore: stores.timelines
+            timelineStore: stores.runtime
         )
         return try? coordinator.fetchLatestSectionTitle(conversationId: conversationId)
     }
@@ -450,7 +464,7 @@ public actor YakamozRuntime: ChatRunning {
     public func fetchSectionAnnotations(conversationId: UUID) async -> [SectionAnnotationView] {
         let coordinator = ConversationCoordinator(
             modelContext: modelContainer.mainContext,
-            timelineStore: stores.timelines
+            timelineStore: stores.runtime
         )
         guard let annotations = try? coordinator.fetchSectionAnnotations(conversationId: conversationId) else {
             return []
@@ -460,7 +474,7 @@ public actor YakamozRuntime: ChatRunning {
 
     /// Creates a new conversation, pairing a `ConversationModel` row with a
     /// PositronicKit `Timeline` sharing the same id (see `ConversationCoordinator`),
-    /// without requiring the caller to extract `stores.timelines` itself (that value's
+    /// without requiring the caller to extract `stores.runtime` itself (that value's
     /// type, `SwiftDataTimelineStore`, is `YakamozCore`-defined and safe, but routing
     /// through here keeps all `Timeline`-touching code in one place).
     @MainActor
@@ -471,7 +485,7 @@ public actor YakamozRuntime: ChatRunning {
         attachedWorkspaceIds: [UUID] = [],
         isHomeTimeline: Bool = false
     ) async throws -> ConversationModel {
-        let coordinator = ConversationCoordinator(modelContext: modelContext, timelineStore: stores.timelines)
+        let coordinator = ConversationCoordinator(modelContext: modelContext, timelineStore: stores.runtime)
         return try await coordinator.createConversation(title: title, agentId: agentId, attachedWorkspaceIds: attachedWorkspaceIds, isHomeTimeline: isHomeTimeline)
     }
 
@@ -496,14 +510,14 @@ public actor YakamozRuntime: ChatRunning {
 
     @MainActor
     public func setOperator(modelContext: ModelContext, conversationId: UUID, agentId: UUID?) async throws {
-        let coordinator = ConversationCoordinator(modelContext: modelContext, timelineStore: stores.timelines)
+        let coordinator = ConversationCoordinator(modelContext: modelContext, timelineStore: stores.runtime)
         try await coordinator.setOperator(conversationId: conversationId, agentId: agentId)
     }
 
     /// Returns the agent's home timeline, creating it only when its Chat tab is first opened.
     @MainActor
     public func homeTimeline(for agentId: UUID, modelContext: ModelContext) async throws -> ConversationModel {
-        let coordinator = ConversationCoordinator(modelContext: modelContext, timelineStore: stores.timelines)
+        let coordinator = ConversationCoordinator(modelContext: modelContext, timelineStore: stores.runtime)
         return try await coordinator.homeTimeline(for: agentId)
     }
 
@@ -512,22 +526,39 @@ public actor YakamozRuntime: ChatRunning {
     /// unassigned conversations.
     @MainActor
     public func deleteAgent(id: UUID, modelContext: ModelContext) async throws {
-        let coordinator = ConversationCoordinator(modelContext: modelContext, timelineStore: stores.timelines)
+        let coordinator = ConversationCoordinator(modelContext: modelContext, timelineStore: stores.runtime)
         try await coordinator.deleteAgent(id: id)
     }
 
     /// ChatRunning conformance that resolves the latest settings and API key on each turn.
-    public func run(_ request: TurnRequest) async throws -> AsyncThrowingStream<TurnEvent, Error> {
-        let threadID = request.threadID
+    ///
+    /// PositronicKit 6 exposes managed execution as
+    /// `TimelineHandle.startTurn(_:systemInstructions:options:) -> TurnHandle`; its
+    /// non-throwing `events()` stream is returned directly over the seam.
+    public func run(_ request: ChatRunRequest) async throws -> AsyncStream<TurnEvent> {
+        let timelineID = request.timelineID
         let hasOperator = try await MainActor.run {
-            var descriptor = FetchDescriptor<ConversationModel>(predicate: #Predicate { $0.id == threadID })
+            var descriptor = FetchDescriptor<ConversationModel>(predicate: #Predicate { $0.id == timelineID })
             descriptor.fetchLimit = 1
             return try modelContainer.mainContext.fetch(descriptor).first?.agentId != nil
         }
         guard hasOperator else { throw ConversationRunError.operatorRequired }
         try Self.rejectExternalToolOutputs(request.toolOutputs)
         let kit = try await makeConfiguredKit()
-        return try await kit.threads.open(threadID).run(request)
+        let turn = try await kit.timelines.open(timelineID).startTurn(
+            request.message,
+            systemInstructions: request.systemInstructions,
+            options: TurnOptions(
+                requestID: request.requestID,
+                tools: request.tools,
+                toolOutputs: request.toolOutputs,
+                maxModelRounds: request.maxModelRounds,
+                generationParameters: request.generationParameters,
+                structuredOutput: request.structuredOutput,
+                sidecars: request.sidecars
+            )
+        )
+        return turn.events()
     }
 
     private static func rejectExternalToolOutputs(_ toolOutputs: [ToolOutputSubmission]?) throws {
@@ -539,13 +570,13 @@ public actor YakamozRuntime: ChatRunning {
         await settingsSnapshotProvider()
     }
 
-    private func makeConfiguredLLMService() async throws -> any LanguageModel & HealthCheckable {
+    private func makeConfiguredLLMService() async throws -> any LLMStreamClient & HealthCheckable {
         let settings = await currentSettingsSnapshot()
         let key = try ProviderSettings.storedAPIKey(for: settings.preset, secrets: secrets)
         return llmServiceFactory(settings.configuration(apiKey: key))
     }
 
-    private func makeConfiguredKit() async throws -> PositronicKit {
+    private func makeConfiguredKit() async throws -> PKRuntime {
         let settings = await currentSettingsSnapshot()
         let key = try ProviderSettings.storedAPIKey(for: settings.preset, secrets: secrets)
         // Fail fast before streaming: a provider that requires a key but has none configured
@@ -555,8 +586,8 @@ public actor YakamozRuntime: ChatRunning {
         if settings.preset.requiresAPIKey, key.isEmpty {
             throw ProviderSettingsError.missingAPIKey
         }
-        return kit.reconfigured(
-            languageModel: llmServiceFactory(settings.configuration(apiKey: key)),
+        return kit.replacingLanguageModel(
+            llmServiceFactory(settings.configuration(apiKey: key)),
             generationParameters: settings.generationParameters
         )
     }
@@ -567,15 +598,14 @@ public actor YakamozRuntime: ChatRunning {
         apiKey: String,
         llmServiceFactory: LLMServiceFactory,
         toolApprovalPolicy: any ToolApprovalPolicy
-    ) -> PositronicKit {
+    ) -> PKRuntime {
         let llmConfiguration = settingsSnapshot.configuration(apiKey: apiKey)
         let llmService = llmServiceFactory(llmConfiguration)
-        return PositronicKit(
+        return PKRuntime(
             configuration: .init(
-                provider: .init(languageModel: llmService),
+                languageModel: llmService,
                 persistence: .init(
-                    messageStore: stores.messages,
-                    threadPersistence: stores.timelines,
+                    runtimeRepository: stores.runtime,
                     workspacePersistence: stores.workspaces,
                     toolPersistence: stores.tools,
                     agentStore: stores.agents,
@@ -600,7 +630,7 @@ public actor YakamozRuntime: ChatRunning {
     }
 
     private func loadTranscript(for timelineId: UUID) async throws -> LoadedTranscript {
-        let messages = try await stores.messages.fetchMessages(for: timelineId)
+        let messages = try await stores.runtime.fetchMessages(for: timelineId)
         return LoadedTranscript(transcript: Self.transcriptItems(from: messages))
     }
 
@@ -625,7 +655,7 @@ public actor YakamozRuntime: ChatRunning {
     ///
     /// `internal` so `YakamozTests` can exercise the reconstruction directly with seeded
     /// `ThreadMessage` values (see `TranscriptReloadToolTraceTests`).
-    static func transcriptItems(from messages: [ThreadMessage]) -> [TranscriptItem] {
+    static func transcriptItems(from messages: [TimelineMessage]) -> [TranscriptItem] {
         var assistantTurnIndex = 0
         var nextInspectionTurnIndex = 0
         var transcript: [TranscriptItem] = []
@@ -633,9 +663,9 @@ public actor YakamozRuntime: ChatRunning {
         // Accumulator for the in-flight logical assistant turn: every assistant message
         // in the group (in arrival order, each carrying its own `toolCalls`) plus the
         // `.tool`-role result messages matched by `toolCallId`.
-        var pendingLastAssistantMessage: ThreadMessage?
+        var pendingLastAssistantMessage: TimelineMessage?
         var pendingToolCallsByAssistant: [[ToolCall]] = []
-        var pendingToolResults: [String: ThreadMessage] = [:]
+        var pendingToolResults: [String: TimelineMessage] = [:]
 
         func appendPendingAssistantIfNeeded() {
             guard let lastMessage = pendingLastAssistantMessage else { return }
@@ -780,8 +810,8 @@ private struct BuiltInToolProvider: ToolSource {
     let toolOrigin: ToolOrigin = .global
     func tools() async -> [AnyTool] {
         [
-            CalculatorTool().toAnyTool(),
-            CurrentDateTimeTool().toAnyTool(),
+            AnyTool(CalculatorTool()),
+            AnyTool(CurrentDateTimeTool()),
         ]
     }
 }
@@ -796,7 +826,7 @@ private struct FileWorkspaceToolProvider: ToolSource {
     func tools() async -> [AnyTool] {
         let workspace = FileSystemWorkspace(id: folder.workspaceID, rootURL: folder.rootURL)
         return Self.definitions.map {
-            WorkspaceToolWrapper(workspace: workspace, definition: $0).toAnyTool()
+            AnyTool(WorkspaceToolWrapper(workspace: workspace, definition: $0))
         }
     }
 
@@ -892,12 +922,12 @@ private struct TerminalWorkspaceToolProvider: ToolSource {
 
     func tools() async -> [AnyTool] {
         [
-            TerminalRunTool(workspaceId: terminal.workspaceId, registry: registry, rootURL: terminal.rootURL, approver: approver).toAnyTool(),
-            TerminalReadTool(workspaceId: terminal.workspaceId, registry: registry, rootURL: terminal.rootURL).toAnyTool(),
-            TerminalSendInputTool(workspaceId: terminal.workspaceId, registry: registry, rootURL: terminal.rootURL).toAnyTool(),
-            TerminalInterruptTool(workspaceId: terminal.workspaceId, registry: registry, rootURL: terminal.rootURL).toAnyTool(),
-            TerminalWaitTool(workspaceId: terminal.workspaceId, registry: registry, rootURL: terminal.rootURL).toAnyTool(),
-            TerminalReadOutputTool(workspaceId: terminal.workspaceId, registry: registry, rootURL: terminal.rootURL).toAnyTool(),
+            AnyTool(TerminalRunTool(workspaceId: terminal.workspaceId, registry: registry, rootURL: terminal.rootURL, approver: approver)),
+            AnyTool(TerminalReadTool(workspaceId: terminal.workspaceId, registry: registry, rootURL: terminal.rootURL)),
+            AnyTool(TerminalSendInputTool(workspaceId: terminal.workspaceId, registry: registry, rootURL: terminal.rootURL)),
+            AnyTool(TerminalInterruptTool(workspaceId: terminal.workspaceId, registry: registry, rootURL: terminal.rootURL)),
+            AnyTool(TerminalWaitTool(workspaceId: terminal.workspaceId, registry: registry, rootURL: terminal.rootURL)),
+            AnyTool(TerminalReadOutputTool(workspaceId: terminal.workspaceId, registry: registry, rootURL: terminal.rootURL)),
         ]
     }
 }

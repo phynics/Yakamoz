@@ -308,19 +308,17 @@ public struct ChatTurnState: Sendable, Equatable {
 
     /// Records final model/finish-reason/token-usage metadata from a `generationCompleted` event.
     /// A completed turn never mutates further.
-    public mutating func apply(_ metadata: APIResponseMetadata) {
+    public mutating func apply(_ responseMetadata: LLMResponse) {
         guard !isComplete else { return }
-        response.model = metadata.model
-        response.finishReason = metadata.finishReason
-        response.inputTokens = metadata.promptTokens
-        response.outputTokens = metadata.completionTokens
+        response.model = responseMetadata.model
+        response.finishReason = responseMetadata.finishReason
+        response.inputTokens = responseMetadata.usage?.promptTokens
+        response.outputTokens = responseMetadata.usage?.completionTokens
     }
 
     /// Records the finish reason from a `completedEmpty` event (a successful stream with
-    /// no reconstructed assistant text). PositronicKit v4 uses this event as the terminal
-    /// compatibility shape for the old `streamCompleted()` factory, so preserve any
-    /// metadata already recorded by a preceding generation-completed event and close the
-    /// turn here.
+    /// no reconstructed assistant text), then closes the turn. Any metadata already
+    /// recorded by a preceding generation-completed event is preserved.
     public mutating func apply(completedEmptyFinishReason finishReason: String?) {
         guard !isComplete else { return }
         if let finishReason {
@@ -415,12 +413,6 @@ public enum ChatEventReducer {
              let .completion(.toolExecution(toolCallID: id, status: status)):
             state.applyToolStatus(id: id, status: status, now: now)
 
-        case let .meta(.generationContext(metadata: metadata)):
-            state.workspaceFiles = metadata.files
-
-        case let .meta(.generationCompleted(message: _, metadata: metadata)):
-            state.apply(metadata)
-
         case let .delta(.toolCall(delta)):
             state.applyToolCallDelta(delta)
 
@@ -449,8 +441,11 @@ public enum ChatEventReducer {
             state.errorMessage = message
             state.errorIdentity = identity
 
-        case .completion(.streamCompleted):
-            state.isComplete = true
+        // PK 6: a terminal persistence failure no longer fabricates a durable
+        // outcome; it surfaces as its own error event.
+        case let .error(.durabilityFailure(message: message, identity: identity)):
+            state.errorMessage = message
+            state.errorIdentity = identity
 
         case .completion(.maxModelRoundsReached):
             state.errorMessage = "The model reached the maximum number of tool rounds."

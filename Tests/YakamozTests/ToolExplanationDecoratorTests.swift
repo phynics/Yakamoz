@@ -10,7 +10,7 @@ import Testing
 struct ToolExplanationDecoratorTests {
     @Test("Decorated calculator schema includes optional explanation")
     func decoratedCalculatorSchemaIncludesExplanation() throws {
-        let tool = CalculatorTool().toAnyTool().withExplanationParameter()
+        let tool = AnyTool(CalculatorTool()).withExplanationParameter()
         let properties = try #require(tool.parametersSchema.asDictionary["properties"]?.asDictionary)
 
         #expect(properties["expression"] != nil)
@@ -24,7 +24,7 @@ struct ToolExplanationDecoratorTests {
 
     @Test("Decorator skips tools that already reserve explanation")
     func skipsExistingExplanationProperty() {
-        let base = StubTool(
+        let base = AnyTool(StubTool(
             parametersSchema: JSONSchema.Schema([
                 "type": AnyCodable("object"),
                 "properties": AnyCodable([
@@ -34,11 +34,19 @@ struct ToolExplanationDecoratorTests {
                     ],
                 ]),
             ])
-        ).toAnyTool()
+        ))
 
         let wrapped = base.withExplanationParameter()
 
         #expect(wrapped.parametersSchema.asDictionary == base.parametersSchema.asDictionary)
+    }
+
+    @Test("Decorator forwards per-argument permission requirements")
+    func forwardsPerArgumentPermission() {
+        let wrapped = AnyTool(ParameterGatedTool()).withExplanationParameter()
+
+        #expect(wrapped.requiresPermission(for: ["danger": AnyCodable(true)]))
+        #expect(!wrapped.requiresPermission(for: ["safe": AnyCodable(true)]))
     }
 
     @MainActor
@@ -59,14 +67,14 @@ struct ToolExplanationDecoratorTests {
 
     @Test("Tool execution receives explanation as a pass-through argument")
     func executionReceivesExplanationArgument() async throws {
-        let tool = RecordingTool().toAnyTool().withExplanationParameter()
+        let tool = AnyTool(RecordingTool()).withExplanationParameter()
 
         let result = try await tool.execute(parameters: [
             "value": AnyCodable("payload"),
             "explanation": AnyCodable("Need this value for context."),
         ])
 
-        #expect(result.success)
+        #expect(result.isSuccess)
         #expect(result.output == "payload|Need this value for context.")
     }
 }
@@ -90,12 +98,32 @@ private func makeRuntime() throws -> YakamozRuntime {
     )
 }
 
-private struct StubTool: Tool {
+private struct ParameterGatedTool: PKTool {
+    var callName: String { "gated" }
+    var name: String { "Gated" }
+    var toolDescription: String { "Gated tool" }
+    var requiresPermission: Bool { false }
+    var parametersSchema: JSONSchema.Schema { Schema([:]) }
+
+    func requiresPermission(for parameters: [String: AnyCodable]) -> Bool {
+        parameters["danger"] != nil
+    }
+
+    func canExecute() async -> Bool {
+        true
+    }
+
+    func execute(parameters: [String: AnyCodable]) async throws -> ToolResult {
+        .success("")
+    }
+}
+
+private struct StubTool: PKTool {
     let parametersSchema: JSONSchema.Schema
 
     var callName: String { "stub" }
     var name: String { "Stub" }
-    var description: String { "Stub tool" }
+    var toolDescription: String { "Stub tool" }
     var requiresPermission: Bool { false }
 
     func canExecute() async -> Bool {
@@ -107,10 +135,10 @@ private struct StubTool: Tool {
     }
 }
 
-private struct RecordingTool: Tool {
+private struct RecordingTool: PKTool {
     var callName: String { "recording" }
     var name: String { "Recording" }
-    var description: String { "Records arguments" }
+    var toolDescription: String { "Records arguments" }
     var requiresPermission: Bool { false }
     var parametersSchema: JSONSchema.Schema {
         JSONSchema.Schema([

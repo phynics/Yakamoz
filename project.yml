@@ -18,7 +18,7 @@ settings:
 packages:
   PositronicKit:
     url: https://github.com/phynics/PositronicKit.git
-    exactVersion: "4.0.0"
+    exactVersion: "6.1.0-rc.1"
   swift-log:
     url: https://github.com/apple/swift-log.git
     from: "1.5.0"

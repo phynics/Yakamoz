@@ -96,7 +96,7 @@ struct FileSystemWorkspaceTests {
         defer { cleanup(root) }
         let workspace = FileSystemWorkspace(rootURL: root)
 
-        let healthy = await workspace.healthCheck()
+        let healthy = await workspace.isHealthy
         #expect(healthy)
     }
 
@@ -106,7 +106,7 @@ struct FileSystemWorkspaceTests {
         let workspace = FileSystemWorkspace(rootURL: root)
         cleanup(root)
 
-        let healthy = await workspace.healthCheck()
+        let healthy = await workspace.isHealthy
         #expect(!healthy)
     }
 
@@ -134,7 +134,7 @@ struct FileSystemWorkspaceTests {
         try await workspace.writeFile(path: "present.txt", content: "x")
 
         let result = try await workspace.executeTool(id: "ls", parameters: ["path": .string(".")])
-        #expect(result.success)
+        #expect(result.isSuccess)
         #expect(result.output.contains("present.txt"))
     }
 

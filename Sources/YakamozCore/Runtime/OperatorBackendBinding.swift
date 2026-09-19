@@ -7,9 +7,9 @@ import SwiftData
 @MainActor
 public struct OperatorBackendBinding {
     private let modelContext: ModelContext
-    private let timelineStore: any ThreadPersistenceProtocol
+    private let timelineStore: any TimelinePersistenceProtocol
 
-    public init(modelContext: ModelContext, timelineStore: any ThreadPersistenceProtocol) {
+    public init(modelContext: ModelContext, timelineStore: any TimelinePersistenceProtocol) {
         self.modelContext = modelContext
         self.timelineStore = timelineStore
     }
@@ -38,7 +38,7 @@ public struct OperatorBackendBinding {
         operatorModel.backendInstanceId = backendInstanceId
         try modelContext.save()
 
-        try await timelineStore.saveThread(YakamozThread(
+        try await timelineStore.saveTimeline(YakamozThread(
             id: privateTimelineId,
             title: "[\(operatorModel.name)] Private",
             attachedAgentID: backendInstanceId,
@@ -49,16 +49,16 @@ public struct OperatorBackendBinding {
 
     public func attachOperator(_ operatorModel: OperatorModel, to timelineId: UUID) async throws {
         let backendInstanceId = try await ensureBackendInstance(for: operatorModel)
-        guard var thread = try await timelineStore.fetchThread(id: timelineId) else { return }
+        guard var thread = try await timelineStore.fetchTimeline(id: timelineId) else { return }
         thread.attachedAgentID = backendInstanceId
         thread.updatedAt = Date()
-        try await timelineStore.saveThread(thread)
+        try await timelineStore.saveTimeline(thread)
     }
 
     public func detachOperator(from timelineId: UUID) async throws {
-        guard var thread = try await timelineStore.fetchThread(id: timelineId) else { return }
+        guard var thread = try await timelineStore.fetchTimeline(id: timelineId) else { return }
         thread.attachedAgentID = nil
         thread.updatedAt = Date()
-        try await timelineStore.saveThread(thread)
+        try await timelineStore.saveTimeline(thread)
     }
 }

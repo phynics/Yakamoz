@@ -6,13 +6,54 @@ import PKContracts
 import PKPrompt
 import PositronicKit
 
-/// The seam between `ChatViewModel` and PositronicKit's managed Thread turn.
+/// The app-owned request for one managed chat turn. PositronicKit 6 removed the
+/// public `TurnRequest`; this value carries exactly what Yakamoz needs and is
+/// converted into `TurnOptions` + `TimelineHandle.startTurn` inside `YakamozRuntime`.
+public struct ChatRunRequest: Sendable {
+    public let timelineID: UUID
+    public let requestID: UUID
+    public let message: String
+    public let tools: [AnyTool]
+    public let systemInstructions: String?
+    public let maxModelRounds: Int
+    public let generationParameters: GenerationParameters?
+    public let structuredOutput: StructuredOutputRequest?
+    public let sidecars: [SidecarDirective]
+    /// Rejected by `YakamozRuntime`: the app never accepts external tool outputs.
+    public let toolOutputs: [ToolOutputSubmission]?
+
+    public init(
+        timelineID: UUID,
+        requestID: UUID = UUID(),
+        message: String,
+        tools: [AnyTool],
+        systemInstructions: String? = nil,
+        maxModelRounds: Int = 5,
+        generationParameters: GenerationParameters? = nil,
+        structuredOutput: StructuredOutputRequest? = nil,
+        sidecars: [SidecarDirective] = [],
+        toolOutputs: [ToolOutputSubmission]? = nil
+    ) {
+        self.timelineID = timelineID
+        self.requestID = requestID
+        self.message = message
+        self.tools = tools
+        self.systemInstructions = systemInstructions
+        self.maxModelRounds = maxModelRounds
+        self.generationParameters = generationParameters
+        self.structuredOutput = structuredOutput
+        self.sidecars = sidecars
+        self.toolOutputs = toolOutputs
+    }
+}
+
+/// The seam between `ChatViewModel` and PositronicKit's managed Timeline turn.
 ///
-/// Mirrors the facade's `run(_:)` signature exactly so the runtime can pass a
-/// concrete `ChatRunning` implementation through the same seam that tests replace
-/// with a scripted fake — no network, no real `ChatEngine`, no sleeps.
+/// The runtime adapts PositronicKit's `TurnHandle.events()` (`AsyncStream<TurnEvent>`)
+/// to this seam; tests replace it with a scripted fake — no network, no real
+/// `ChatEngine`, no sleeps.
 public protocol ChatRunning: Sendable {
-    func run(_ request: TurnRequest) async throws -> AsyncThrowingStream<TurnEvent, Error>
+    func run(_ request: ChatRunRequest) async throws -> AsyncStream<TurnEvent>
 }
 
 /// Main-actor, `@Observable` view model that drives a single chat conversation:
@@ -342,8 +383,8 @@ public final class ChatViewModel {
 
         do {
             let stream = try await runner.run(
-                TurnRequest(
-                    threadID: timelineId,
+                ChatRunRequest(
+                    timelineID: timelineId,
                     requestID: sendId,
                     message: text,
                     tools: tools,
@@ -354,7 +395,7 @@ public final class ChatViewModel {
                 )
             )
 
-            eventLoop: for try await event in stream {
+            eventLoop: for await event in stream {
                 if Task.isCancelled {
                     state.isCancelled = true
                     updateAssistantItem(id: assistantItemId, turn: state)

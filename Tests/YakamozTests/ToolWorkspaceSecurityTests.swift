@@ -134,18 +134,18 @@ struct ToolWorkspaceSecurityTests {
 
         // Positive control: each cat reads its own root's file.
         let ownA = try await catA.execute(parameters: ["path": AnyCodable("secretA.txt")])
-        #expect(ownA.success)
+        #expect(ownA.isSuccess)
         #expect(ownA.output == secretA)
 
         // Escape attempt: catA reaches into rootB via a relative traversal.
         let traversal = "../\(rootB.lastPathComponent)/secretB.txt"
         let escapeFromA = try await catA.execute(parameters: ["path": AnyCodable(traversal)])
-        #expect(!escapeFromA.success)
+        #expect(!escapeFromA.isSuccess)
         #expect(escapeFromA.output != secretB)
 
         // Escape attempt: catB reaches into rootA via a relative traversal.
         let escapeFromB = try await catB.execute(parameters: ["path": AnyCodable("../\(rootA.lastPathComponent)/secretA.txt")])
-        #expect(!escapeFromB.success)
+        #expect(!escapeFromB.isSuccess)
         #expect(escapeFromB.output != secretA)
     }
 }

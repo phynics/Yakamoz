@@ -124,10 +124,10 @@ func renderRead(
 ///
 /// Only this tool consults the approver; `terminal_send_input`/`terminal_interrupt` steer an
 /// already-approved, already-running command and do not re-prompt.
-public struct TerminalRunTool: Tool, Sendable {
+public struct TerminalRunTool: PKTool, Sendable {
     public let callName = "terminal_run"
     public let name = "Run Terminal Command"
-    public let description = "Runs a shell command in the workspace's terminal session. Requires user approval unless the session was already allowed."
+    public let toolDescription = "Runs a shell command in the workspace's terminal session. Requires user approval unless the session was already allowed."
     public let requiresPermission = true
 
     public let workspaceId: UUID
@@ -211,10 +211,10 @@ public struct TerminalRunTool: Tool, Sendable {
 
 /// Reads output accumulated since the last `read`/`wait`/`run` call on the workspace's
 /// terminal session, without prompting for approval.
-public struct TerminalReadTool: Tool, Sendable {
+public struct TerminalReadTool: PKTool, Sendable {
     public let callName = "terminal_read"
     public let name = "Read Terminal Output"
-    public let description = "Reads output accumulated since the last read/wait/run on the workspace's terminal session."
+    public let toolDescription = "Reads output accumulated since the last read/wait/run on the workspace's terminal session."
     public let requiresPermission = false
 
     public let workspaceId: UUID
@@ -252,10 +252,10 @@ public struct TerminalReadTool: Tool, Sendable {
 
 /// Waits (up to a timeout) for the workspace's terminal session's pending command to finish,
 /// without prompting for approval.
-public struct TerminalWaitTool: Tool, Sendable {
+public struct TerminalWaitTool: PKTool, Sendable {
     public let callName = "terminal_wait"
     public let name = "Wait For Terminal Command"
-    public let description = "Waits up to a timeout for the workspace's terminal session's pending command to finish."
+    public let toolDescription = "Waits up to a timeout for the workspace's terminal session's pending command to finish."
     public let requiresPermission = false
 
     public let workspaceId: UUID
@@ -301,10 +301,10 @@ public struct TerminalWaitTool: Tool, Sendable {
 /// Sends text to the stdin of the workspace's terminal session's running command, without
 /// prompting for approval (steering an already-approved, already-running command is part of
 /// that command's existing approval).
-public struct TerminalSendInputTool: Tool, Sendable {
+public struct TerminalSendInputTool: PKTool, Sendable {
     public let callName = "terminal_send_input"
     public let name = "Send Terminal Input"
-    public let description = "Sends text to the stdin of the workspace's terminal session's running command."
+    public let toolDescription = "Sends text to the stdin of the workspace's terminal session's running command."
     public let requiresPermission = false
 
     public let workspaceId: UUID
@@ -367,10 +367,10 @@ public struct TerminalSendInputTool: Tool, Sendable {
 
 /// Sends an interrupt (Ctrl-C) to the workspace's terminal session's running command, without
 /// prompting for approval.
-public struct TerminalInterruptTool: Tool, Sendable {
+public struct TerminalInterruptTool: PKTool, Sendable {
     public let callName = "terminal_interrupt"
     public let name = "Interrupt Terminal Command"
-    public let description = "Sends Ctrl-C to the workspace's terminal session's running command."
+    public let toolDescription = "Sends Ctrl-C to the workspace's terminal session's running command."
     public let requiresPermission = false
 
     public let workspaceId: UUID
@@ -408,10 +408,10 @@ public struct TerminalInterruptTool: Tool, Sendable {
 
 /// Reads the full stored output of a previously-run command by its UUID.
 /// Does not require approval since it only reads output of an already-approved command.
-public struct TerminalReadOutputTool: Tool, Sendable {
+public struct TerminalReadOutputTool: PKTool, Sendable {
     public let callName = "terminal_read_output"
     public let name = "Read Full Terminal Output"
-    public let description = "Reads the full stored output of a previously-run terminal command, supporting pagination via offset and limit."
+    public let toolDescription = "Reads the full stored output of a previously-run terminal command, supporting pagination via offset and limit."
     public let requiresPermission = false
 
     public let workspaceId: UUID

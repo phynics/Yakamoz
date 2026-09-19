@@ -18,7 +18,7 @@ import PositronicKit
 /// comparing, so a symlink created inside the root that points outside of it cannot be
 /// used to escape the sandbox (resolving the candidate turns it into its real,
 /// out-of-root destination, which then fails the prefix check).
-public actor FileSystemWorkspace: Workspace {
+public actor FileSystemWorkspace: WorkspaceToolProvider, WorkspaceFileProvider {
     public let id: UUID
     public let rootURL: URL
     private let displayName: String
@@ -116,9 +116,11 @@ public actor FileSystemWorkspace: Workspace {
         }
     }
 
-    public func healthCheck() async -> Bool {
-        var isDirectory: ObjCBool = false
-        return FileManager.default.fileExists(atPath: rootURL.path, isDirectory: &isDirectory) && isDirectory.boolValue
+    public var isHealthy: Bool {
+        get async {
+            var isDirectory: ObjCBool = false
+            return FileManager.default.fileExists(atPath: rootURL.path, isDirectory: &isDirectory) && isDirectory.boolValue
+        }
     }
 
     // MARK: - Workspace: tool routing

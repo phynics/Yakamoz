@@ -30,17 +30,17 @@ struct PersistenceAdapterTests {
     @Test("Round-trips messages ordered by timestamp")
     func messagesRoundTrip() async throws {
         let stores = try makeStores()
-        let messageStore: any ThreadMessageStoreProtocol = stores.messages
+        let messageStore: any TimelineMessageStoreProtocol = stores.runtime
         let timelineId = UUID()
 
-        let first = ThreadMessage(
-            threadID: timelineId,
+        let first = TimelineMessage(
+            timelineID: timelineId,
             role: .user,
             content: "Hello",
             timestamp: Date(timeIntervalSince1970: 1000)
         )
-        let second = ThreadMessage(
-            threadID: timelineId,
+        let second = TimelineMessage(
+            timelineID: timelineId,
             role: .assistant,
             content: "Hi there",
             timestamp: Date(timeIntervalSince1970: 2000)
@@ -52,25 +52,34 @@ struct PersistenceAdapterTests {
         let fetched = try await messageStore.fetchMessages(for: timelineId)
         #expect(fetched.map(\.content) == ["Hello", "Hi there"])
 
-        try await messageStore.deleteMessages(for: timelineId)
+        // PK 6: history is append-only; the only sanctioned deletion cascades
+        // from deleting the Timeline itself.
+        do {
+            try await messageStore.deleteMessages(for: timelineId)
+            Issue.record("deleteMessages must throw historyDeletionForbidden")
+        } catch {
+            // Swift Testing's cast here is unreliable across the @ModelActor boundary;
+            // the enum's CustomStringConvertible description is the stable contract.
+            #expect("\(error)".contains("append-only"), "unexpected error: \(error)")
+        }
         let afterDelete = try await messageStore.fetchMessages(for: timelineId)
-        #expect(afterDelete.isEmpty)
+        #expect(afterDelete.count == 2)
     }
 
     @Test("Prunes old messages excluding recent ones, supports dry run")
     func messagePruning() async throws {
         let stores = try makeStores()
-        let messageStore: any ThreadMessageStoreProtocol = stores.messages
+        let messageStore: any TimelineMessageStoreProtocol = stores.runtime
         let timelineId = UUID()
 
-        let old = ThreadMessage(
-            threadID: timelineId,
+        let old = TimelineMessage(
+            timelineID: timelineId,
             role: .user,
             content: "Old",
             timestamp: Date().addingTimeInterval(-1_000_000)
         )
-        let recent = ThreadMessage(
-            threadID: timelineId,
+        let recent = TimelineMessage(
+            timelineID: timelineId,
             role: .user,
             content: "Recent",
             timestamp: Date()
@@ -92,19 +101,19 @@ struct PersistenceAdapterTests {
     @Test("Fetches turn snapshots for a timeline")
     func messageSnapshots() async throws {
         let stores = try makeStores()
-        let messageStore: any ThreadMessageStoreProtocol = stores.messages
+        let messageStore: any TimelineMessageStoreProtocol = stores.runtime
         let timelineId = UUID()
 
         let snapshot = TurnSnapshot(
-            threadID: timelineId,
+            timelineID: timelineId,
             modelName: "gpt-test",
             modelRoundIndex: 0,
             maxModelRounds: 5
         )
         let snapshotData = try JSONEncoder().encode(snapshot)
 
-        let message = ThreadMessage(
-            threadID: timelineId,
+        let message = TimelineMessage(
+            timelineID: timelineId,
             role: .assistant,
             content: "Response",
             snapshotData: snapshotData
@@ -121,35 +130,35 @@ struct PersistenceAdapterTests {
     @Test("Round-trips timelines")
     func timelinesRoundTrip() async throws {
         let stores = try makeStores()
-        let timelineStore: any ThreadPersistenceProtocol = stores.timelines
+        let timelineStore: any TimelinePersistenceProtocol = stores.runtime
 
         var timeline = YakamozThread(
             title: "Test Timeline"
         )
 
-        try await timelineStore.saveThread(timeline)
+        try await timelineStore.saveTimeline(timeline)
 
-        let fetched = try await timelineStore.fetchThread(id: timeline.id)
+        let fetched = try await timelineStore.fetchTimeline(id: timeline.id)
         #expect(fetched?.title == "Test Timeline")
 
         timeline.isArchived = true
-        try await timelineStore.saveThread(timeline)
+        try await timelineStore.saveTimeline(timeline)
 
-        let allExcludingArchived = try await timelineStore.fetchAllThreads(includeArchived: false)
+        let allExcludingArchived = try await timelineStore.fetchAllTimelines(includeArchived: false)
         #expect(allExcludingArchived.isEmpty)
 
-        let allIncludingArchived = try await timelineStore.fetchAllThreads(includeArchived: true)
+        let allIncludingArchived = try await timelineStore.fetchAllTimelines(includeArchived: true)
         #expect(allIncludingArchived.map(\.id) == [timeline.id])
 
-        try await timelineStore.deleteThread(id: timeline.id)
-        let afterDelete = try await timelineStore.fetchThread(id: timeline.id)
+        try await timelineStore.deleteTimeline(id: timeline.id)
+        let afterDelete = try await timelineStore.fetchTimeline(id: timeline.id)
         #expect(afterDelete == nil)
     }
 
     @Test("Prunes old timelines excluding specified ids")
     func timelinePruning() async throws {
         let stores = try makeStores()
-        let timelineStore: any ThreadPersistenceProtocol = stores.timelines
+        let timelineStore: any TimelinePersistenceProtocol = stores.runtime
 
         let oldTimeline = YakamozThread(
             title: "Old",
@@ -161,17 +170,17 @@ struct PersistenceAdapterTests {
             createdAt: Date().addingTimeInterval(-1_000_000),
             updatedAt: Date().addingTimeInterval(-1_000_000)
         )
-        try await timelineStore.saveThread(oldTimeline)
-        try await timelineStore.saveThread(excludedOldTimeline)
+        try await timelineStore.saveTimeline(oldTimeline)
+        try await timelineStore.saveTimeline(excludedOldTimeline)
 
-        let prunedCount = try await timelineStore.pruneThreads(
+        let prunedCount = try await timelineStore.pruneTimelines(
             olderThan: 500_000,
             excluding: [excludedOldTimeline.id],
             dryRun: false
         )
         #expect(prunedCount == 1)
 
-        let remaining = try await timelineStore.fetchAllThreads(includeArchived: true)
+        let remaining = try await timelineStore.fetchAllTimelines(includeArchived: true)
         #expect(remaining.map(\.id) == [excludedOldTimeline.id])
     }
 
@@ -214,29 +223,29 @@ struct PersistenceAdapterTests {
         let toolStore: any ToolPersistenceProtocol = stores.tools
 
         let workspaceId = UUID()
-        try await toolStore.addToolToWorkspace(workspaceId: workspaceId, tool: .known(id: "shell"))
+        try await toolStore.addToolToWorkspace(workspaceID: workspaceId, tool: .known(id: "shell"))
 
         let customDefinition = WorkspaceToolDefinition(
             id: "custom-tool",
             name: "Custom Tool",
             description: "A custom tool"
         )
-        try await toolStore.addToolToWorkspace(workspaceId: workspaceId, tool: .custom(customDefinition))
+        try await toolStore.addToolToWorkspace(workspaceID: workspaceId, tool: .custom(customDefinition))
 
         let fetched = try await toolStore.fetchTools(forWorkspaces: [workspaceId])
         #expect(Set(fetched.map(\.toolID)) == Set(["shell", "custom-tool"]))
 
-        let foundWorkspaceId = try await toolStore.findWorkspaceId(forToolId: "shell", in: [workspaceId])
+        let foundWorkspaceId = try await toolStore.findWorkspace(hostingToolNamed: "shell", in: [workspaceId])
         #expect(foundWorkspaceId == workspaceId)
 
         let source = try await toolStore.fetchToolSource(
-            toolId: "shell",
-            workspaceIds: [workspaceId],
-            primaryWorkspaceId: nil
+            named: "shell",
+            in: [workspaceId],
+            preferring: nil
         )
         #expect(source != nil)
 
-        try await toolStore.syncTools(workspaceId: workspaceId, tools: [.known(id: "shell")])
+        try await toolStore.syncTools(workspaceID: workspaceId, tools: [.known(id: "shell")])
         let afterSync = try await toolStore.fetchTools(forWorkspaces: [workspaceId])
         #expect(afterSync.map(\.toolID) == ["shell"])
     }
@@ -253,11 +262,11 @@ struct PersistenceAdapterTests {
         try await originStore.saveOrigin(origin)
 
         try await toolStore.addToolToWorkspace(
-            workspaceId: workspaceId,
+            workspaceID: workspaceId,
             tool: .known(id: "remote-tool")
         )
 
-        let originTools = try await toolStore.fetchOriginTools(originId: originId)
+        let originTools = try await toolStore.fetchOriginTools(originID: originId)
         #expect(originTools.isEmpty)
     }
 
@@ -267,14 +276,14 @@ struct PersistenceAdapterTests {
     func agentInstancesRoundTrip() async throws {
         let stores = try makeStores()
         let agentStore: any AgentStoreProtocol = stores.agents
-        let timelineStore: any ThreadPersistenceProtocol = stores.timelines
+        let timelineStore: any TimelinePersistenceProtocol = stores.runtime
 
         let privateTimelineId = UUID()
         let instance = Agent(
             name: "Agent Smith",
             description: "A test agent",
             lifecycle: .retiring,
-            privateThreadID: privateTimelineId
+            privateTimelineID: privateTimelineId
         )
 
         try await agentStore.saveAgent(instance)
@@ -287,9 +296,9 @@ struct PersistenceAdapterTests {
         #expect(all.map(\.id) == [instance.id])
 
         let attachedTimeline = YakamozThread(title: "Attached", attachedAgentID: instance.id)
-        try await timelineStore.saveThread(attachedTimeline)
+        try await timelineStore.saveTimeline(attachedTimeline)
 
-        let timelines = try await agentStore.fetchThreads(attachedToAgent: instance.id)
+        let timelines = try await agentStore.fetchTimelines(attachedToAgent: instance.id)
         #expect(timelines.map(\.id) == [attachedTimeline.id])
 
         try await agentStore.deleteAgent(id: instance.id)

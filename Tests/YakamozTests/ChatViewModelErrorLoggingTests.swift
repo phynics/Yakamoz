@@ -86,7 +86,7 @@ struct ChatViewModelErrorLoggingTests {
 
     /// A `ChatRunning` mock that throws on `run`, driving the turn-failure path.
     private final class ThrowingRunner: ChatRunning, @unchecked Sendable {
-        func run(_ request: TurnRequest) async throws -> AsyncThrowingStream<TurnEvent, Error> {
+        func run(_ request: ChatRunRequest) async throws -> AsyncStream<TurnEvent> {
             throw NSError(
                 domain: "test",
                 code: -1,
@@ -143,15 +143,15 @@ struct ChatViewModelErrorLoggingTests {
         try await withRecorder { recorder in
             // Simulate a save failure by trying to emit directly through the logger.
             let timelineId = UUID()
-            Log.runtime.error("failed to save ThreadMessage", metadata: [
+            Log.runtime.error("failed to save TimelineMessage", metadata: [
                 "store": "MessageStore",
                 "timelineID": "\(timelineId)",
                 "messageID": "\(UUID())",
             ])
 
             let runtimeRecords = recorder.records.filter { $0.label == "me.atkn.Yakamoz.runtime" }
-            guard let record = runtimeRecords.first(where: { $0.message == "failed to save ThreadMessage" }) else {
-                Issue.record("Expected a 'failed to save ThreadMessage' runtime log record; got \(recorder.records.map(\.message))")
+            guard let record = runtimeRecords.first(where: { $0.message == "failed to save TimelineMessage" }) else {
+                Issue.record("Expected a 'failed to save TimelineMessage' runtime log record; got \(recorder.records.map(\.message))")
                 return
             }
 
@@ -165,14 +165,14 @@ struct ChatViewModelErrorLoggingTests {
     func persistenceFetchFallbackLogsWarning() async throws {
         try await withRecorder { recorder in
             let timelineId = UUID()
-            Log.runtime.warning("failed to fetch ThreadMessages", metadata: [
+            Log.runtime.warning("failed to fetch TimelineMessages", metadata: [
                 "store": "MessageStore",
                 "timelineID": "\(timelineId)",
             ])
 
             let runtimeRecords = recorder.records.filter { $0.label == "me.atkn.Yakamoz.runtime" }
-            guard let record = runtimeRecords.first(where: { $0.message == "failed to fetch ThreadMessages" }) else {
-                Issue.record("Expected a 'failed to fetch ThreadMessages' runtime log record; got \(recorder.records.map(\.message))")
+            guard let record = runtimeRecords.first(where: { $0.message == "failed to fetch TimelineMessages" }) else {
+                Issue.record("Expected a 'failed to fetch TimelineMessages' runtime log record; got \(recorder.records.map(\.message))")
                 return
             }
 

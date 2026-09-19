@@ -17,15 +17,19 @@ public extension AnyTool {
     }
 }
 
-private struct ExplainedTool: Tool {
+private struct ExplainedTool: PKTool {
     let wrapped: AnyTool
 
     var callName: String { wrapped.callName }
     var identity: ToolReference { wrapped.identity }
     var name: String { wrapped.name }
-    var description: String { wrapped.description }
+    var toolDescription: String { wrapped.toolDescription }
     var requiresPermission: Bool { wrapped.requiresPermission }
     var sideEffects: ToolSideEffects { wrapped.sideEffects }
+
+    func requiresPermission(for parameters: [String: AnyCodable]) -> Bool {
+        wrapped.requiresPermission(for: parameters)
+    }
     var usageExample: String? { wrapped.usageExample }
 
     var parametersSchema: Schema {

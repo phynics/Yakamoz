@@ -12,7 +12,7 @@ import PositronicKit
 public struct FileSystemWorkspaceFactory: WorkspaceFactory {
     public init() {}
 
-    public func create(from reference: WorkspaceReference) throws -> any Workspace {
+    public func create(from reference: WorkspaceReference) throws -> any WorkspaceProvider {
         guard let rootPath = reference.rootPath else {
             throw WorkspaceError.invalidWorkspaceType
         }

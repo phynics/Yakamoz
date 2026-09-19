@@ -10,7 +10,7 @@ struct DemoToolsTests {
     func precedence() async throws {
         let tool = CalculatorTool()
         let result = try await tool.execute(parameters: ["expression": "2 + 3 * 4"])
-        #expect(result.success)
+        #expect(result.isSuccess)
         #expect(result.output == "14")
     }
 
@@ -18,7 +18,7 @@ struct DemoToolsTests {
     func parentheses() async throws {
         let tool = CalculatorTool()
         let result = try await tool.execute(parameters: ["expression": "(2 + 3) * 4"])
-        #expect(result.success)
+        #expect(result.isSuccess)
         #expect(result.output == "20")
     }
 
@@ -26,7 +26,7 @@ struct DemoToolsTests {
     func unaryMinus() async throws {
         let tool = CalculatorTool()
         let result = try await tool.execute(parameters: ["expression": "-3 + 5"])
-        #expect(result.success)
+        #expect(result.isSuccess)
         #expect(result.output == "2")
     }
 
@@ -34,7 +34,7 @@ struct DemoToolsTests {
     func decimals() async throws {
         let tool = CalculatorTool()
         let result = try await tool.execute(parameters: ["expression": "1.5 + 2.25"])
-        #expect(result.success)
+        #expect(result.isSuccess)
         #expect(result.output == "3.75")
     }
 
@@ -42,7 +42,7 @@ struct DemoToolsTests {
     func divisionPrecedence() async throws {
         let tool = CalculatorTool()
         let result = try await tool.execute(parameters: ["expression": "10 - 4 / 2"])
-        #expect(result.success)
+        #expect(result.isSuccess)
         #expect(result.output == "8")
     }
 
@@ -50,7 +50,7 @@ struct DemoToolsTests {
     func divisionByZero() async throws {
         let tool = CalculatorTool()
         let result = try await tool.execute(parameters: ["expression": "1 / 0"])
-        #expect(!result.success)
+        #expect(!result.isSuccess)
         #expect(result.error != nil)
     }
 
@@ -58,7 +58,7 @@ struct DemoToolsTests {
     func invalidExpression() async throws {
         let tool = CalculatorTool()
         let result = try await tool.execute(parameters: ["expression": "2 + * 3"])
-        #expect(!result.success)
+        #expect(!result.isSuccess)
         #expect(result.error != nil)
     }
 
@@ -66,7 +66,7 @@ struct DemoToolsTests {
     func unbalancedParens() async throws {
         let tool = CalculatorTool()
         let result = try await tool.execute(parameters: ["expression": "(2 + 3"])
-        #expect(!result.success)
+        #expect(!result.isSuccess)
         #expect(result.error != nil)
     }
 
@@ -74,7 +74,7 @@ struct DemoToolsTests {
     func missingArgument() async throws {
         let tool = CalculatorTool()
         let result = try await tool.execute(parameters: [:])
-        #expect(!result.success)
+        #expect(!result.isSuccess)
         #expect(result.error != nil)
     }
 
@@ -82,7 +82,7 @@ struct DemoToolsTests {
     func nestedExpression() async throws {
         let tool = CalculatorTool()
         let result = try await tool.execute(parameters: ["expression": "((1 + 2) * (3 - 1)) / 2"])
-        #expect(result.success)
+        #expect(result.isSuccess)
         #expect(result.output == "3")
     }
 
@@ -93,7 +93,7 @@ struct DemoToolsTests {
         let fixedDate = Date(timeIntervalSince1970: 0) // 1970-01-01T00:00:00Z
         let tool = CurrentDateTimeTool(now: { fixedDate })
         let result = try await tool.execute(parameters: [:])
-        #expect(result.success)
+        #expect(result.isSuccess)
         #expect(result.output == "1970-01-01T00:00:00Z")
     }
 
@@ -102,7 +102,7 @@ struct DemoToolsTests {
         let fixedDate = Date(timeIntervalSince1970: 1_700_000_000)
         let tool = CurrentDateTimeTool(now: { fixedDate })
         let result = try await tool.execute(parameters: [:])
-        #expect(result.success)
+        #expect(result.isSuccess)
 
         let formatter = ISO8601DateFormatter()
         let expected = formatter.string(from: fixedDate)
