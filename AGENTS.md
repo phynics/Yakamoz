@@ -1,7 +1,7 @@
-# CLAUDE.md — Yakamoz
+# AGENTS.md — Yakamoz
 
 Yakamoz is a standalone repository. Product, feature, and architecture detail:
-[README.md](README.md). `AGENTS.md` is identical to this file.
+[README.md](README.md).
 
 Local, non-sandboxed, single-user macOS SwiftUI showcase app driving `PositronicKit`.
 No server/client — all workspaces are local.
@@ -36,25 +36,24 @@ an exact semver (`exactVersion`), never a local path. To develop against an unre
 PositronicKit change, use an Xcode local package override in your working copy only; do not
 commit a path dependency.
 
-## Workflow: issue → implement → review → issue → …
+## Workflow
 
-A loop, not a line. Work is tracked as GitHub issues on
-[`phynics/Yakamoz`](https://github.com/phynics/Yakamoz/issues) — there is no local ticket
-directory.
+Work is tracked as GitHub issues on
+[`phynics/Yakamoz`](https://github.com/phynics/Yakamoz/issues); there is no local ticket
+directory. The loop is **issue → implement → review → issue → …**.
 
-- **Plan** — discuss in an issue; write the spec/plan into the issue (or a repo doc)
-  before implementing.
-- **Implement** — one issue at a time; keep the change scoped to the issue.
-- **Review** — review the landed change (correctness first), **capturing findings as new
-  issues** rather than only reporting inline.
-- **Repeat** — review issues are the next implementation round.
+- **Plan** — put the spec (context, acceptance criteria, verification) in the issue before
+  implementing.
+- **Implement** — one issue at a time, scoped to the issue; TDD red → green → refactor.
+- **Verify** — `make verify` for changes touching `Sources/`, `Tests/`, or `project.yml`;
+  CI gates docs-only changes.
+- **Review** — fresh context, correctness first; findings become issues unless fixed in the
+  same change.
+- **Close** — resolution note with verification evidence, then close.
 
-### Executing an issue
+Commit per issue at the end; before committing, run `git status` and warn about unrelated
+uncommitted files; stage only the issue's files, never `git add -A`; cite `Refs #N` in the
+commit body. Commit and push only when asked.
 
-TDD throughout (red → green → refactor). On completion, run `make verify` (must be green;
-trust it over bare `swift test`), then close the issue with a short resolution note.
-Implement on the current branch and commit per issue at the end; before committing,
-`git status` and **warn about any unrelated uncommitted files**; stage only the issue's own
-files, never blanket `git add -A`.
-
-Commit/push only when asked.
+Full detail: [docs/workflow.md](docs/workflow.md). Vocabulary: [CONTEXT.md](CONTEXT.md).
+Decisions: [docs/adr/](docs/adr/).

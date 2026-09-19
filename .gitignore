@@ -16,4 +16,6 @@ DerivedData/
 ExportOptions.plist
 fastlane/
 
+# Local agent tooling state
+.claude/
 .worktrees/
