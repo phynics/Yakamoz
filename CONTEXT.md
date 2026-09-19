@@ -46,3 +46,38 @@ _Avoid_: panel, debugger
 A named provider configuration (OpenAI, OpenRouter, Ollama, Custom) mapped to a
 PositronicKit provider adapter.
 _Avoid_: provider config, profile
+
+### Network client (Gnostic)
+
+Gnostic owns this vocabulary; these entries record only how the terms surface in Yakamoz
+and which local terms they must not be confused with.
+
+**Gnostic client**:
+Yakamoz's role on a Gnostic network: it discovers and interacts with Nodes, Ascendants, and
+workspaces without hosting anything. Advertising presence is a possible future capability,
+not current behavior.
+_Avoid_: node, host
+
+**Node**:
+A Gnostic host that advertises the Ascendants, Timelines, and Workspaces it owns.
+_Avoid_: server, broker (the broker is transport, not a Node)
+
+**Ascendant**:
+A remote agent identity hosted by a Node. Yakamoz lists discovered Ascendants in the
+sidebar's Network group and runs Network turns against them.
+_Avoid_: operator, agent
+
+**Gnostic Timeline**:
+A remote, Node-owned conversation identity addressed by Gnostic operations. Yakamoz does
+not own it, and it is not a local Conversation.
+_Avoid_: conversation, thread
+
+**Network workspace**:
+A discovered capability resource that a Gnostic Timeline can attach. Distinct from
+Yakamoz's Workspace (a folder attached to a local conversation).
+_Avoid_: workspace (unqualified), folder
+
+**Network turn**:
+A Gnostic Timeline-addressed operation executed by a remote Ascendant whose updates the
+client streams. Not a local assistant turn and not inspected by the turn inspector.
+_Avoid_: turn (unqualified in network contexts)
