@@ -31,6 +31,19 @@ struct NetworkClientSessionTests {
         )
     }
 
+    /// Yields to the session's observation task until `condition` holds or the bounded
+    /// deadline passes. Used only to observe the live event-stream glue.
+    private func waitUntil(
+        timeout: Duration = .seconds(2),
+        _ condition: @MainActor () -> Bool
+    ) async {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if condition() { return }
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+    }
+
     @Test("Start connects once and discovers on start")
     func connectAndDiscoverOnStart() async {
         let transport = FakeGnosticTransport()
@@ -164,6 +177,22 @@ struct NetworkClientSessionTests {
         await session.ingest(.discovered(.ascendant(TestEntities.ascendant(key: key, name: "Ada"))))
         await session.ingest(.deadvertised(key))
 
+        #expect(session.catalog.ascendants[key] == nil)
+    }
+
+    @Test("Advertise and deadvertise arrive through the live event stream")
+    func observesEventStream() async {
+        let transport = FakeGnosticTransport()
+        let session = makeSession(transport: transport)
+        await session.start()
+        let key = TestEntities.key(UUID())
+
+        await transport.emit(.discovered(.ascendant(TestEntities.ascendant(key: key, name: "Ada"))))
+        await waitUntil { session.catalog.ascendants[key] != nil }
+        #expect(session.catalog.ascendants[key] != nil)
+
+        await transport.emit(.deadvertised(key))
+        await waitUntil { session.catalog.ascendants[key] == nil }
         #expect(session.catalog.ascendants[key] == nil)
     }
 
