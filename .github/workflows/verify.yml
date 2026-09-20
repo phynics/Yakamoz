@@ -11,6 +11,11 @@ env:
   # fails before anything is compiled. Install the swift.org 6.4 toolchain and
   # select it with TOOLCHAINS. Remove this once a runner image ships Xcode 27.
   SWIFT_TOOLCHAIN_VERSION: "6.4.0"
+  # Xcode's SwiftPM compiles manifests with the selected toolchain's swiftc but
+  # links them against Xcode's own libPackageDescription. Pin DEVELOPER_DIR so the
+  # toolchain's clang resolves Xcode's linker rather than falling back and failing
+  # with "posix_spawn failed: No such file or directory".
+  DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
 
 jobs:
   verify:
@@ -42,6 +47,14 @@ jobs:
           "$toolchain/usr/bin/swift" --version
           plutil -extract CFBundleIdentifier raw "$toolchain/Info.plist" \
             | sed 's/^/TOOLCHAINS=/' >> "$GITHUB_ENV"
+
+      - name: Report the toolchain seam
+        run: |
+          set -x
+          xcode-select -p
+          xcrun -f ld
+          xcrun --toolchain "$TOOLCHAINS" -f ld || echo "no ld under the selected toolchain"
+          xcrun --toolchain "$TOOLCHAINS" -f clang || true
 
       - name: Install XcodeGen
         run: brew install xcodegen
