@@ -1,22 +1,40 @@
 import SwiftUI
 import YakamozCore
+import YakamozNetwork
 
-/// Provider settings scene (Command-comma).
+/// Settings scene (Command-comma), a two-pane `TabView`: **Provider** and **Network**.
 ///
-/// Organized into five groups: Active Target, Credentials, Diagnostics, Generation, Retry.
-/// Reads and drives `ProviderStatusViewModel` (shared with `ProviderControlMenu`) so
-/// model-list and health state are not duplicated. Non-secret fields write straight through
-/// to the injected `ProviderSettings`; the API key is staged in local `@State` and only
-/// reaches the secret store when the user taps Apply.
+/// The Provider pane is organized into five groups: Active Target, Credentials,
+/// Diagnostics, Generation, Retry. It reads and drives `ProviderStatusViewModel`
+/// (shared with `ProviderControlMenu`) so model-list and health state are not
+/// duplicated. Non-secret fields write straight through to the injected
+/// `ProviderSettings`; the API key is staged in local `@State` and only reaches
+/// the secret store when the user taps Apply.
+///
+/// The Network pane is ``NetworkSettingsView``: Gnostic broker settings plus live
+/// connection status. See issue #7.
 struct SettingsView: View {
     let providerStatus: ProviderStatusViewModel
     @Bindable var settings: ProviderSettings
+    @Bindable var networkSettings: NetworkSettings
+    let networkSession: NetworkClientSession?
     let secrets: any SecretStoring
 
     @State private var apiKeyDraft: String = ""
     @State private var applyError: String?
 
     var body: some View {
+        TabView {
+            providerTab
+                .tabItem { Label("Provider", systemImage: "cpu") }
+
+            NetworkSettingsView(settings: networkSettings, session: networkSession, secrets: secrets)
+                .tabItem { Label("Network", systemImage: "network") }
+        }
+        .frame(minWidth: 480, minHeight: 540)
+    }
+
+    private var providerTab: some View {
         Form {
             activeTargetSection
             credentialsSection

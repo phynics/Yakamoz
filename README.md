@@ -8,7 +8,8 @@ inspector drawer. It is a showcase/dev app, not a shipping product. Work is trac
 
 ## Prerequisites
 
-- **macOS 15** (Sequoia) or later — the deployment target is `macOS 15.0`.
+- **macOS 26** (Tahoe) or later — the deployment target is `macOS 26.0` (required by
+  the Gnostic/Axoloty client stack; see ADR 0002).
 - **Xcode 27+** with the Swift 6.4 toolchain (PositronicKit 6 requires
   `swift-tools-version: 6.4`; the project builds with `SWIFT_VERSION = 6.0` and
   `SWIFT_STRICT_CONCURRENCY = complete`).
@@ -48,7 +49,7 @@ make test TEST_FILTER=InspectableChatIntegrationTests
 and parses the `xcodebuild` output to fail the command if the executed test count is zero.
 
 To run the app, open the generated `Yakamoz.xcodeproj` in Xcode and run the **Yakamoz**
-scheme (the app target links only `YakamozCore`; see the boundary note below).
+scheme (the app target links `YakamozCore` and `YakamozNetwork`; see the boundary note below).
 
 ## Providers, presets, and secret storage
 
@@ -189,12 +190,18 @@ budget or rejected before invoking PositronicKit.
 
 ## Architecture boundary
 
-The **app target** (`Sources/Yakamoz`) imports only `SwiftUI`, `SwiftData`, and
-`YakamozCore`. It never names a `PositronicKit`/`PKContracts` type directly — boundary
-mirror types (e.g. `AppHealthStatus`, `UICoordinator`) live in the app/core so the
-optimized test build's linker never needs the unembedded framework metadata. All shared
-runtime logic lives in `YakamozCore` (which links PositronicKit) or upstream in
-`PositronicKit` itself.
+The **app target** (`Sources/Yakamoz`) imports only `SwiftUI`, `SwiftData`,
+`YakamozCore`, and `YakamozNetwork`. It never names a `PositronicKit`/`PKContracts` type
+directly — boundary mirror types (e.g. `AppHealthStatus`, `UICoordinator`) live in the
+app/core so the optimized test build's linker never needs the unembedded framework
+metadata. All shared runtime logic lives in `YakamozCore` (which links PositronicKit),
+`YakamozNetwork` (which links `GnosticCore`), or upstream in `PositronicKit` itself.
+
+**Gnostic boundary** (ADR 0002): the Gnostic consumer client lives in `YakamozNetwork`,
+which depends on `YakamozCore` one-way. Neither the app target nor `YakamozCore` names a
+`GnosticCore` type; `Sources/YakamozNetwork/Transport/GnosticCoreTransport.swift` is the
+only file under `Sources/` that imports `GnosticCore`. Its mapping test links `GnosticCore`
+to build catalog fixtures; every other network test runs offline against a fake transport.
 
 ## License
 

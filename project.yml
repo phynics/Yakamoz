@@ -1,7 +1,9 @@
 name: Yakamoz
 options:
   deploymentTarget:
-    macOS: "15.0"
+    # Gnostic/Axoloty (the Gnostic client stack embedded by YakamozNetwork) require a
+    # macOS 26 baseline, so the whole app moves with it. See ADR 0002 and issue #6.
+    macOS: "26.0"
   createIntermediateGroups: true
 settings:
   base:
@@ -19,6 +21,13 @@ packages:
   PositronicKit:
     url: https://github.com/phynics/PositronicKit.git
     exactVersion: "6.1.0-rc.1"
+  # GnosticCore provides the consumer primitives (connection, discovery, catalog) that
+  # YakamozNetwork wraps behind its own protocol seam. Gnostic 0.4.0 is built against
+  # PositronicKit `exact: 6.1.0-rc.1` — the same pin Yakamoz uses above — so the two
+  # exact pins co-resolve. Moving either one requires moving the other in the same commit.
+  Gnostic:
+    url: https://github.com/phynics/Gnostic.git
+    exactVersion: "0.4.0"
   swift-log:
     url: https://github.com/apple/swift-log.git
     from: "1.5.0"
@@ -58,8 +67,30 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
     dependencies:
       - target: YakamozCore
+      - target: YakamozNetwork
       - package: MarkdownUI
         product: MarkdownUI
+  # Gnostic consumer client. Keeps MQTT/GnosticCore out of YakamozCore's local chat stack
+  # (ADR 0002). One-way dependency: YakamozNetwork -> YakamozCore. The app target imports
+  # YakamozNetwork but never a GnosticCore type; `Transport/GnosticCoreTransport.swift` is
+  # the single file that imports GnosticCore.
+  YakamozNetwork:
+    type: framework
+    platform: macOS
+    sources:
+      - Sources/YakamozNetwork
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: me.atkn.YakamozNetwork
+        PRODUCT_NAME: YakamozNetwork
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGNING_ALLOWED: NO
+    dependencies:
+      - target: YakamozCore
+      - package: Gnostic
+        product: GnosticCore
+      - package: swift-log
+        product: Logging
   YakamozCore:
     type: framework
     platform: macOS
@@ -114,12 +145,36 @@ targets:
         product: PKTestSupport
       - package: swift-log
         product: Logging
+  YakamozNetworkTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - Tests/YakamozNetworkTests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: me.atkn.YakamozNetworkTests
+        PRODUCT_NAME: YakamozNetworkTests
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGNING_ALLOWED: NO
+    dependencies:
+      - target: YakamozNetwork
+      - target: YakamozCore
+      # GnosticCore is linked here only so `GnosticCoreTransportMappingTests` can build
+      # `NetworkCatalogEntry` fixtures for the adapter's mapping. The boundary rule
+      # ("one file imports GnosticCore") is about `Sources/`; every other test stays
+      # offline against `FakeGnosticTransport`.
+      - package: Gnostic
+        product: GnosticCore
+      - package: swift-log
+        product: Logging
 schemes:
   Yakamoz:
     build:
       targets:
         Yakamoz: all
         YakamozCore: all
+        YakamozNetwork: all
     test:
       targets:
         - YakamozTests
+        - YakamozNetworkTests

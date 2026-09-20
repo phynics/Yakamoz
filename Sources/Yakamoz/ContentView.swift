@@ -1,9 +1,12 @@
 import SwiftData
 import SwiftUI
 import YakamozCore
+import YakamozNetwork
 
 struct ContentView: View {
     @State private var selection: SidebarSelection?
+
+    @Environment(\.networkSession) private var networkSession
 
     @Query(sort: \AgentModel.createdAt) private var agents: [AgentModel]
     @Query(filter: ConversationListQuery.standardPredicate) private var conversations: [ConversationModel]
@@ -29,6 +32,12 @@ struct ContentView: View {
         case let .timeline(timelineId):
             if let conversation = conversations.first(where: { $0.id == timelineId }) {
                 ChatView(conversation: conversation)
+            } else {
+                unavailable
+            }
+        case let .network(networkSelection):
+            if let networkSession {
+                NetworkPlaceholderDetailView(selection: networkSelection, session: networkSession)
             } else {
                 unavailable
             }

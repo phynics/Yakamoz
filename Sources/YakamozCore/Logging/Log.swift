@@ -48,6 +48,11 @@ public enum Log {
         makeLogger(label: "me.atkn.Yakamoz.terminal")
     }
 
+    /// Logger for the Gnostic network client (connection, discovery, catalog).
+    public static var network: Logger {
+        makeLogger(label: "me.atkn.Yakamoz.network")
+    }
+
     /// Helper to get a user-friendly error message. Used by app startup to surface
     /// initialization errors in both logs and the UI.
     public static func userFriendlyErrorMessage(for error: Error) -> String {
