@@ -26,10 +26,13 @@ Toolchain`, run `xcodebuild -downloadComponent MetalToolchain` once.
 
 ## Boundaries
 
-App target (`Sources/Yakamoz`) imports only SwiftUI/SwiftData/`YakamozCore`, never a
-`PositronicKit` type (README "Architecture boundary"). Put reusable logic in `YakamozCore`
-or upstream in `PositronicKit`, not the app. Match a file's existing test framework; don't
-mix within a file.
+App target (`Sources/Yakamoz`) imports only SwiftUI/SwiftData/`YakamozCore`/`YakamozNetwork`,
+never a `PositronicKit` or `GnosticCore` type (README "Architecture boundary"). The Gnostic
+client lives in `YakamozNetwork`, which depends on `YakamozCore` one-way;
+`Sources/YakamozNetwork/Transport/GnosticCoreTransport.swift` is the only file that imports
+`GnosticCore`. Put reusable logic in `YakamozCore`/`YakamozNetwork` or upstream in
+`PositronicKit`, not the app. Match a file's existing test framework; don't mix within a
+file.
 
 Dependencies resolve from released versions: `PositronicKit` is pinned in `project.yml` to
 an exact semver (`exactVersion`), never a local path. To develop against an unreleased

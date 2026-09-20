@@ -189,12 +189,17 @@ budget or rejected before invoking PositronicKit.
 
 ## Architecture boundary
 
-The **app target** (`Sources/Yakamoz`) imports only `SwiftUI`, `SwiftData`, and
-`YakamozCore`. It never names a `PositronicKit`/`PKContracts` type directly — boundary
-mirror types (e.g. `AppHealthStatus`, `UICoordinator`) live in the app/core so the
-optimized test build's linker never needs the unembedded framework metadata. All shared
-runtime logic lives in `YakamozCore` (which links PositronicKit) or upstream in
-`PositronicKit` itself.
+The **app target** (`Sources/Yakamoz`) imports only `SwiftUI`, `SwiftData`,
+`YakamozCore`, and `YakamozNetwork`. It never names a `PositronicKit`/`PKContracts` type
+directly — boundary mirror types (e.g. `AppHealthStatus`, `UICoordinator`) live in the
+app/core so the optimized test build's linker never needs the unembedded framework
+metadata. All shared runtime logic lives in `YakamozCore` (which links PositronicKit),
+`YakamozNetwork` (which links `GnosticCore`), or upstream in `PositronicKit` itself.
+
+**Gnostic boundary** (ADR 0002): the Gnostic consumer client lives in `YakamozNetwork`,
+which depends on `YakamozCore` one-way. Neither the app target nor `YakamozCore` names a
+`GnosticCore` type; `Sources/YakamozNetwork/Transport/GnosticCoreTransport.swift` is the
+only file that imports `GnosticCore`.
 
 ## License
 
