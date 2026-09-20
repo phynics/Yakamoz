@@ -4,7 +4,8 @@ Yakamoz is a standalone repository. Product, feature, and architecture detail:
 [README.md](README.md).
 
 Local, non-sandboxed, single-user macOS SwiftUI showcase app driving `PositronicKit`.
-No server/client — all workspaces are local.
+No server — local workspaces live on disk; the optional Gnostic client (`YakamozNetwork`)
+only browses a remote network and persists nothing locally (ADR 0002).
 
 ## Build notes
 

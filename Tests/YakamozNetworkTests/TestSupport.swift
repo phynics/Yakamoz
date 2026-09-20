@@ -114,3 +114,24 @@ enum TestEntities {
         )
     }
 }
+
+/// Runs one `@MainActor` action the first time the injected sleeper is entered,
+/// so a state change can land while `connectLoop` is parked in a backoff sleep.
+@MainActor
+final class MidSleepAction {
+    private var hasFired = false
+
+    /// The action to run once, set after the session under test exists.
+    var action: (() async -> Void)?
+
+    /// A sleeper that fires ``action`` on its first call and never sleeps.
+    nonisolated var sleeper: @Sendable (Duration) async throws -> Void {
+        { [self] _ in await fireOnce() }
+    }
+
+    private func fireOnce() async {
+        guard !hasFired else { return }
+        hasFired = true
+        await action?()
+    }
+}

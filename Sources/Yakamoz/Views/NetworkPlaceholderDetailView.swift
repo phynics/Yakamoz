@@ -22,6 +22,11 @@ struct NetworkPlaceholderDetailView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task(id: selection) {
+            // Opening a network entry retains its last-known snapshot so a later
+            // deadvertisement renders offline/reconnectable instead of vanishing.
+            session.openSession(selection.key)
+        }
     }
 
     // MARK: - Ascendant

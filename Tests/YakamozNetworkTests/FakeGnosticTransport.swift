@@ -15,6 +15,8 @@ actor FakeGnosticTransport: GnosticClientTransport {
 
     private var connectFailuresRemaining = 0
     private var discoverFailuresRemaining = 0
+    private var shouldGateConnect = false
+    private var connectGate: CheckedContinuation<Void, Never>?
 
     init() {
         let pair = AsyncStream<GnosticTransportEvent>.makeStream(bufferingPolicy: .bufferingNewest(256))
@@ -29,6 +31,12 @@ actor FakeGnosticTransport: GnosticClientTransport {
     func connect(_ configuration: NetworkBrokerConfiguration) async throws {
         connectCount += 1
         lastConfiguration = configuration
+        if shouldGateConnect {
+            shouldGateConnect = false
+            await withCheckedContinuation { continuation in
+                connectGate = continuation
+            }
+        }
         if connectFailuresRemaining > 0 {
             connectFailuresRemaining -= 1
             throw GnosticTransportError.connectionFailed("scripted connect failure")
@@ -45,6 +53,17 @@ actor FakeGnosticTransport: GnosticClientTransport {
             discoverFailuresRemaining -= 1
             throw GnosticTransportError.connectionFailed("scripted discover failure")
         }
+    }
+
+    /// Makes the next `connect` suspend until ``releaseConnect()`` is called.
+    func gateNextConnect() {
+        shouldGateConnect = true
+    }
+
+    /// Resumes a `connect` suspended by ``gateNextConnect()``.
+    func releaseConnect() {
+        connectGate?.resume()
+        connectGate = nil
     }
 
     /// The next `count` connect attempts throw.

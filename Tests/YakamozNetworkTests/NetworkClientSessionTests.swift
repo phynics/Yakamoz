@@ -153,6 +153,27 @@ struct NetworkClientSessionTests {
         #expect(disconnects >= 1)
     }
 
+    @Test("Disabling during a retry sleep leaves the client disabled")
+    func disableDuringRetrySleepStaysDisabled() async {
+        let transport = FakeGnosticTransport()
+        let hook = MidSleepAction()
+        let session = makeSession(transport: transport, sleep: hook.sleeper)
+        await transport.failNextConnects(3)
+        hook.action = { [weak session] in
+            await session?.update(configuration: self.makeConfiguration(enabled: false))
+        }
+
+        await session.start()
+
+        // The first connect failed, the retry slept, and the disable landed inside
+        // that sleep: the loop must not attempt a second connect afterwards.
+        #expect(session.state == .disabled)
+        let connects = await transport.connectCount
+        #expect(connects == 1)
+        let disconnects = await transport.disconnectCount
+        #expect(disconnects == 1)
+    }
+
     @Test("Enabling via update connects an already-started client")
     func enableConnects() async {
         let transport = FakeGnosticTransport()
@@ -225,5 +246,59 @@ struct NetworkClientSessionTests {
         #expect(session.state == .disabled)
         let disconnects = await transport.disconnectCount
         #expect(disconnects == 1)
+    }
+
+    @Test("Start after stop re-observes and reconnects")
+    func startAfterStopReconnects() async {
+        let transport = FakeGnosticTransport()
+        let session = makeSession(transport: transport)
+        await session.start()
+        await session.stop()
+        #expect(session.state == .disabled)
+
+        await session.start()
+
+        #expect(session.state == .online)
+        let connects = await transport.connectCount
+        #expect(connects == 2)
+    }
+
+    @Test("Stop during an in-flight connect does not resurrect the session")
+    func stopDuringConnectStaysDisabled() async {
+        let transport = FakeGnosticTransport()
+        await transport.gateNextConnect()
+        let session = makeSession(transport: transport)
+
+        let startTask = Task { await session.start() }
+        var connects = await transport.connectCount
+        while connects == 0 {
+            try? await Task.sleep(for: .milliseconds(1))
+            connects = await transport.connectCount
+        }
+
+        await session.stop()
+        await transport.releaseConnect()
+        await startTask.value
+
+        #expect(session.state == .disabled)
+        let totalConnects = await transport.connectCount
+        #expect(totalConnects == 1)
+        let disconnects = await transport.disconnectCount
+        #expect(disconnects == 2)
+    }
+
+    @Test("A connection-lost event after stop does not reconnect")
+    func connectionLostAfterStopStaysDisabled() async {
+        let transport = FakeGnosticTransport()
+        let session = makeSession(transport: transport)
+        await session.start()
+        await session.stop()
+        #expect(session.state == .disabled)
+
+        await session.ingest(.connectionLost(reason: "broker gone"))
+
+        #expect(session.state == .disabled)
+        let connects = await transport.connectCount
+        #expect(connects == 1)
     }
 }

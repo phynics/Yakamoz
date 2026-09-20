@@ -30,6 +30,9 @@ public final class NetworkClientSession {
     private let now: @Sendable () -> Date
     private var observationTask: Task<Void, Never>?
     private var hasStarted = false
+    /// Bumped whenever an in-flight connection attempt is abandoned (stop or
+    /// disable), so a late `connect` result cannot resurrect a torn-down session.
+    private var generation = 0
 
     public init(
         configuration: NetworkBrokerConfiguration,
@@ -75,9 +78,13 @@ public final class NetworkClientSession {
     }
 
     /// Stops observation and tears the transport down.
+    ///
+    /// A later `start()` re-observes and reconnects when enabled.
     public func stop() async {
+        generation += 1
         observationTask?.cancel()
         observationTask = nil
+        hasStarted = false
         await transport.disconnect()
         state = .disabled
     }
@@ -93,6 +100,7 @@ public final class NetworkClientSession {
 
         guard newValue.isEnabled else {
             if wasEnabled {
+                generation += 1
                 await transport.disconnect()
             }
             state = .disabled
@@ -140,7 +148,7 @@ public final class NetworkClientSession {
         case .discovered, .deadvertised, .providerEvicted:
             catalog.apply(event)
         case let .connectionLost(reason):
-            guard configuration.isEnabled else { return }
+            guard configuration.isEnabled, hasStarted else { return }
             Log.network.error("network connection lost: \(reason)")
             await connectLoop(startAttempt: 1)
         }
@@ -149,8 +157,10 @@ public final class NetworkClientSession {
     // MARK: - Connection
 
     private func connectLoop(startAttempt: Int) async {
+        let generation = self.generation
         var attempt = startAttempt
         while configuration.isEnabled {
+            guard generation == self.generation else { return }
             if attempt > 0 {
                 let delay = backoff.delay(forAttempt: attempt)
                 state = .retrying(
@@ -162,6 +172,7 @@ public final class NetworkClientSession {
                 } catch {
                     return
                 }
+                guard generation == self.generation else { return }
                 guard configuration.isEnabled else {
                     state = .disabled
                     return
@@ -172,6 +183,15 @@ public final class NetworkClientSession {
 
             do {
                 try await transport.connect(configuration)
+                guard generation == self.generation else {
+                    // Stopped or disabled while this connect was in flight. If
+                    // nothing since wants a connection, tear down the stray
+                    // connection; a restart owns it otherwise.
+                    if !(configuration.isEnabled && hasStarted) {
+                        await transport.disconnect()
+                    }
+                    return
+                }
                 state = .online
                 do {
                     try await transport.discover()
@@ -180,6 +200,7 @@ public final class NetworkClientSession {
                 }
                 return
             } catch {
+                guard generation == self.generation else { return }
                 attempt += 1
                 if attempt > retryLimit {
                     state = .failed(String(describing: error))

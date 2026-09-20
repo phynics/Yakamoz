@@ -78,9 +78,12 @@ public enum NetworkWorkspaceTrustLevel: String, Sendable, Hashable, CaseIterable
     /// Only read-only filesystem operations are permitted.
     case readOnly
 
-    /// Maps a wire-reported trust level, defaulting to `.full`.
+    /// Maps a wire-reported trust level, defaulting to `.readOnly`.
+    ///
+    /// An absent or unrecognized boundary fails closed to the most restrictive
+    /// level, so an unadvertised trust level never reads as unrestricted.
     public init(reported: String?) {
-        self = NetworkWorkspaceTrustLevel(rawValue: reported ?? "") ?? .full
+        self = NetworkWorkspaceTrustLevel(rawValue: reported ?? "") ?? .readOnly
     }
 }
 

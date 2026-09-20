@@ -86,8 +86,10 @@ struct NetworkSidebarSection: View {
             NetworkEntityRow(
                 title: timeline.title,
                 subtitle: providerLabel(timeline.provenance),
-                systemImage: "bubble.left.and.exclamationmark.bubble.right",
-                isOffline: true,
+                systemImage: group.isOffline(timeline.key)
+                    ? "bubble.left.and.exclamationmark.bubble.right"
+                    : "bubble.left",
+                isOffline: group.isOffline(timeline.key),
                 isCompatible: timeline.compatibility.isCompatible
             )
             .tag(SidebarSelection.network(.timeline(timeline.key)))

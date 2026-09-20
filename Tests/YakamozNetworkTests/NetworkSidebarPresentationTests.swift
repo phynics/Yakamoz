@@ -59,6 +59,39 @@ struct NetworkSidebarPresentationTests {
         #expect(group.isOffline(timelineKey))
     }
 
+    @Test("A live timeline with no listed Ascendant becomes a live loose timeline")
+    func liveLooseTimeline() {
+        let timelineKey = TestEntities.key(UUID())
+        var catalog = NetworkCatalogState()
+        catalog.apply(.discovered(.timeline(TestEntities.timeline(
+            key: timelineKey,
+            title: "Orphan",
+            attachedAscendantID: nil
+        ))))
+
+        let group = NetworkSidebarPresentation.group(catalog: catalog)
+
+        #expect(group.ascendants.isEmpty)
+        #expect(group.looseTimelines.map(\.key) == [timelineKey])
+        #expect(!group.isOffline(timelineKey))
+    }
+
+    @Test("A live timeline attached to an unlisted Ascendant stays live in the loose list")
+    func liveTimelineWithUnlistedAscendant() {
+        let timelineKey = TestEntities.key(UUID())
+        var catalog = NetworkCatalogState()
+        catalog.apply(.discovered(.timeline(TestEntities.timeline(
+            key: timelineKey,
+            title: "Detached",
+            attachedAscendantID: UUID()
+        ))))
+
+        let group = NetworkSidebarPresentation.group(catalog: catalog)
+
+        #expect(group.looseTimelines.map(\.key) == [timelineKey])
+        #expect(!group.isOffline(timelineKey))
+    }
+
     @Test("An empty catalog with no open sessions is empty")
     func emptyCatalog() {
         let group = NetworkSidebarPresentation.group(catalog: NetworkCatalogState())
@@ -84,5 +117,13 @@ struct NetworkSidebarPresentationTests {
         let key = TestEntities.key(UUID())
         let selections: Set<NetworkSidebarSelection> = [.ascendant(key), .timeline(key), .workspace(key)]
         #expect(selections.count == 3)
+    }
+
+    @Test("Every selection exposes the underlying object key")
+    func selectionKey() {
+        let key = TestEntities.key(UUID())
+        #expect(NetworkSidebarSelection.ascendant(key).key == key)
+        #expect(NetworkSidebarSelection.timeline(key).key == key)
+        #expect(NetworkSidebarSelection.workspace(key).key == key)
     }
 }

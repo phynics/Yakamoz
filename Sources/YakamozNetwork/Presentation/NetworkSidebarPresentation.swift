@@ -8,6 +8,14 @@ public enum NetworkSidebarSelection: Hashable, Sendable {
     case timeline(NetworkObjectKey)
     /// A discovered network Workspace.
     case workspace(NetworkObjectKey)
+
+    /// The provider-scoped key behind this selection.
+    public var key: NetworkObjectKey {
+        switch self {
+        case let .ascendant(value), let .timeline(value), let .workspace(value):
+            value
+        }
+    }
 }
 
 /// One Ascendant and its advertised Timelines in the Network group.
@@ -35,7 +43,8 @@ public struct NetworkSidebarGroup: Equatable, Sendable {
     public let ascendants: [NetworkAscendantGroup]
     /// Network workspaces, live plus offline open sessions, sorted by URI.
     public let workspaces: [NetworkWorkspaceRef]
-    /// Open timelines whose Ascendant is not listed at all.
+    /// Timelines — live or retained from an open session — not placed under a
+    /// listed Ascendant.
     public let looseTimelines: [NetworkTimelineRef]
     /// Keys retained only because an open session references them.
     public let offlineKeys: Set<NetworkObjectKey>
@@ -113,21 +122,18 @@ public enum NetworkSidebarPresentation {
             return NetworkAscendantGroup(ascendant: ascendant, timelines: timelines, isOffline: isOffline)
         }
 
-        let listedAscendantKeys = Set(groups.map(\.ascendant.key))
         let liveTimelineKeys = Set(catalog.timelines.keys)
-        let looseTimelines = openSessions.values.compactMap { object -> NetworkTimelineRef? in
-            guard case let .timeline(value) = object else { return nil }
-            guard !liveTimelineKeys.contains(value.key) else { return nil }
-            if let ascendantID = value.attachedAscendantID,
-               listedAscendantKeys.contains(NetworkObjectKey(objectID: ascendantID, providerID: value.provenance.providerID))
-            {
-                return nil
-            }
-            return value
+        let groupedTimelineKeys = Set(groups.flatMap { $0.timelines.map(\.key) })
+        var looseCandidates = catalog.sortedTimelines
+        for object in openSessions.values {
+            guard case let .timeline(value) = object else { continue }
+            looseCandidates.append(value)
         }
-        .sorted(by: timelineOrder)
+        let looseTimelines = deduplicated(looseCandidates)
+            .filter { !groupedTimelineKeys.contains($0.key) }
+            .sorted(by: timelineOrder)
 
-        for timeline in looseTimelines {
+        for timeline in looseTimelines where !liveTimelineKeys.contains(timeline.key) {
             offlineKeys.insert(timeline.key)
         }
 
