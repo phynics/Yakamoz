@@ -5,7 +5,7 @@ import YakamozCore
 
 /// The production ``GnosticClientTransport``, wrapping `GnosticConsumerSession`.
 ///
-/// **This is the only file in the repository that imports `GnosticCore`.** Every
+/// **This is the only file in `Sources/` that imports `GnosticCore`.** Every
 /// upstream type (`GnosticConsumerSession`, `GnosticBrokerSettings`,
 /// `NetworkCatalogEntry`, `NetworkCatalogChange`, `NetworkDynamicValue`) is mapped
 /// into the module-local value types here, so no GnosticCore symbol crosses into
@@ -85,7 +85,7 @@ public final class GnosticCoreTransport: GnosticClientTransport {
         forwardTask = Task { [weak self] in
             for await change in updates {
                 guard let self else { return }
-                await self.forward(change)
+                self.forward(change)
             }
         }
     }
@@ -105,7 +105,11 @@ public final class GnosticCoreTransport: GnosticClientTransport {
 
     // MARK: - GnosticCore -> module-local mapping
 
-    private static func map(_ entry: NetworkCatalogEntry) -> DiscoveredNetworkObject? {
+    /// Maps one catalog entry, or returns `nil` for a type the browser does not list.
+    ///
+    /// Internal rather than private so `GnosticCoreTransportMappingTests` can pin the
+    /// mapping against recorded `NetworkCatalogEntry` fixtures without a broker.
+    static func map(_ entry: NetworkCatalogEntry) -> DiscoveredNetworkObject? {
         if entry.objectType == GnosticObjectType.ascendant {
             return .ascendant(ascendant(from: entry))
         }

@@ -200,7 +200,8 @@ metadata. All shared runtime logic lives in `YakamozCore` (which links Positroni
 **Gnostic boundary** (ADR 0002): the Gnostic consumer client lives in `YakamozNetwork`,
 which depends on `YakamozCore` one-way. Neither the app target nor `YakamozCore` names a
 `GnosticCore` type; `Sources/YakamozNetwork/Transport/GnosticCoreTransport.swift` is the
-only file that imports `GnosticCore`.
+only file under `Sources/` that imports `GnosticCore`. Its mapping test links `GnosticCore`
+to build catalog fixtures; every other network test runs offline against a fake transport.
 
 ## License
 

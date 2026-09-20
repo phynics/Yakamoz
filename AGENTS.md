@@ -30,15 +30,19 @@ Toolchain`, run `xcodebuild -downloadComponent MetalToolchain` once.
 App target (`Sources/Yakamoz`) imports only SwiftUI/SwiftData/`YakamozCore`/`YakamozNetwork`,
 never a `PositronicKit` or `GnosticCore` type (README "Architecture boundary"). The Gnostic
 client lives in `YakamozNetwork`, which depends on `YakamozCore` one-way;
-`Sources/YakamozNetwork/Transport/GnosticCoreTransport.swift` is the only file that imports
-`GnosticCore`. Put reusable logic in `YakamozCore`/`YakamozNetwork` or upstream in
+`Sources/YakamozNetwork/Transport/GnosticCoreTransport.swift` is the only file under
+`Sources/` that imports `GnosticCore` (its mapping test is the one exception, and it is
+offline). Put reusable logic in `YakamozCore`/`YakamozNetwork` or upstream in
 `PositronicKit`, not the app. Match a file's existing test framework; don't mix within a
 file.
 
 Dependencies resolve from released versions: `PositronicKit` is pinned in `project.yml` to
 an exact semver (`exactVersion`), never a local path. To develop against an unreleased
 PositronicKit change, use an Xcode local package override in your working copy only; do not
-commit a path dependency.
+commit a path dependency. `Gnostic` follows the same rule and is pinned to `0.4.0`, which
+is built against the same `PositronicKit` version Yakamoz pins; moving either pin requires
+moving the other in the same commit, because SwiftPM admits exactly one exact pin per
+package.
 
 ## Workflow
 

@@ -22,15 +22,12 @@ packages:
     url: https://github.com/phynics/PositronicKit.git
     exactVersion: "6.1.0-rc.1"
   # GnosticCore provides the consumer primitives (connection, discovery, catalog) that
-  # YakamozNetwork wraps behind its own protocol seam. No consumable semver tag exists yet,
-  # so this tracks `main` by revision (issue #6 allows "revision until a release exists").
-  # BLOCKER: Gnostic `main` pins PositronicKit `exact: 5.1.0` while Yakamoz pins
-  # `6.1.0-rc.1`; SwiftPM cannot co-resolve two exact pins on one package. This must move
-  # to `exactVersion:` once Gnostic ships a tag built against the Yakamoz PositronicKit
-  # line. Until then dependency resolution fails at build time — see PR notes.
+  # YakamozNetwork wraps behind its own protocol seam. Gnostic 0.4.0 is built against
+  # PositronicKit `exact: 6.1.0-rc.1` — the same pin Yakamoz uses above — so the two
+  # exact pins co-resolve. Moving either one requires moving the other in the same commit.
   Gnostic:
     url: https://github.com/phynics/Gnostic.git
-    branch: main
+    exactVersion: "0.4.0"
   swift-log:
     url: https://github.com/apple/swift-log.git
     from: "1.5.0"
@@ -162,6 +159,12 @@ targets:
     dependencies:
       - target: YakamozNetwork
       - target: YakamozCore
+      # GnosticCore is linked here only so `GnosticCoreTransportMappingTests` can build
+      # `NetworkCatalogEntry` fixtures for the adapter's mapping. The boundary rule
+      # ("one file imports GnosticCore") is about `Sources/`; every other test stays
+      # offline against `FakeGnosticTransport`.
+      - package: Gnostic
+        product: GnosticCore
       - package: swift-log
         product: Logging
 schemes:
