@@ -4,17 +4,50 @@ on:
   push:
   pull_request:
 
+env:
+  # PositronicKit and Gnostic ship `swift-tools-version: 6.4` manifests. The newest
+  # Xcode on any GitHub macOS runner image is 26.6, whose SwiftPM refuses to read
+  # them ("contains incompatible tools version (6.4.0)"), so package resolution
+  # fails before anything is compiled. Install the swift.org 6.4 toolchain and
+  # select it with TOOLCHAINS. Remove this once a runner image ships Xcode 27.
+  SWIFT_TOOLCHAIN_VERSION: "6.4.0"
+
 jobs:
   verify:
     name: Build and test
-    runs-on: macos-latest
+    # Pinned, not `macos-latest`: the deployment target is macOS 26, so the runner
+    # OS is part of what this job verifies and should not drift silently.
+    runs-on: macos-26
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Install the Swift ${{ env.SWIFT_TOOLCHAIN_VERSION }} toolchain
+        run: |
+          set -euo pipefail
+          base="https://download.swift.org/swift-${SWIFT_TOOLCHAIN_VERSION}-release/xcode"
+          release="swift-${SWIFT_TOOLCHAIN_VERSION}-RELEASE"
+          curl -fSL --retry 3 -o "$RUNNER_TEMP/swift-toolchain.pkg" \
+            "$base/$release/$release-osx.pkg"
+          sudo installer -pkg "$RUNNER_TEMP/swift-toolchain.pkg" -target /
+
+      - name: Select the Swift toolchain
+        run: |
+          set -euo pipefail
+          # Glob for the installed directory rather than rebuilding its name, so an
+          # upstream version-string normalization does not silently break the job.
+          toolchain=$(ls -dt /Library/Developer/Toolchains/swift-*-RELEASE.xctoolchain | head -1)
+          echo "Using $toolchain"
+          "$toolchain/usr/bin/swift" --version
+          plutil -extract CFBundleIdentifier raw "$toolchain/Info.plist" \
+            | sed 's/^/TOOLCHAINS=/' >> "$GITHUB_ENV"
+
       - name: Install XcodeGen
         run: brew install xcodegen
 
       - name: Verify
-        run: make verify
+        run: |
+          echo "TOOLCHAINS=$TOOLCHAINS"
+          xcodebuild -version
+          make verify
