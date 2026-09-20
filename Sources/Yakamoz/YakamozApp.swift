@@ -1,6 +1,7 @@
 import SwiftData
 import SwiftUI
 import YakamozCore
+import YakamozNetwork
 
 /// Typed environment key for the composed `YakamozRuntime` (PositronicKit facade,
 /// SwiftData-backed stores, turn inspector). `nil` when construction failed; views
@@ -44,6 +45,17 @@ private struct ProviderStatusKey: EnvironmentKey {
     static let defaultValue: ProviderStatusViewModel? = nil
 }
 
+/// Typed environment key for the observable Gnostic network settings (issue #7).
+private struct NetworkSettingsKey: EnvironmentKey {
+    static let defaultValue: NetworkSettings? = nil
+}
+
+/// Typed environment key for the Gnostic client session (issue #8). Injected so the
+/// sidebar and settings pane share one connection lifecycle.
+private struct NetworkSessionKey: EnvironmentKey {
+    static let defaultValue: NetworkClientSession? = nil
+}
+
 extension EnvironmentValues {
     var yakamozRuntime: YakamozRuntime? {
         get { self[YakamozRuntimeKey.self] }
@@ -74,6 +86,16 @@ extension EnvironmentValues {
         get { self[ProviderStatusKey.self] }
         set { self[ProviderStatusKey.self] = newValue }
     }
+
+    var networkSettings: NetworkSettings? {
+        get { self[NetworkSettingsKey.self] }
+        set { self[NetworkSettingsKey.self] = newValue }
+    }
+
+    var networkSession: NetworkClientSession? {
+        get { self[NetworkSessionKey.self] }
+        set { self[NetworkSessionKey.self] = newValue }
+    }
 }
 
 @main
@@ -85,6 +107,8 @@ struct YakamozApp: App {
     private let terminalApprover: MainActorApprover
     private let toolApprover: MainActorToolApprover
     private let providerStatus: ProviderStatusViewModel?
+    private let networkSettings: NetworkSettings
+    private let networkSession: NetworkClientSession
     private let setupError: String?
 
     @State private var coordinator = UICoordinator()
@@ -96,6 +120,25 @@ struct YakamozApp: App {
         let secrets = UserDefaultsSecretStore()
         self.settings = settings
         self.secrets = secrets
+
+        // Gnostic client mode (ADR 0002, issues #7/#8). Settings and the client session are
+        // owned here and injected into the environment; the transport is the only object that
+        // touches GnosticCore. The session stays disconnected unless the pane's toggle is on.
+        let networkSettings = NetworkSettings()
+        self.networkSettings = networkSettings
+        let initialNetworkConfiguration = (try? networkSettings.brokerConfiguration(secrets: secrets))
+            ?? NetworkBrokerConfiguration(
+                host: NetworkSettingsDefaults.host,
+                port: NetworkSettingsDefaults.port,
+                namespace: NetworkSettingsDefaults.namespace,
+                identity: NetworkSettingsDefaults.identity,
+                isEnabled: false
+            )
+        let networkSession = NetworkClientSession(
+            configuration: initialNetworkConfiguration,
+            transport: GnosticCoreTransport()
+        )
+        self.networkSession = networkSession
         // Owned here so the same instance backs both the runtime's terminal tools (approval
         // gate) and ChatView's approval banner (pending list).
         let approver = MainActorApprover()
@@ -133,6 +176,9 @@ struct YakamozApp: App {
         }
         runtime = builtRuntime
         providerStatus = builtRuntime.map { ProviderStatusViewModel(settings: settings, secrets: secrets, runtime: $0) }
+
+        // Begin observing transport events and connect if the pane is enabled.
+        Task { await networkSession.start() }
     }
 
     /// Bundle identifier used as the per-app subdirectory under Application Support, and as
@@ -238,6 +284,8 @@ struct YakamozApp: App {
                     .environment(\.toolApprover, toolApprover)
                     .environment(\.uiCoordinator, coordinator)
                     .environment(\.providerStatus, providerStatus)
+                    .environment(\.networkSettings, networkSettings)
+                    .environment(\.networkSession, networkSession)
                     .frame(minWidth: 900, minHeight: 620)
                     .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
                         // Best-effort teardown of any live terminal shells on quit. This detached
@@ -262,7 +310,13 @@ struct YakamozApp: App {
 
         Settings {
             if let providerStatus {
-                SettingsView(providerStatus: providerStatus, settings: settings, secrets: secrets)
+                SettingsView(
+                    providerStatus: providerStatus,
+                    settings: settings,
+                    networkSettings: networkSettings,
+                    networkSession: networkSession,
+                    secrets: secrets
+                )
             } else {
                 ContentUnavailableView(
                     "Settings Unavailable",

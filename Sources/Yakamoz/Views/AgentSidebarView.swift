@@ -1,6 +1,7 @@
 import SwiftData
 import SwiftUI
 import YakamozCore
+import YakamozNetwork
 
 /// ATW-8: the agents-centric sidebar. Top-level rows are agents (expanding one reveals its
 /// operated non-home timelines, newest first); a trailing "Unassigned" group holds
@@ -12,6 +13,8 @@ struct AgentSidebarView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.yakamozRuntime) private var runtime
     @Environment(\.uiCoordinator) private var coordinator
+    @Environment(\.networkSettings) private var networkSettings
+    @Environment(\.networkSession) private var networkSession
 
     @Query(sort: \AgentModel.createdAt) private var agents: [AgentModel]
     @Query(filter: ConversationListQuery.standardPredicate, sort: \ConversationModel.createdAt, order: .reverse)
@@ -33,6 +36,10 @@ struct AgentSidebarView: View {
                 } else {
                     agentSection(group)
                 }
+            }
+
+            if let networkSettings, networkSettings.isEnabled, let networkSession {
+                NetworkSidebarSection(session: networkSession)
             }
         }
         .animation(.default, value: conversations.map(\.id))
