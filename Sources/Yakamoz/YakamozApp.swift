@@ -56,6 +56,12 @@ private struct NetworkSessionKey: EnvironmentKey {
     static let defaultValue: NetworkClientSession? = nil
 }
 
+/// Typed environment key for the network chat backend (issue #10). The same transport
+/// instance the session drives, wrapped as a `ChatRunning` runner for network Turns.
+private struct GnosticBackendKey: EnvironmentKey {
+    static let defaultValue: GnosticBackend? = nil
+}
+
 extension EnvironmentValues {
     var yakamozRuntime: YakamozRuntime? {
         get { self[YakamozRuntimeKey.self] }
@@ -96,6 +102,11 @@ extension EnvironmentValues {
         get { self[NetworkSessionKey.self] }
         set { self[NetworkSessionKey.self] = newValue }
     }
+
+    var gnosticBackend: GnosticBackend? {
+        get { self[GnosticBackendKey.self] }
+        set { self[GnosticBackendKey.self] = newValue }
+    }
 }
 
 @main
@@ -109,6 +120,7 @@ struct YakamozApp: App {
     private let providerStatus: ProviderStatusViewModel?
     private let networkSettings: NetworkSettings
     private let networkSession: NetworkClientSession
+    private let networkBackend: GnosticBackend
     private let setupError: String?
 
     @State private var coordinator = UICoordinator()
@@ -134,9 +146,10 @@ struct YakamozApp: App {
                 identity: NetworkSettingsDefaults.identity,
                 isEnabled: false
             )
+        let networkTransport = GnosticCoreTransport()
         let networkSession = NetworkClientSession(
             configuration: initialNetworkConfiguration,
-            transport: GnosticCoreTransport()
+            transport: networkTransport
         )
         self.networkSession = networkSession
         // Owned here so the same instance backs both the runtime's terminal tools (approval
@@ -144,9 +157,13 @@ struct YakamozApp: App {
         let approver = MainActorApprover()
         terminalApprover = approver
         // Owned here so the same instance backs both the runtime's permissioned-tool gate and
-        // ChatView's approval banner (pending list). YAK-31.
+        // ChatView's approval banner (pending list). YAK-31. Network Turns reuse it too
+        // (issue #10), so remote permission requests render in the same banner.
         let toolApprover = MainActorToolApprover()
         self.toolApprover = toolApprover
+        // The network chat backend shares the session's transport (one broker connection)
+        // and the shared approval banner.
+        networkBackend = GnosticBackend(transport: networkTransport, approver: toolApprover)
 
         var resolvedStoreDescription = "(store URL not yet resolved)"
         var builtRuntime: YakamozRuntime?
@@ -286,6 +303,7 @@ struct YakamozApp: App {
                     .environment(\.providerStatus, providerStatus)
                     .environment(\.networkSettings, networkSettings)
                     .environment(\.networkSession, networkSession)
+                    .environment(\.gnosticBackend, networkBackend)
                     .frame(minWidth: 900, minHeight: 620)
                     .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
                         // Best-effort teardown of any live terminal shells on quit. This detached

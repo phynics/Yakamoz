@@ -68,6 +68,19 @@ public final class MainActorToolApprover: ToolApprovalPolicy {
         )
     }
 
+    /// Enqueues an approval request that did not originate from `ToolRouter` — e.g. a
+    /// remote Ascendant's permission request arriving on a network Turn — and suspends
+    /// until the UI resolves it, exactly like ``requestApproval(tool:arguments:)``.
+    ///
+    /// The same banner renders the request, so remote and local approvals share one UX.
+    public func requestExternalApproval(
+        toolId: String,
+        toolName: String,
+        argumentSummary: String
+    ) async -> ToolApprovalDecision {
+        await enqueue(toolId: toolId, toolName: toolName, argumentSummary: argumentSummary)
+    }
+
     /// The oldest pending approval, if any. The banner renders this.
     public var oldestPending: PendingToolApproval? {
         pending.first
