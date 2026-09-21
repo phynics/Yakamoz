@@ -39,6 +39,7 @@ make generate   # regenerate Yakamoz.xcodeproj from project.yml
 make build      # generate + build the app
 make test       # generate + run the full test suite (macOS destination)
 make verify     # generate + headless xcodebuild test, failing if zero tests execute
+make gnostic-smoke # opt-in real Mosquitto + Gnostic Node smoke test
 
 # Run a single Swift Testing suite or XCTest class:
 make test TEST_FILTER=InspectableChatIntegrationTests
@@ -47,6 +48,24 @@ make test TEST_FILTER=InspectableChatIntegrationTests
 `make verify` is the CI gate. It runs `xcodegen generate`, then
 `xcodebuild test -scheme Yakamoz -destination 'platform=macOS' -skipMacroValidation`,
 and parses the `xcodebuild` output to fail the command if the executed test count is zero.
+
+### Opt-in Gnostic smoke
+
+`make gnostic-smoke` is not part of CI or `make verify`. It checks a local Mosquitto broker,
+builds the resolved Gnostic CLI, starts a temporary real Gnostic Node from
+`GNOSTIC_CONFIG` (default `~/.gnostic/config.json`), then runs the broker-backed live test.
+The Node manifest must advertise at least one Timeline and an Echo Workspace with the
+`workspace_echo` tool. If Mosquitto is not installed, the target re-enters through
+`nix-shell -p mosquitto` for the broker probe automatically.
+
+```bash
+make gnostic-smoke
+```
+
+Override `GNOSTIC_CONFIG`, `YAKAMOZ_GNOSTIC_HOST`, `YAKAMOZ_GNOSTIC_PORT`,
+`YAKAMOZ_GNOSTIC_NAMESPACE`, or `YAKAMOZ_SMOKE_TOOL_ID` for another local Node. A configured
+LLM is optional for this smoke: the Network Turn must reach a terminal result, while Workspace
+attachment and invocation are asserted as successful operations.
 
 To run the app, open the generated `Yakamoz.xcodeproj` in Xcode and run the **Yakamoz**
 scheme (the app target links `YakamozCore` and `YakamozNetwork`; see the boundary note below).

@@ -206,3 +206,19 @@ schemes:
       targets:
         - YakamozTests
         - YakamozNetworkTests
+  YakamozGnosticSmoke:
+    build:
+      targets:
+        Yakamoz: all
+        YakamozCore: all
+        YakamozNetwork: all
+    test:
+      targets:
+        - YakamozTests
+        - YakamozNetworkTests
+      environmentVariables:
+        YAKAMOZ_GNOSTIC_SMOKE: "1"
+        YAKAMOZ_GNOSTIC_HOST: "$(YAKAMOZ_GNOSTIC_HOST)"
+        YAKAMOZ_GNOSTIC_PORT: "$(YAKAMOZ_GNOSTIC_PORT)"
+        YAKAMOZ_GNOSTIC_NAMESPACE: "$(YAKAMOZ_GNOSTIC_NAMESPACE)"
+        YAKAMOZ_SMOKE_TOOL_ID: "$(YAKAMOZ_SMOKE_TOOL_ID)"

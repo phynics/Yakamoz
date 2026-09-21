@@ -19,6 +19,7 @@ make test       # generate + run the full test suite (macOS destination)
 make verify     # generate + headless xcodebuild test, failing if zero tests execute
 
 make test TEST_FILTER=InspectableChatIntegrationTests   # single suite/class, either bundle
+make gnostic-smoke    # opt-in real Mosquitto + Gnostic Node smoke test
 ```
 
 `TEST_FILTER` matches a suite/class name in **either** test bundle; `make test` fails when the
@@ -27,6 +28,13 @@ filter matches nothing (xcodebuild exits 0 after running zero tests).
 Gotchas: run `make generate` after editing `project.yml`; trust `make verify` (a bare
 `swift test` can pass having run **0** tests); if a build fails with `missing Metal
 Toolchain`, run `xcodebuild -downloadComponent MetalToolchain` once.
+
+The opt-in `make gnostic-smoke` target is excluded from `make verify` and CI. It uses
+`GNOSTIC_CONFIG` (default `~/.gnostic/config.json`), starts a temporary `gnostic serve`
+process, and expects Mosquitto on `127.0.0.1:1883`. If Mosquitto is not on `PATH`, the
+target runs its broker probe through `nix-shell -p mosquitto`. Override `YAKAMOZ_GNOSTIC_HOST`,
+`YAKAMOZ_GNOSTIC_PORT`, `YAKAMOZ_GNOSTIC_NAMESPACE`, and `YAKAMOZ_SMOKE_TOOL_ID` when
+needed. The configured Node must advertise at least one Timeline and Workspace.
 
 ## Boundaries
 
