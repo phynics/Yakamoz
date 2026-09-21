@@ -107,6 +107,48 @@ public struct GnosticTurnRequest: Sendable, Equatable {
     }
 }
 
+/// Whether a discovered Workspace can be attached without ambiguity.
+///
+/// Mirrors Gnostic's provider-independent attachment status. `.available` means the
+/// Workspace is uniquely advertised and attachable; every other case is a refusal
+/// reason the UI must not offer an attach action for.
+public enum GnosticWorkspaceAttachment: Sendable, Equatable {
+    case available(providerID: String, uri: String)
+    case unavailable
+    case malformed
+    case ambiguous
+    case unsupported
+
+    /// Whether the attachment may be offered to the user.
+    public var isAttachable: Bool {
+        if case .available = self { return true }
+        return false
+    }
+
+    /// A user-facing refusal reason, or `nil` when attachable.
+    public var refusalReason: String? {
+        switch self {
+        case .available:
+            nil
+        case .unavailable:
+            "This workspace is not available right now."
+        case .malformed:
+            "This workspace advertisement is malformed and cannot be attached."
+        case .ambiguous:
+            "More than one provider advertises this workspace; it cannot be attached."
+        case .unsupported:
+            "This workspace does not support attachment."
+        }
+    }
+}
+
+/// Gnostic's effective usability for a discovered Workspace.
+public enum GnosticWorkspaceEffective: String, Sendable, Equatable {
+    case available
+    case unavailable
+    case unsupported
+}
+
 /// Failures a transport can raise while connecting, discovering, or running turns.
 public enum GnosticTransportError: Error, Sendable, Equatable, LocalizedError {
     /// A discover or turn request was issued before a successful connect.
@@ -115,6 +157,10 @@ public enum GnosticTransportError: Error, Sendable, Equatable, LocalizedError {
     case connectionFailed(String)
     /// A turn or permission response could not be addressed to a serving provider.
     case turnUnavailable(String)
+    /// A Workspace operation failed (unresolvable, ambiguous, rejected, ...).
+    case workspaceUnavailable(String)
+    /// An attach was attempted without the user's explicit approval.
+    case workspaceApprovalRequired
 
     public var errorDescription: String? {
         switch self {
@@ -124,6 +170,10 @@ public enum GnosticTransportError: Error, Sendable, Equatable, LocalizedError {
             "Could not connect to the Gnostic broker: \(detail)"
         case let .turnUnavailable(detail):
             "The network turn is unavailable: \(detail)"
+        case let .workspaceUnavailable(detail):
+            "The network workspace operation failed: \(detail)"
+        case .workspaceApprovalRequired:
+            "Attaching a network workspace requires your approval."
         }
     }
 }
@@ -175,4 +225,20 @@ public protocol GnosticClientTransport: Sendable {
         approved: Bool,
         request: GnosticTurnRequest
     ) async throws
+
+    /// Reports whether `workspaceID` can be attached without ambiguity.
+    func workspaceAttachment(workspaceID: UUID) async throws -> GnosticWorkspaceAttachment
+
+    /// Reports Gnostic's effective usability for `workspaceID`.
+    func workspaceEffectiveStatus(workspaceID: UUID) async throws -> GnosticWorkspaceEffective
+
+    /// Attaches a discovered Workspace to a Timeline.
+    ///
+    /// - Parameter approved: The caller's explicit user approval. `false` is
+    ///   refused with ``GnosticTransportError/workspaceApprovalRequired`` before
+    ///   any wire call.
+    func attachWorkspace(workspaceID: UUID, to timelineID: UUID, approved: Bool) async throws
+
+    /// Detaches an attached Workspace from a Timeline.
+    func detachWorkspace(workspaceID: UUID, from timelineID: UUID) async throws
 }

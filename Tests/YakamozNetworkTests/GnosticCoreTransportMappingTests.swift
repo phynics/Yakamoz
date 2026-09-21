@@ -320,4 +320,34 @@ struct GnosticCoreTransportMappingTests {
             terminal: false
         )).isEmpty)
     }
+
+    // MARK: - Workspace attachment (issue #12)
+
+    @Test("Attachment statuses map into the module-local refusal vocabulary")
+    func mapsWorkspaceAttachmentStatus() {
+        #expect(GnosticCoreTransport.map(WorkspaceAttachmentStatus.available(
+            providerID: "provider.one",
+            uri: "file:///workspace"
+        )) == .available(providerID: "provider.one", uri: "file:///workspace"))
+        #expect(GnosticCoreTransport.map(WorkspaceAttachmentStatus.unavailable) == .unavailable)
+        #expect(GnosticCoreTransport.map(WorkspaceAttachmentStatus.malformed) == .malformed)
+        #expect(GnosticCoreTransport.map(WorkspaceAttachmentStatus.ambiguous) == .ambiguous)
+        #expect(GnosticCoreTransport.map(WorkspaceAttachmentStatus.unsupported) == .unsupported)
+    }
+
+    @Test("Effective statuses map, failing closed for unknown values")
+    func mapsWorkspaceEffectiveStatus() {
+        #expect(GnosticCoreTransport.map(GnosticWorkspaceEffectiveStatus.available) == .available)
+        #expect(GnosticCoreTransport.map(GnosticWorkspaceEffectiveStatus.unavailable) == .unavailable)
+        #expect(GnosticCoreTransport.map(GnosticWorkspaceEffectiveStatus.unsupported) == .unsupported)
+    }
+
+    @Test("An unapproved attach is refused before any connection is touched")
+    func unapprovedAttachRefused() async throws {
+        let transport = GnosticCoreTransport()
+
+        await #expect(throws: GnosticTransportError.workspaceApprovalRequired) {
+            try await transport.attachWorkspace(workspaceID: UUID(), to: UUID(), approved: false)
+        }
+    }
 }

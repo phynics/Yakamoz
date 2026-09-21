@@ -62,6 +62,11 @@ private struct GnosticBackendKey: EnvironmentKey {
     static let defaultValue: GnosticBackend? = nil
 }
 
+/// Typed environment key for the network workspace attach/detach state (issue #12).
+private struct NetworkWorkspaceControllerKey: EnvironmentKey {
+    static let defaultValue: NetworkWorkspaceController? = nil
+}
+
 extension EnvironmentValues {
     var yakamozRuntime: YakamozRuntime? {
         get { self[YakamozRuntimeKey.self] }
@@ -107,6 +112,11 @@ extension EnvironmentValues {
         get { self[GnosticBackendKey.self] }
         set { self[GnosticBackendKey.self] = newValue }
     }
+
+    var networkWorkspaceController: NetworkWorkspaceController? {
+        get { self[NetworkWorkspaceControllerKey.self] }
+        set { self[NetworkWorkspaceControllerKey.self] = newValue }
+    }
 }
 
 @main
@@ -121,6 +131,7 @@ struct YakamozApp: App {
     private let networkSettings: NetworkSettings
     private let networkSession: NetworkClientSession
     private let networkBackend: GnosticBackend
+    private let networkWorkspaceController: NetworkWorkspaceController
     private let setupError: String?
 
     @State private var coordinator = UICoordinator()
@@ -164,6 +175,7 @@ struct YakamozApp: App {
         // The network chat backend shares the session's transport (one broker connection)
         // and the shared approval banner.
         networkBackend = GnosticBackend(transport: networkTransport, approver: toolApprover)
+        networkWorkspaceController = NetworkWorkspaceController(transport: networkTransport)
 
         var resolvedStoreDescription = "(store URL not yet resolved)"
         var builtRuntime: YakamozRuntime?
@@ -304,6 +316,7 @@ struct YakamozApp: App {
                     .environment(\.networkSettings, networkSettings)
                     .environment(\.networkSession, networkSession)
                     .environment(\.gnosticBackend, networkBackend)
+                    .environment(\.networkWorkspaceController, networkWorkspaceController)
                     .frame(minWidth: 900, minHeight: 620)
                     .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
                         // Best-effort teardown of any live terminal shells on quit. This detached
