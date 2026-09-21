@@ -18,8 +18,11 @@ make build      # generate + build the app
 make test       # generate + run the full test suite (macOS destination)
 make verify     # generate + headless xcodebuild test, failing if zero tests execute
 
-make test TEST_FILTER=InspectableChatIntegrationTests   # single suite/class
+make test TEST_FILTER=InspectableChatIntegrationTests   # single suite/class, either bundle
 ```
+
+`TEST_FILTER` matches a suite/class name in **either** test bundle; `make test` fails when the
+filter matches nothing (xcodebuild exits 0 after running zero tests).
 
 Gotchas: run `make generate` after editing `project.yml`; trust `make verify` (a bare
 `swift test` can pass having run **0** tests); if a build fails with `missing Metal
