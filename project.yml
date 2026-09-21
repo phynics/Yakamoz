@@ -99,6 +99,11 @@ targets:
       - target: YakamozCore
       - package: Gnostic
         product: GnosticCore
+      # GnosticBackend conforms to the shared ChatRunning seam, which traffics in
+      # PositronicKit's TurnEvent vocabulary. Only this module's backend adapter names
+      # those types; the app target still never imports them.
+      - package: PositronicKit
+        product: PKContracts
       - package: swift-log
         product: Logging
       - package: ErrorKit
@@ -177,6 +182,8 @@ targets:
       # offline against `FakeGnosticTransport`.
       - package: Gnostic
         product: GnosticCore
+      - package: PositronicKit
+        product: PKContracts
       - package: swift-log
         product: Logging
 schemes:

@@ -139,12 +139,6 @@ struct NetworkPlaceholderDetailView: View {
                     Text(summary)
                         .foregroundStyle(.secondary)
                 }
-
-                Divider()
-
-                Label("Network turns arrive in #10.", systemImage: "hourglass")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
             }
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)

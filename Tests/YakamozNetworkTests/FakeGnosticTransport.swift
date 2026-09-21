@@ -13,6 +13,17 @@ actor FakeGnosticTransport: GnosticClientTransport {
     private(set) var disconnectCount = 0
     private(set) var lastConfiguration: NetworkBrokerConfiguration?
 
+    private(set) var turnRequests: [GnosticTurnRequest] = []
+    private(set) var permissionResponses: [RecordedPermissionResponse] = []
+    private var turnContinuations: [UUID: AsyncStream<GnosticTurnEvent>.Continuation] = [:]
+    private var turnFailuresRemaining = 0
+
+    struct RecordedPermissionResponse: Equatable, Sendable {
+        let correlationID: String
+        let approved: Bool
+        let request: GnosticTurnRequest
+    }
+
     private var connectFailuresRemaining = 0
     private var discoverFailuresRemaining = 0
     private var shouldGateConnect = false
@@ -79,5 +90,59 @@ actor FakeGnosticTransport: GnosticClientTransport {
     /// Pushes one event to observers.
     func emit(_ event: GnosticTransportEvent) {
         continuation.yield(event)
+    }
+
+    // MARK: - Turns
+
+    func runTurn(_ request: GnosticTurnRequest) async throws -> AsyncStream<GnosticTurnEvent> {
+        turnRequests.append(request)
+        if turnFailuresRemaining > 0 {
+            turnFailuresRemaining -= 1
+            throw GnosticTransportError.turnUnavailable("scripted turn failure")
+        }
+        let pair = AsyncStream<GnosticTurnEvent>.makeStream(bufferingPolicy: .bufferingNewest(256))
+        turnContinuations[UUID()] = pair.continuation
+        return pair.stream
+    }
+
+    func respondToPermission(
+        correlationID: String,
+        approved: Bool,
+        request: GnosticTurnRequest
+    ) async throws {
+        permissionResponses.append(RecordedPermissionResponse(
+            correlationID: correlationID,
+            approved: approved,
+            request: request
+        ))
+    }
+
+    /// The next `count` runTurn calls throw.
+    func failNextTurns(_ count: Int) {
+        turnFailuresRemaining = count
+    }
+
+    /// Pushes one turn event to every live turn stream.
+    func emitTurn(_ event: GnosticTurnEvent) {
+        for continuation in turnContinuations.values {
+            continuation.yield(event)
+        }
+    }
+
+    /// Finishes every live turn stream without a terminal event (simulates a dropped
+    /// connection mid-turn).
+    func dropTurnStreams() {
+        for continuation in turnContinuations.values {
+            continuation.finish()
+        }
+        turnContinuations = [:]
+    }
+
+    /// Finishes every live turn stream.
+    func finishTurnStreams() {
+        for continuation in turnContinuations.values {
+            continuation.finish()
+        }
+        turnContinuations = [:]
     }
 }

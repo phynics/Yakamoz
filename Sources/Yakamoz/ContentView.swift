@@ -7,6 +7,7 @@ struct ContentView: View {
     @State private var selection: SidebarSelection?
 
     @Environment(\.networkSession) private var networkSession
+    @Environment(\.gnosticBackend) private var gnosticBackend
 
     @Query(sort: \AgentModel.createdAt) private var agents: [AgentModel]
     @Query(filter: ConversationListQuery.standardPredicate) private var conversations: [ConversationModel]
@@ -36,13 +37,32 @@ struct ContentView: View {
                 unavailable
             }
         case let .network(networkSelection):
-            if let networkSession {
-                NetworkPlaceholderDetailView(selection: networkSelection, session: networkSession)
+            if let networkSession, let gnosticBackend {
+                networkDetail(
+                    networkSelection,
+                    session: networkSession,
+                    backend: gnosticBackend
+                )
             } else {
                 unavailable
             }
         case nil:
             unavailable
+        }
+    }
+
+    /// Timelines open the network chat surface (#10); Ascendants and Workspaces keep
+    /// the browsable detail surface until their own interaction tickets land.
+    @ViewBuilder
+    private func networkDetail(
+        _ selection: NetworkSidebarSelection,
+        session: NetworkClientSession,
+        backend: GnosticBackend
+    ) -> some View {
+        if case let .timeline(key) = selection {
+            NetworkChatView(key: key, session: session, backend: backend)
+        } else {
+            NetworkPlaceholderDetailView(selection: selection, session: session)
         }
     }
 

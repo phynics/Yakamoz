@@ -222,4 +222,102 @@ struct GnosticCoreTransportMappingTests {
         #expect(GnosticCoreTransport.map(entry(objectType: "me.atkn.gnostic.SomethingNew")) == nil)
         #expect(GnosticCoreTransport.map(entry(objectType: "")) == nil)
     }
+
+    // MARK: - Turn updates (issue #10)
+
+    @Test("Assistant text and snapshots map to their module-local cases")
+    func mapsAssistantTextUpdates() {
+        #expect(GnosticCoreTransport.map(AscendantTurnUpdate(
+            sequence: 1,
+            kind: .assistantText,
+            text: "Hel"
+        )) == [.textDelta("Hel")])
+
+        #expect(GnosticCoreTransport.map(AscendantTurnUpdate(
+            sequence: 2,
+            kind: .assistantTextSnapshot,
+            text: "Hello"
+        )) == [.textSnapshot("Hello")])
+    }
+
+    @Test("Tool states map into module-local tool states with typed status")
+    func mapsToolStates() {
+        let update = AscendantTurnUpdate(
+            sequence: 3,
+            kind: .toolState,
+            toolStates: [
+                AscendantToolState(toolCallID: "call-1", title: "Shell", status: "in_progress", content: nil),
+                AscendantToolState(toolCallID: "call-2", title: "Read", status: "completed", content: "done"),
+            ]
+        )
+        #expect(GnosticCoreTransport.map(update) == [
+            .toolState(GnosticTurnToolState(toolCallID: "call-1", title: "Shell", status: .inProgress)),
+            .toolState(GnosticTurnToolState(toolCallID: "call-2", title: "Read", status: .completed, content: "done")),
+        ])
+    }
+
+    @Test("Permission states map into module-local permission requests")
+    func mapsPermissionStates() {
+        let update = AscendantTurnUpdate(
+            sequence: 4,
+            kind: .permissionState,
+            permissionStates: [
+                AscendantPermissionState(
+                    correlationID: "corr-1",
+                    toolCallID: "call-1",
+                    title: "Write a file",
+                    status: "pending"
+                ),
+            ]
+        )
+        #expect(GnosticCoreTransport.map(update) == [
+            .permission(GnosticTurnPermissionRequest(
+                correlationID: "corr-1",
+                toolCallID: "call-1",
+                title: "Write a file",
+                status: .pending
+            )),
+        ])
+    }
+
+    @Test("Terminal updates map to completed, cancelled, and failed")
+    func mapsTerminalUpdates() {
+        #expect(GnosticCoreTransport.map(AscendantTurnUpdate(
+            sequence: 5,
+            kind: .completion,
+            terminal: true
+        )) == [.completed])
+
+        #expect(GnosticCoreTransport.map(AscendantTurnUpdate(
+            sequence: 6,
+            kind: .cancellation,
+            terminal: true
+        )) == [.cancelled])
+
+        #expect(GnosticCoreTransport.map(AscendantTurnUpdate(
+            sequence: 7,
+            kind: .error,
+            text: "The backend vanished.",
+            terminal: true,
+            reasonCode: "backendUnavailable",
+            retryable: true
+        )) == [.failed(message: "The backend vanished.", retryable: true)])
+
+        #expect(GnosticCoreTransport.map(AscendantTurnUpdate(
+            sequence: 8,
+            kind: .error,
+            terminal: true,
+            reasonCode: "capacityExceeded",
+            retryable: false
+        )) == [.failed(message: "capacityExceeded", retryable: false)])
+    }
+
+    @Test("An unknown update kind is ignored")
+    func ignoresUnknownTurnUpdateKind() {
+        #expect(GnosticCoreTransport.map(AscendantTurnUpdate(
+            sequence: 9,
+            kind: "me.atkn.gnostic.something.new",
+            terminal: false
+        )).isEmpty)
+    }
 }
