@@ -95,6 +95,11 @@ targets:
         PRODUCT_NAME: YakamozNetwork
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGNING_ALLOWED: NO
+        # Static linkage keeps a single copy of the PositronicKit/GnosticCore type
+        # metadata in the process. As a dynamic framework this target embedded its own
+        # copy, so cross-framework error casts (e.g. the upstream conformance suite
+        # catching a PositronicKit error thrown by YakamozCore) failed identity checks.
+        MACH_O_TYPE: staticlib
     dependencies:
       - target: YakamozCore
       - package: Gnostic
@@ -119,6 +124,10 @@ targets:
         PRODUCT_NAME: YakamozCore
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGNING_ALLOWED: NO
+        # Static linkage: see the YakamozNetwork note. The single process-wide copy keeps
+        # PositronicKit type identity intact across the app, both frameworks, and the
+        # test bundles.
+        MACH_O_TYPE: staticlib
     dependencies:
       - package: PositronicKit
         product: PositronicKit
