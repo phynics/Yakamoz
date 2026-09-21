@@ -113,9 +113,8 @@ public struct JournalDTO: Codable, Sendable, Equatable {
 ///
 /// Persisted via `SwiftDataPromptInspector` into `TurnInspectionModel.responseData`.
 /// `ChatEventReducer.responseDTO` produces the initial shape from accumulated
-/// `ChatTurnState`; `ChatViewModel` enriches it (e.g. typed-reply decoding results)
-/// before persisting. `InspectionPresentation.response` surfaces it to the
-/// `ResponseInspectorView`.
+/// `ChatTurnState`; `ChatViewModel` enriches it with tool traces before persisting.
+/// `InspectionPresentation.response` surfaces it to the `ResponseInspectorView`.
 public struct ResponseDTO: Codable, Sendable, Equatable {
     public var reconstructedText: String
     public var thinking: String

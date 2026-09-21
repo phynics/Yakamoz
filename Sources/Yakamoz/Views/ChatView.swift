@@ -205,7 +205,7 @@ struct ChatView: View {
                 Task { await refreshSectionAnnotations() }
             }
         }
-        // Menu-bar / keyboard command intents (Command-I, Command-1…6).
+        // Menu-bar / keyboard command intents (Command-I, Command-1…5).
         .onChange(of: coordinator.toggleInspectorToken) { _, _ in
             withAnimation(.snappy) { isInspectorOpen.toggle() }
         }
