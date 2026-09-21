@@ -123,7 +123,10 @@ extension TimelineModel {
 /// The split is deliberate: Yakamoz's UI reads durable Timeline/message rows
 /// (`SwiftDataPromptInspector`, transcript reload), but it is a single-process,
 /// single-user app that does not need crash recovery for in-flight Turn audit
-/// trails. `isDurable` reports `true` for the durable half; a future change that
+/// trails. Durable Timeline rows are lazily rehydrated into the in-process
+/// bookkeeping before Turn admission, so a fresh repository can resume existing
+/// Timelines without claiming that in-flight Turns survived the restart.
+/// `isDurable` reports `true` for the durable half; a future change that
 /// needs durable Turn records can persist the same `Codable` values without
 /// changing this seam.
 ///
@@ -323,6 +326,7 @@ public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository, Time
         turnID: UUID,
         now: Date
     ) async throws -> TurnAdmission {
+        try await ensureTimelineRegistered(timelineID)
         let admission = try await turnRuntime.admitTurn(
             timelineID: timelineID,
             requestID: requestID,
@@ -351,6 +355,7 @@ public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository, Time
         attempt: Int,
         now: Date
     ) async throws -> TurnAdmission {
+        try await ensureTimelineRegistered(timelineID)
         let admission = try await turnRuntime.admitRetry(
             timelineID: timelineID,
             previousTurnID: previousTurnID,
@@ -491,6 +496,17 @@ public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository, Time
     }
 
     // MARK: - Helpers
+
+    /// Rehydrates the durable Timeline identity needed by the in-memory admission state.
+    /// Turn records remain process-local; only the Timeline registration is restored.
+    private func ensureTimelineRegistered(_ timelineID: UUID) async throws {
+        guard try await turnRuntime.fetchTimeline(id: timelineID) == nil else { return }
+
+        var descriptor = FetchDescriptor<TimelineModel>(predicate: #Predicate { $0.id == timelineID })
+        descriptor.fetchLimit = 1
+        guard let model = try modelContext.fetch(descriptor).first else { return }
+        try await turnRuntime.saveTimeline(model.toTimelineRecord())
+    }
 
     /// Persists one message with append-only semantics:
     ///

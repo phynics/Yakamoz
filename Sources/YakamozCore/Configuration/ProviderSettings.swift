@@ -18,7 +18,8 @@ public enum ProviderPreset: String, CaseIterable, Codable, Sendable {
     public var baseURL: URL {
         switch self {
         case .openAI: URL(string: "https://api.openai.com/v1")!
-        case .openRouter: URL(string: "https://openrouter.ai/api/v1")!
+        // PositronicKit's OpenRouter client appends `/v1` to this base URL.
+        case .openRouter: URL(string: "https://openrouter.ai/api")!
         case .ollama: URL(string: "http://localhost:11434/v1")!
         case .custom: URL(string: "http://localhost:8080/v1")!
         }
@@ -202,6 +203,8 @@ public final class ProviderSettings {
         static let maxRetries = "providerSettings.maxRetries"
     }
 
+    private static let legacyOpenRouterBaseURL = URL(string: "https://openrouter.ai/api/v1")!
+
     public var preset: ProviderPreset
     public var baseURL: URL
     public var model: String
@@ -223,13 +226,10 @@ public final class ProviderSettings {
         let resolvedPreset = storedPresetRaw.flatMap(ProviderPreset.init(rawValue:)) ?? .openAI
         preset = resolvedPreset
 
-        if let storedURLString = defaults.string(forKey: DefaultsKey.baseURL),
-           let storedURL = URL(string: storedURLString)
-        {
-            baseURL = storedURL
-        } else {
-            baseURL = resolvedPreset.baseURL
-        }
+        baseURL = Self.resolvedBaseURL(
+            for: resolvedPreset,
+            storedValue: defaults.string(forKey: DefaultsKey.baseURL)
+        )
 
         model = defaults.string(forKey: DefaultsKey.model) ?? "gpt-4o"
         temperature = defaults.object(forKey: DefaultsKey.temperature) as? Double
@@ -312,13 +312,10 @@ public final class ProviderSettings {
         let storedPresetRaw = defaults.string(forKey: DefaultsKey.preset)
         preset = storedPresetRaw.flatMap(ProviderPreset.init(rawValue:)) ?? .openAI
 
-        if let storedURLString = defaults.string(forKey: DefaultsKey.baseURL),
-           let storedURL = URL(string: storedURLString)
-        {
-            baseURL = storedURL
-        } else {
-            baseURL = preset.baseURL
-        }
+        baseURL = Self.resolvedBaseURL(
+            for: preset,
+            storedValue: defaults.string(forKey: DefaultsKey.baseURL)
+        )
 
         model = defaults.string(forKey: DefaultsKey.model) ?? "gpt-4o"
         temperature = defaults.object(forKey: DefaultsKey.temperature) as? Double
@@ -345,6 +342,16 @@ public final class ProviderSettings {
         } else {
             defaults.removeObject(forKey: key)
         }
+    }
+
+    private static func resolvedBaseURL(for preset: ProviderPreset, storedValue: String?) -> URL {
+        guard let storedValue, let storedURL = URL(string: storedValue) else {
+            return preset.baseURL
+        }
+        if preset == .openRouter, storedURL == legacyOpenRouterBaseURL {
+            return preset.baseURL
+        }
+        return storedURL
     }
 
     /// Maps the current settings plus a freshly read secret into the real PositronicKit

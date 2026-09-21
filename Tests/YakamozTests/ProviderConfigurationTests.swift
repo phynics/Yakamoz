@@ -37,9 +37,20 @@ struct ProviderConfigurationTests {
     @Test("Preset base URLs match the documented endpoints")
     func presetBaseURLs() {
         #expect(ProviderPreset.openAI.baseURL.absoluteString == "https://api.openai.com/v1")
-        #expect(ProviderPreset.openRouter.baseURL.absoluteString == "https://openrouter.ai/api/v1")
+        #expect(ProviderPreset.openRouter.baseURL.absoluteString == "https://openrouter.ai/api")
         #expect(ProviderPreset.ollama.baseURL.absoluteString == "http://localhost:11434/v1")
         #expect(ProviderPreset.custom.baseURL.absoluteString == "http://localhost:8080/v1")
+    }
+
+    @Test("OpenRouter migrates the legacy base URL that duplicated the client path")
+    func openRouterMigratesLegacyBaseURL() {
+        let defaults = makeDefaults()
+        defaults.set(ProviderPreset.openRouter.rawValue, forKey: "providerSettings.preset")
+        defaults.set("https://openrouter.ai/api/v1", forKey: "providerSettings.baseURL")
+
+        let settings = ProviderSettings(defaults: defaults)
+
+        #expect(settings.baseURL == ProviderPreset.openRouter.baseURL)
     }
 
     // MARK: - Blank Ollama key acceptance

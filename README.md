@@ -59,7 +59,7 @@ Four presets ship, each mapped to a `PositronicKit` provider adapter:
 | Preset       | Adapter                | Notes                                        |
 | ------------ | ---------------------- | -------------------------------------------- |
 | **OpenAI**   | `PKOpenAIProvider`     | Default. `https://api.openai.com/v1`.        |
-| **OpenRouter** | `PKOpenRouterProvider` | `https://openrouter.ai/api/v1`.              |
+| **OpenRouter** | `PKOpenRouterProvider` | `https://openrouter.ai/api` (the adapter appends `/v1`). |
 | **Ollama**   | `PKOllamaProvider`     | Local; typically no API key required.        |
 | **Custom**   | `PKOpenAIProvider`     | OpenAI-compatible; defaults to `http://localhost:8080/v1` and requires an API key. |
 
