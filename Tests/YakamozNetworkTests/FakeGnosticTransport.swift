@@ -15,6 +15,8 @@ actor FakeGnosticTransport: GnosticClientTransport {
 
     private(set) var turnRequests: [GnosticTurnRequest] = []
     private(set) var permissionResponses: [RecordedPermissionResponse] = []
+    private(set) var attachRequests: [AttachRequest] = []
+    private(set) var detachRequests: [DetachRequest] = []
     private var turnContinuations: [UUID: AsyncStream<GnosticTurnEvent>.Continuation] = [:]
     private var turnFailuresRemaining = 0
 
@@ -144,5 +146,64 @@ actor FakeGnosticTransport: GnosticClientTransport {
             continuation.finish()
         }
         turnContinuations = [:]
+    }
+
+    // MARK: - Workspaces
+
+    private var attachmentStatuses: [UUID: GnosticWorkspaceAttachment] = [:]
+    private var effectiveStatuses: [UUID: GnosticWorkspaceEffective] = [:]
+    private var attachError: GnosticTransportError?
+    private var detachError: GnosticTransportError?
+
+    func setAttachment(_ status: GnosticWorkspaceAttachment, for workspaceID: UUID) {
+        attachmentStatuses[workspaceID] = status
+    }
+
+    func setEffectiveStatus(_ status: GnosticWorkspaceEffective, for workspaceID: UUID) {
+        effectiveStatuses[workspaceID] = status
+    }
+
+    func failNextAttach(_ error: GnosticTransportError) {
+        attachError = error
+    }
+
+    func failNextDetach(_ error: GnosticTransportError) {
+        detachError = error
+    }
+
+    func workspaceAttachment(workspaceID: UUID) async throws -> GnosticWorkspaceAttachment {
+        attachmentStatuses[workspaceID] ?? .unavailable
+    }
+
+    func workspaceEffectiveStatus(workspaceID: UUID) async throws -> GnosticWorkspaceEffective {
+        effectiveStatuses[workspaceID] ?? .unavailable
+    }
+
+    func attachWorkspace(workspaceID: UUID, to timelineID: UUID, approved: Bool) async throws {
+        guard approved else { throw GnosticTransportError.workspaceApprovalRequired }
+        if let attachError {
+            self.attachError = nil
+            throw attachError
+        }
+        attachRequests.append(AttachRequest(workspaceID: workspaceID, timelineID: timelineID, approved: approved))
+    }
+
+    func detachWorkspace(workspaceID: UUID, from timelineID: UUID) async throws {
+        if let detachError {
+            self.detachError = nil
+            throw detachError
+        }
+        detachRequests.append(DetachRequest(workspaceID: workspaceID, timelineID: timelineID))
+    }
+
+    struct AttachRequest: Equatable, Sendable {
+        let workspaceID: UUID
+        let timelineID: UUID
+        let approved: Bool
+    }
+
+    struct DetachRequest: Equatable, Sendable {
+        let workspaceID: UUID
+        let timelineID: UUID
     }
 }

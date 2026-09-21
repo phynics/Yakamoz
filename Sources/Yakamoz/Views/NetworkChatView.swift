@@ -14,6 +14,7 @@ struct NetworkChatView: View {
     let backend: GnosticBackend
 
     @Environment(\.toolApprover) private var toolApprover
+    @Environment(\.networkWorkspaceController) private var workspaceController
 
     @State private var viewModel: ChatViewModel?
     @State private var draft = ""
@@ -49,6 +50,17 @@ struct NetworkChatView: View {
             }
         }
         .navigationTitle(timeline?.title ?? "Network Timeline")
+        .toolbar {
+            if let workspaceController {
+                ToolbarItem(placement: .automatic) {
+                    NetworkWorkspaceMenu(
+                        timelineKey: key,
+                        session: session,
+                        controller: workspaceController
+                    )
+                }
+            }
+        }
         .task(id: key) {
             buildViewModelIfNeeded()
         }
