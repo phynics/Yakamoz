@@ -39,7 +39,7 @@ file.
 Dependencies resolve from released versions: `PositronicKit` is pinned in `project.yml` to
 an exact semver (`exactVersion`), never a local path. To develop against an unreleased
 PositronicKit change, use an Xcode local package override in your working copy only; do not
-commit a path dependency. `Gnostic` follows the same rule and is pinned to `0.4.0`, which
+commit a path dependency. `Gnostic` follows the same rule and is pinned to `0.4.2`, which
 is built against the same `PositronicKit` version Yakamoz pins; moving either pin requires
 moving the other in the same commit, because SwiftPM admits exactly one exact pin per
 package.
