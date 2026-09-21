@@ -138,11 +138,6 @@ The inspector distinguishes **what actually happened** from **a derived view of 
 - **Projected:** the Prompt tab's section tree and compression summary are *projections* of
   the rendered prompt (`InspectionSectionDTO`, built with `String(describing:)` for the
   non-`Codable` trait enums) — faithful, but a presentation shape, not the live IR.
-- **Typed replies are best-effort, not provider-enforced.** When a conversation enables
-  structured/typed replies, the schema is shown to the model and the final text is decoded
-  against `TypedReplyPayload` **after** the turn (`TypedReply.decode`). It is a post-hoc
-  decode that may fail and surface a validation error in the Response tab — the provider is
-  not constrained to honor the schema.
 
 ### Tool-trace persistence
 
