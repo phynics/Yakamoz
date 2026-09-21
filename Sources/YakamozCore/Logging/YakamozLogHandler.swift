@@ -25,19 +25,11 @@ struct YakamozLogHandler: LogHandler {
     var logLevel: Logging.Logger.Level = .info
     var metadata: Logging.Logger.Metadata = [:]
 
-    func log(
-        level: Logging.Logger.Level,
-        message: Logging.Logger.Message,
-        metadata: Logging.Logger.Metadata?,
-        source _: String,
-        file _: String,
-        function _: String,
-        line _: UInt
-    ) {
-        let mergedMetadata = self.metadata.merging(metadata ?? [:]) { _, new in new }
+    func log(event: LogEvent) {
+        let mergedMetadata = self.metadata.merging(event.metadata ?? [:]) { _, new in new }
 
         // Format the message with metadata
-        var formattedMessage = String(describing: message)
+        var formattedMessage = String(describing: event.message)
         if !mergedMetadata.isEmpty {
             let metadataString = mergedMetadata
                 .sorted { $0.key < $1.key }
@@ -48,7 +40,7 @@ struct YakamozLogHandler: LogHandler {
 
         // Get or create the os.Logger for this label's subsystem/category
         let osLogger = Self.cachedLogger(for: label)
-        let osLogType = osLogType(for: level)
+        let osLogType = osLogType(for: event.level)
 
         osLogger.log(level: osLogType, "\(formattedMessage)")
     }

@@ -40,21 +40,13 @@ private struct RecordingLogHandler: LogHandler {
     var logLevel: Logger.Level = .trace
     var metadata: Logger.Metadata = [:]
 
-    func log(
-        level: Logger.Level,
-        message: Logger.Message,
-        metadata: Logger.Metadata?,
-        source _: String,
-        file _: String,
-        function _: String,
-        line _: UInt
-    ) {
-        let merged = self.metadata.merging(metadata ?? [:]) { _, new in new }
+    func log(event: LogEvent) {
+        let merged = self.metadata.merging(event.metadata ?? [:]) { _, new in new }
         recorder.append(
             CapturedLogRecord(
                 label: label,
-                level: level,
-                message: String(describing: message),
+                level: event.level,
+                message: String(describing: event.message),
                 metadata: merged
             )
         )
@@ -97,7 +89,7 @@ struct ChatViewModelErrorLoggingTests {
 
     @Test("Turn failure emits an error record with conversationID/turnIndex metadata")
     func turnFailureLogsWithMetadata() async throws {
-        try await withRecorder { recorder in
+        await withRecorder { recorder in
             let timelineId = UUID()
             let viewModel = ChatViewModel(timelineId: timelineId, runner: ThrowingRunner())
 
@@ -122,7 +114,7 @@ struct ChatViewModelErrorLoggingTests {
 
     @Test("Log.appError emits an error record with the given metadata (app-init failure shape)")
     func appErrorLogsWithMetadata() async throws {
-        try await withRecorder { recorder in
+        await withRecorder { recorder in
             // Mirrors exactly what YakamozApp.init()'s catch does on a failed runtime build.
             let storePath = "/tmp/does-not-exist/Yakamoz.store"
             Log.appError("runtime init failed", metadata: ["storePath": storePath])
@@ -140,7 +132,7 @@ struct ChatViewModelErrorLoggingTests {
 
     @Test("Persistence save failure emits a .error record with store and entity metadata")
     func persistenceSaveFailureLogsError() async throws {
-        try await withRecorder { recorder in
+        await withRecorder { recorder in
             // Simulate a save failure by trying to emit directly through the logger.
             let timelineId = UUID()
             Log.runtime.error("failed to save TimelineMessage", metadata: [
@@ -163,7 +155,7 @@ struct ChatViewModelErrorLoggingTests {
 
     @Test("Persistence fetch fallback emits a .warning record with store metadata")
     func persistenceFetchFallbackLogsWarning() async throws {
-        try await withRecorder { recorder in
+        await withRecorder { recorder in
             let timelineId = UUID()
             Log.runtime.warning("failed to fetch TimelineMessages", metadata: [
                 "store": "MessageStore",
@@ -184,7 +176,7 @@ struct ChatViewModelErrorLoggingTests {
 
     @Test("loadTranscript failure emits a .warning record before returning .empty")
     func loadTranscriptFailureLogsWarning() async throws {
-        try await withRecorder { recorder in
+        await withRecorder { recorder in
             let timelineId = UUID()
             Log.chat.warning("failed to load transcript, returning empty", metadata: [
                 "timelineID": "\(timelineId)",
@@ -203,7 +195,7 @@ struct ChatViewModelErrorLoggingTests {
 
     @Test("Workspace operation failure emits appropriate metadata for debugging")
     func workspaceOperationFailureLogsWithMetadata() async throws {
-        try await withRecorder { recorder in
+        await withRecorder { recorder in
             let conversationId = UUID()
             Log.workspace.error("failed to save workspace attachment", metadata: [
                 "conversationID": "\(conversationId)",
@@ -224,7 +216,7 @@ struct ChatViewModelErrorLoggingTests {
 
     @Test("View layer save failure emits .error record through Log.app")
     func viewLayerSaveFailureLogsError() async throws {
-        try await withRecorder { recorder in
+        await withRecorder { recorder in
             let conversationId = UUID()
             Log.app.error("failed to save conversation state change", metadata: [
                 "conversationID": "\(conversationId)",

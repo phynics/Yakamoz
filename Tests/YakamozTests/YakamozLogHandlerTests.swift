@@ -8,8 +8,8 @@ import Testing
 struct YakamozLogHandlerTests {
     // MARK: - LogHandler Conformance Tests
 
-    @Test("Implements source-aware LogHandler entry point with current swift-log parameter ordering")
-    func implementsSourceAwareLogHandlerEntryPoint() throws {
+    @Test("Implements the LogEvent-based LogHandler entry point")
+    func implementsLogEventEntryPoint() throws {
         let testsURL = URL(fileURLWithPath: #filePath)
         let projectRoot = testsURL
             .deletingLastPathComponent()
@@ -22,8 +22,8 @@ struct YakamozLogHandlerTests {
             .appendingPathComponent("YakamozLogHandler.swift")
         let source = try String(contentsOf: handlerURL, encoding: .utf8)
 
-        #expect(source.contains("source _: String,\n        file _: String,\n        function _: String,\n        line _: UInt"))
-        #expect(!source.contains("source _: String,\n        file _: String,\n        line _: UInt,\n        function _: String"))
+        #expect(source.contains("func log(event: LogEvent)"))
+        #expect(!source.contains("source _: String,"))
     }
 
     // MARK: - Level Mapping Tests

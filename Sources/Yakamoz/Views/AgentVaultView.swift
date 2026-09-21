@@ -68,9 +68,9 @@ struct AgentVaultView: View {
         AgentVaultBrowsing.renderWikiLinks(text).reduce(Text("")) { partial, segment in
             switch segment {
             case let .text(string):
-                partial + Text(string)
+                Text("\(partial)\(string)")
             case let .wikiLink(link):
-                partial + Text(link).bold().foregroundStyle(.tint)
+                Text("\(partial)\(Text(link).bold().foregroundStyle(.tint))")
             }
         }
     }
