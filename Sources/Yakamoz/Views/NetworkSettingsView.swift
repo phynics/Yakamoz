@@ -91,6 +91,11 @@ struct NetworkSettingsView: View {
 
             Button("Apply Password") {
                 applyError = nil
+                let draft = passwordDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let issue = settings.validate(password: draft.isEmpty ? nil : draft).first {
+                    applyError = Log.userFriendlyErrorMessage(for: issue)
+                    return
+                }
                 do {
                     try settings.applyPassword(passwordDraft, secrets: secrets)
                     passwordDraft = (try settings.storedPassword(secrets: secrets)) ?? ""

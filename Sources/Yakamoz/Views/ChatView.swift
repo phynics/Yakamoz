@@ -552,7 +552,7 @@ struct ChatView: View {
                 }
             }
         )
-        let inspection = await runtime.makeInspectionViewModel()
+        let inspection = runtime.makeInspectionViewModel()
         viewModel = chat
         inspectionViewModel = inspection
         await inspection.select(conversationId: conversation.id, turnIndex: chat.selectedInspectionTurnIndex)
