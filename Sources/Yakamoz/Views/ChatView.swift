@@ -205,7 +205,7 @@ struct ChatView: View {
                 Task { await refreshSectionAnnotations() }
             }
         }
-        // Menu-bar / keyboard command intents (Command-I, Command-1…6).
+        // Menu-bar / keyboard command intents (Command-I, Command-1…5).
         .onChange(of: coordinator.toggleInspectorToken) { _, _ in
             withAnimation(.snappy) { isInspectorOpen.toggle() }
         }
@@ -552,7 +552,7 @@ struct ChatView: View {
                 }
             }
         )
-        let inspection = await runtime.makeInspectionViewModel()
+        let inspection = runtime.makeInspectionViewModel()
         viewModel = chat
         inspectionViewModel = inspection
         await inspection.select(conversationId: conversation.id, turnIndex: chat.selectedInspectionTurnIndex)

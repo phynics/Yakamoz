@@ -120,9 +120,7 @@ selected assistant turn in five tabs:
 3. **Journal** — the turn's `PromptJournal` evolution: changed/added/removed semi-stable
    sections, stable-prefix count, and whether compaction ran.
 4. **Response** — reconstructed text/thinking, model, finish reason, and token usage.
-5. **Tools** — every tool call in the turn, with status, output/error, and elapsed time; a
-   turn still live in memory also lists the workspace files it touched (a reloaded turn
-   shows none).
+5. **Tools** — every tool call in the turn, with status, output/error, and elapsed time.
 
 The attached workspace itself (identity, path, health, tools, and detach) is shown in
 **Compose → Workspace**; the toolbar's workspace chip attaches folders and creates terminals.
@@ -140,11 +138,6 @@ The inspector distinguishes **what actually happened** from **a derived view of 
 - **Projected:** the Prompt tab's section tree and compression summary are *projections* of
   the rendered prompt (`InspectionSectionDTO`, built with `String(describing:)` for the
   non-`Codable` trait enums) — faithful, but a presentation shape, not the live IR.
-- **Typed replies are best-effort, not provider-enforced.** When a conversation enables
-  structured/typed replies, the schema is shown to the model and the final text is decoded
-  against `TypedReplyPayload` **after** the turn (`TypedReply.decode`). It is a post-hoc
-  decode that may fail and surface a validation error in the Response tab — the provider is
-  not constrained to honor the schema.
 
 ### Tool-trace persistence
 

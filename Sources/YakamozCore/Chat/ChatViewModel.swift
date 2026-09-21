@@ -257,7 +257,7 @@ public final class ChatViewModel {
     /// and when the task is already cancelled/completed — so it is safe to invoke from
     /// multiple view-lifecycle hooks that may overlap. `ChatView` calls this both when
     /// `buildViewModelIfNeeded` is about to replace this view model (conversation switch,
-    /// persona/typed-reply/follow-up toggle, workspace attach/detach) and from
+    /// persona/follow-up toggle, workspace attach/detach) and from
     /// `.onDisappear` (window close / navigating away to no selection), ensuring a stream
     /// mid-turn is never left running invisibly after the view model is orphaned.
     public func cancel() {

@@ -401,7 +401,7 @@ struct ChatViewModelTests {
         viewModel.send("hi")
         await runner.waitUntilRunCount(1)
 
-        let instructions = try? #require(runner.lastSystemInstructions)
+        let instructions = runner.lastSystemInstructions
         #expect(instructions?.contains("You are a helpful assistant.") == true)
         #expect(instructions?.contains(ToolExplanationParameter.key) == true)
 

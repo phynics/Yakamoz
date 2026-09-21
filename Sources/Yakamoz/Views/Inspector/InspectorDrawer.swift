@@ -75,7 +75,7 @@ struct InspectorDrawer: View {
     let onCloseInspection: () -> Void
     @Binding var isOpen: Bool
     /// The selected inspector tab's raw value, owned by `ChatView` (via `@SceneStorage`)
-    /// so menu-bar commands (Command-1…6) can drive it. Bound here so the segmented picker
+    /// so menu-bar commands (Command-1…5) can drive it. Bound here so the segmented picker
     /// stays the single source of truth either way.
     @Binding var selectedTabRaw: String
 
@@ -212,7 +212,6 @@ struct InspectorDrawer: View {
                 composeSection(title: "Workspace") {
                     WorkspaceInspectorView(
                         presentation: workspacePresentation,
-                        touchedFiles: [],
                         onRefresh: onRefreshWorkspace,
                         onAttachDocuments: onAttachDocuments,
                         onChooseFolder: onChooseWorkspace,

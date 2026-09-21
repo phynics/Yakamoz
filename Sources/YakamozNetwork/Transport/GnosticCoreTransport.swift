@@ -19,7 +19,13 @@ public final class GnosticCoreTransport: GnosticClientTransport {
     private let stream: AsyncStream<GnosticTransportEvent>
     private let continuation: AsyncStream<GnosticTransportEvent>.Continuation
     private var session: GnosticConsumerSession?
+    private var turnClient: GnosticTurnClient?
+    private var workspaceClient: GnosticWorkspaceClient?
     private var forwardTask: Task<Void, Never>?
+    /// Timeline object id -> serving provider id, learned from the catalog. A remote
+    /// Turn and its permission responses must address the provider that serves the
+    /// Timeline, and the update stream carries no provider id of its own.
+    private var turnProviders: [UUID: String] = [:]
 
     public init() {
         let pair = AsyncStream<GnosticTransportEvent>.makeStream(bufferingPolicy: .bufferingNewest(256))
@@ -43,19 +49,28 @@ public final class GnosticCoreTransport: GnosticClientTransport {
         )
 
         let session: GnosticConsumerSession
+        let turnClient: GnosticTurnClient
+        let workspaceClient: GnosticWorkspaceClient
         do {
             session = try GnosticConsumerSession(broker: broker, identityName: configuration.identity)
             try await session.start()
+            // 120s mirrors Gnostic's documented consumer recipe (README "Run Turns
+            // from a consumer"): prompt timeouts below this interrupt long turns.
+            turnClient = try session.turnClient(timeout: .seconds(5), promptTimeout: .seconds(120))
+            workspaceClient = try session.workspaceClient(timeout: .seconds(5))
         } catch {
             throw GnosticTransportError.connectionFailed(String(describing: error))
         }
 
         self.session = session
+        self.turnClient = turnClient
+        self.workspaceClient = workspaceClient
         await startForwarding(from: session)
 
         // Seed objects that advertised before this subscription was attached.
         let existing = await session.networkObjects(includeIncompatible: true)
         for entry in existing {
+            remember(entry)
             if let object = Self.map(entry) {
                 continuation.yield(.discovered(object))
             }
@@ -65,6 +80,9 @@ public final class GnosticCoreTransport: GnosticClientTransport {
     public func disconnect() async {
         forwardTask?.cancel()
         forwardTask = nil
+        turnClient = nil
+        workspaceClient = nil
+        turnProviders = [:]
         if let session {
             await session.stop()
             self.session = nil
@@ -77,6 +95,124 @@ public final class GnosticCoreTransport: GnosticClientTransport {
             try await session.discover()
         } catch {
             throw GnosticTransportError.connectionFailed(String(describing: error))
+        }
+    }
+
+    public func runTurn(_ request: GnosticTurnRequest) async throws -> AsyncStream<GnosticTurnEvent> {
+        guard session != nil, let turnClient else { throw GnosticTransportError.notConnected }
+        let providerID = turnProviders[request.timelineID]
+        let pair = AsyncStream<GnosticTurnEvent>.makeStream(bufferingPolicy: .bufferingNewest(256))
+
+        let task = Task {
+            do {
+                // Subscribe before running so no live update is missed (Gnostic's
+                // documented consumer sequence).
+                let updates = try await turnClient.updates(
+                    for: request.clientTurnID,
+                    timelineID: request.timelineID,
+                    providerID: providerID
+                )
+                async let runResult = turnClient.run(
+                    message: request.message,
+                    timelineID: request.timelineID,
+                    clientTurnID: request.clientTurnID,
+                    providerID: providerID
+                )
+
+                var sawTerminal = false
+                for await update in updates {
+                    for event in Self.map(update) {
+                        pair.continuation.yield(event)
+                        if event.isTerminal { sawTerminal = true }
+                    }
+                }
+
+                do {
+                    _ = try await runResult
+                } catch {
+                    if !sawTerminal {
+                        pair.continuation.yield(.failed(
+                            message: Self.message(for: error),
+                            retryable: true
+                        ))
+                        sawTerminal = true
+                    }
+                }
+                if !sawTerminal {
+                    // The channel subscription ended without a terminal update
+                    // (disconnect, provider eviction, retention compaction). Surface a
+                    // recoverable failure instead of letting the UI hang on a stream.
+                    pair.continuation.yield(.failed(
+                        message: "The connection ended before the turn completed.",
+                        retryable: true
+                    ))
+                }
+                pair.continuation.finish()
+            } catch {
+                pair.continuation.yield(.failed(message: Self.message(for: error), retryable: true))
+                pair.continuation.finish()
+            }
+        }
+        pair.continuation.onTermination = { _ in task.cancel() }
+        return pair.stream
+    }
+
+    public func respondToPermission(
+        correlationID: String,
+        approved: Bool,
+        request: GnosticTurnRequest
+    ) async throws {
+        guard let turnClient else { throw GnosticTransportError.notConnected }
+        guard let providerID = turnProviders[request.timelineID] else {
+            throw GnosticTransportError.turnUnavailable(
+                "no serving provider is known for timeline \(request.timelineID)"
+            )
+        }
+        let response = AscendantPermissionResponse(
+            correlationID: correlationID,
+            timelineID: request.timelineID,
+            clientTurnID: request.clientTurnID,
+            approved: approved
+        )
+        try turnClient.respond(to: response, providerID: providerID)
+    }
+
+    public func workspaceAttachment(workspaceID: UUID) async throws -> GnosticWorkspaceAttachment {
+        guard let workspaceClient else { throw GnosticTransportError.notConnected }
+        return Self.map(await workspaceClient.attachmentStatus(workspaceID: workspaceID))
+    }
+
+    public func workspaceEffectiveStatus(workspaceID: UUID) async throws -> GnosticWorkspaceEffective {
+        guard let workspaceClient else { throw GnosticTransportError.notConnected }
+        return Self.map(await workspaceClient.effectiveStatus(workspaceID: workspaceID))
+    }
+
+    public func attachWorkspace(workspaceID: UUID, to timelineID: UUID, approved: Bool) async throws {
+        guard approved else { throw GnosticTransportError.workspaceApprovalRequired }
+        guard let workspaceClient else { throw GnosticTransportError.notConnected }
+        do {
+            try await workspaceClient.attach(
+                workspaceID: workspaceID,
+                to: timelineID,
+                approved: true
+            )
+        } catch {
+            throw GnosticTransportError.workspaceUnavailable(Self.message(for: error))
+        }
+    }
+
+    public func detachWorkspace(workspaceID: UUID, from timelineID: UUID) async throws {
+        guard let workspaceClient else { throw GnosticTransportError.notConnected }
+        do {
+            try await workspaceClient.detach(workspaceID: workspaceID, from: timelineID)
+        } catch {
+            throw GnosticTransportError.workspaceUnavailable(Self.message(for: error))
+        }
+    }
+
+    private func remember(_ entry: NetworkCatalogEntry) {
+        if entry.objectType == GnosticObjectType.timeline {
+            turnProviders[entry.objectID] = entry.providerID
         }
     }
 
@@ -93,6 +229,7 @@ public final class GnosticCoreTransport: GnosticClientTransport {
     private func forward(_ change: NetworkCatalogChange) {
         switch change {
         case let .advertised(entry):
+            remember(entry)
             if let object = Self.map(entry) {
                 continuation.yield(.discovered(object))
             }
@@ -104,6 +241,91 @@ public final class GnosticCoreTransport: GnosticClientTransport {
     }
 
     // MARK: - GnosticCore -> module-local mapping
+
+    /// Maps one turn update into zero or more module-local events.
+    ///
+    /// Internal rather than private so `GnosticCoreTransportMappingTests` can pin the
+    /// vocabulary against recorded `AscendantTurnUpdate` fixtures without a broker.
+    static func map(_ update: AscendantTurnUpdate) -> [GnosticTurnEvent] {
+        switch update.updateKind {
+        case .assistantText:
+            return update.text.map { [.textDelta($0)] } ?? []
+        case .assistantTextSnapshot:
+            return update.text.map { [.textSnapshot($0)] } ?? []
+        case .toolCall, .toolState:
+            let states = update.toolStates.isEmpty
+                ? [update.toolState].compactMap(\.self)
+                : update.toolStates
+            return states.map { state in
+                .toolState(GnosticTurnToolState(
+                    toolCallID: state.toolCallID,
+                    title: state.title,
+                    status: GnosticTurnToolState.Status(rawValue: state.status),
+                    content: state.content
+                ))
+            }
+        case .permissionState:
+            let states = update.permissionStates.isEmpty
+                ? [update.permissionState].compactMap(\.self)
+                : update.permissionStates
+            return states.map { state in
+                .permission(GnosticTurnPermissionRequest(
+                    correlationID: state.correlationID,
+                    toolCallID: state.toolCallID,
+                    title: state.title,
+                    status: GnosticTurnPermissionRequest.Status(rawValue: state.status)
+                ))
+            }
+        case .completion:
+            return [.completed]
+        case .cancellation:
+            return [.cancelled]
+        case .error:
+            return [.failed(
+                message: update.text.flatMap { $0.isEmpty ? nil : $0 }
+                    ?? update.reasonCode
+                    ?? "The Ascendant reported a turn failure.",
+                retryable: update.retryable ?? false
+            )]
+        case nil:
+            return []
+        }
+    }
+
+    private static func message(for error: Error) -> String {
+        (error as? any LocalizedError)?.errorDescription ?? error.localizedDescription
+    }
+
+    /// Maps Gnostic's attachment status into the module-local refusal vocabulary.
+    static func map(_ status: WorkspaceAttachmentStatus) -> GnosticWorkspaceAttachment {
+        switch status {
+        case let .available(providerID, uri):
+            .available(providerID: providerID, uri: uri)
+        case .unavailable:
+            .unavailable
+        case .malformed:
+            .malformed
+        case .ambiguous:
+            .ambiguous
+        case .unsupported:
+            .unsupported
+        }
+    }
+
+    /// Maps Gnostic's effective status into the module-local value, failing closed
+    /// to `.unavailable` for a status this build does not know.
+    static func map(_ status: GnosticWorkspaceEffectiveStatus) -> GnosticWorkspaceEffective {
+        switch status {
+        case .available:
+            .available
+        case .unavailable:
+            .unavailable
+        case .unsupported:
+            .unsupported
+        @unknown default:
+            .unavailable
+        }
+    }
 
     /// Maps one catalog entry, or returns `nil` for a type the browser does not list.
     ///

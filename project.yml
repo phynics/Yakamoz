@@ -22,12 +22,22 @@ packages:
     url: https://github.com/phynics/PositronicKit.git
     exactVersion: "6.1.0-rc.1"
   # GnosticCore provides the consumer primitives (connection, discovery, catalog) that
-  # YakamozNetwork wraps behind its own protocol seam. Gnostic 0.4.0 is built against
+  # YakamozNetwork wraps behind its own protocol seam. Gnostic 0.4.2 is built against
   # PositronicKit `exact: 6.1.0-rc.1` — the same pin Yakamoz uses above — so the two
   # exact pins co-resolve. Moving either one requires moving the other in the same commit.
+  # 0.4.2 also drops the 27-only `withTaskCancellationShield` call (its inlined body
+  # referenced runtime symbols absent before macOS 27), so GnosticCore loads on 26 again.
   Gnostic:
     url: https://github.com/phynics/Gnostic.git
-    exactVersion: "0.4.0"
+    exactVersion: "0.4.2"
+  # ErrorKit provides `userFriendlyMessage` and the `Error` string-interpolation
+  # used by YakamozCore's logging and YakamozNetwork's session. Pinned to the
+  # already-resolved 1.2.1 so resolution is a no-op; declared explicitly so the
+  # YakamozNetwork framework links it directly instead of relying on transitive
+  # visibility (which compiles but fails at link time).
+  ErrorKit:
+    url: https://github.com/FlineDev/ErrorKit
+    exactVersion: "1.2.1"
   swift-log:
     url: https://github.com/apple/swift-log.git
     from: "1.5.0"
@@ -85,12 +95,24 @@ targets:
         PRODUCT_NAME: YakamozNetwork
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGNING_ALLOWED: NO
+        # Static linkage keeps a single copy of the PositronicKit/GnosticCore type
+        # metadata in the process. As a dynamic framework this target embedded its own
+        # copy, so cross-framework error casts (e.g. the upstream conformance suite
+        # catching a PositronicKit error thrown by YakamozCore) failed identity checks.
+        MACH_O_TYPE: staticlib
     dependencies:
       - target: YakamozCore
       - package: Gnostic
         product: GnosticCore
+      # GnosticBackend conforms to the shared ChatRunning seam, which traffics in
+      # PositronicKit's TurnEvent vocabulary. Only this module's backend adapter names
+      # those types; the app target still never imports them.
+      - package: PositronicKit
+        product: PKContracts
       - package: swift-log
         product: Logging
+      - package: ErrorKit
+        product: ErrorKit
   YakamozCore:
     type: framework
     platform: macOS
@@ -102,6 +124,10 @@ targets:
         PRODUCT_NAME: YakamozCore
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGNING_ALLOWED: NO
+        # Static linkage: see the YakamozNetwork note. The single process-wide copy keeps
+        # PositronicKit type identity intact across the app, both frameworks, and the
+        # test bundles.
+        MACH_O_TYPE: staticlib
     dependencies:
       - package: PositronicKit
         product: PositronicKit
@@ -165,6 +191,8 @@ targets:
       # offline against `FakeGnosticTransport`.
       - package: Gnostic
         product: GnosticCore
+      - package: PositronicKit
+        product: PKContracts
       - package: swift-log
         product: Logging
 schemes:

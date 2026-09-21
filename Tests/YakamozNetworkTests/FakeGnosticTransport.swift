@@ -13,6 +13,19 @@ actor FakeGnosticTransport: GnosticClientTransport {
     private(set) var disconnectCount = 0
     private(set) var lastConfiguration: NetworkBrokerConfiguration?
 
+    private(set) var turnRequests: [GnosticTurnRequest] = []
+    private(set) var permissionResponses: [RecordedPermissionResponse] = []
+    private(set) var attachRequests: [AttachRequest] = []
+    private(set) var detachRequests: [DetachRequest] = []
+    private var turnContinuations: [UUID: AsyncStream<GnosticTurnEvent>.Continuation] = [:]
+    private var turnFailuresRemaining = 0
+
+    struct RecordedPermissionResponse: Equatable, Sendable {
+        let correlationID: String
+        let approved: Bool
+        let request: GnosticTurnRequest
+    }
+
     private var connectFailuresRemaining = 0
     private var discoverFailuresRemaining = 0
     private var shouldGateConnect = false
@@ -79,5 +92,118 @@ actor FakeGnosticTransport: GnosticClientTransport {
     /// Pushes one event to observers.
     func emit(_ event: GnosticTransportEvent) {
         continuation.yield(event)
+    }
+
+    // MARK: - Turns
+
+    func runTurn(_ request: GnosticTurnRequest) async throws -> AsyncStream<GnosticTurnEvent> {
+        turnRequests.append(request)
+        if turnFailuresRemaining > 0 {
+            turnFailuresRemaining -= 1
+            throw GnosticTransportError.turnUnavailable("scripted turn failure")
+        }
+        let pair = AsyncStream<GnosticTurnEvent>.makeStream(bufferingPolicy: .bufferingNewest(256))
+        turnContinuations[UUID()] = pair.continuation
+        return pair.stream
+    }
+
+    func respondToPermission(
+        correlationID: String,
+        approved: Bool,
+        request: GnosticTurnRequest
+    ) async throws {
+        permissionResponses.append(RecordedPermissionResponse(
+            correlationID: correlationID,
+            approved: approved,
+            request: request
+        ))
+    }
+
+    /// The next `count` runTurn calls throw.
+    func failNextTurns(_ count: Int) {
+        turnFailuresRemaining = count
+    }
+
+    /// Pushes one turn event to every live turn stream.
+    func emitTurn(_ event: GnosticTurnEvent) {
+        for continuation in turnContinuations.values {
+            continuation.yield(event)
+        }
+    }
+
+    /// Finishes every live turn stream without a terminal event (simulates a dropped
+    /// connection mid-turn).
+    func dropTurnStreams() {
+        for continuation in turnContinuations.values {
+            continuation.finish()
+        }
+        turnContinuations = [:]
+    }
+
+    /// Finishes every live turn stream.
+    func finishTurnStreams() {
+        for continuation in turnContinuations.values {
+            continuation.finish()
+        }
+        turnContinuations = [:]
+    }
+
+    // MARK: - Workspaces
+
+    private var attachmentStatuses: [UUID: GnosticWorkspaceAttachment] = [:]
+    private var effectiveStatuses: [UUID: GnosticWorkspaceEffective] = [:]
+    private var attachError: GnosticTransportError?
+    private var detachError: GnosticTransportError?
+
+    func setAttachment(_ status: GnosticWorkspaceAttachment, for workspaceID: UUID) {
+        attachmentStatuses[workspaceID] = status
+    }
+
+    func setEffectiveStatus(_ status: GnosticWorkspaceEffective, for workspaceID: UUID) {
+        effectiveStatuses[workspaceID] = status
+    }
+
+    func failNextAttach(_ error: GnosticTransportError) {
+        attachError = error
+    }
+
+    func failNextDetach(_ error: GnosticTransportError) {
+        detachError = error
+    }
+
+    func workspaceAttachment(workspaceID: UUID) async throws -> GnosticWorkspaceAttachment {
+        attachmentStatuses[workspaceID] ?? .unavailable
+    }
+
+    func workspaceEffectiveStatus(workspaceID: UUID) async throws -> GnosticWorkspaceEffective {
+        effectiveStatuses[workspaceID] ?? .unavailable
+    }
+
+    func attachWorkspace(workspaceID: UUID, to timelineID: UUID, approved: Bool) async throws {
+        guard approved else { throw GnosticTransportError.workspaceApprovalRequired }
+        if let attachError {
+            self.attachError = nil
+            throw attachError
+        }
+        attachRequests.append(AttachRequest(workspaceID: workspaceID, timelineID: timelineID, approved: approved))
+    }
+
+    func detachWorkspace(workspaceID: UUID, from timelineID: UUID) async throws {
+        if let detachError {
+            self.detachError = nil
+            throw detachError
+        }
+        detachRequests.append(DetachRequest(workspaceID: workspaceID, timelineID: timelineID))
+    }
+
+    struct AttachRequest: Equatable, Sendable {
+        let workspaceID: UUID
+        let timelineID: UUID
+        let approved: Bool
+    }
+
+    struct DetachRequest: Equatable, Sendable {
+        let workspaceID: UUID
+        let timelineID: UUID
     }
 }

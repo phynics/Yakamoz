@@ -111,6 +111,15 @@ extension TimelineModel {
 /// bookkeeping (admission, notices, correlations, intents, results, summaries)
 /// is delegated to an in-process `InMemoryTimelineRuntimeRepository`.
 ///
+/// Message writes are mirrored into that in-memory store after the durable save, so
+/// summary projections validate against the same history the Turn bookkeeping sees.
+/// Summaries themselves stay in-process with the rest of the bookkeeping.
+///
+/// Message reads order by the stored `createdAt`; messages written with identical
+/// timestamps have no append-order column, so their relative order is unspecified.
+/// The upstream conformance ordering scenario passes; equal-timestamp ties outside
+/// its fixtures are not guaranteed.
+///
 /// The split is deliberate: Yakamoz's UI reads durable Timeline/message rows
 /// (`SwiftDataPromptInspector`, transcript reload), but it is a single-process,
 /// single-user app that does not need crash recovery for in-flight Turn audit
@@ -118,14 +127,15 @@ extension TimelineModel {
 /// needs durable Turn records can persist the same `Codable` values without
 /// changing this seam.
 ///
-/// **Failure ordering:** moves that span both halves mutate the in-memory
+/// **Failure ordering:** Turn lifecycle moves still mutate the in-memory
 /// bookkeeping first and persist to SwiftData second (`admitTurn`,
-/// `recordToolResult(_:message:)`, `completeTurn`). A SwiftData save failure can
-/// therefore leave the bookkeeping ahead of disk for the life of the process;
+/// `recordToolResult(_:message:)`, `completeTurn`); message-only writes
+/// (`saveMessage`) save durably first and mirror second. A SwiftData save failure
+/// can therefore leave the bookkeeping ahead of disk for the life of the process;
 /// the durable migration is tracked by running the upstream
 /// `TimelineRuntimeRepositoryConformanceSuite` against this adapter.
 @ModelActor
-public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository {
+public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository, TimelineSummaryStore {
     public nonisolated let isDurable = true
 
     private let turnRuntime = InMemoryTimelineRuntimeRepository()
@@ -238,7 +248,7 @@ public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository {
     // MARK: - TimelineMessageStoreProtocol
 
     public func saveMessage(_ message: TimelineMessage) async throws {
-        try persist(message)
+        try await persist(message)
     }
 
     public func fetchMessages(for timelineID: UUID) async throws -> [TimelineMessage] {
@@ -324,7 +334,7 @@ public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository {
             now: now
         )
         if admission.disposition == .admitted, let inputMessage {
-            try persist(inputMessage)
+            try await persist(inputMessage)
         }
         return admission
     }
@@ -354,7 +364,7 @@ public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository {
             now: now
         )
         if admission.disposition == .admitted, let inputMessage {
-            try persist(inputMessage)
+            try await persist(inputMessage)
         }
         return admission
     }
@@ -411,7 +421,7 @@ public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository {
 
     public func recordToolResult(_ result: RuntimeToolResult, message: TimelineMessage) async throws {
         try await turnRuntime.recordToolResult(result, message: message)
-        try persist(message)
+        try await persist(message)
     }
 
     public func fetchToolIntents(turnID: UUID) async throws -> [RuntimeToolIntent] {
@@ -439,7 +449,7 @@ public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository {
         // Only the first, winning completion appends its final message; a late
         // first-writer-wins call reports the original record and must not duplicate it.
         if let finalMessage, record.terminalMessageID == finalMessage.id {
-            try persist(finalMessage)
+            try await persist(finalMessage)
         }
         return record
     }
@@ -482,7 +492,29 @@ public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository {
 
     // MARK: - Helpers
 
-    private func persist(_ message: TimelineMessage) throws {
+    /// Persists one message with append-only semantics:
+    ///
+    /// - a message whose id is already stored is a no-op when it matches the stored
+    ///   message ignoring `timestamp` (duplicate delivery), and throws
+    ///   ``TimelineRuntimeRepositoryError/appendOnlyViolation(messageID:)`` when any
+    ///   other field differs.
+    /// - otherwise the message is inserted and saved.
+    ///
+    /// Mirrors `InMemoryTimelineRuntimeRepository`'s equivalence rule, then mirrors the
+    /// message into that same in-memory store so summary projections validate against
+    /// the full history.
+    private func persist(_ message: TimelineMessage) async throws {
+        let messageID = message.id
+        let descriptor = FetchDescriptor<MessageModel>(predicate: #Predicate { $0.id == messageID })
+        if let existing = try modelContext.fetch(descriptor).first {
+            let stored = try existing.toTimelineMessage()
+            guard Self.messagesEquivalentIgnoringTimestamp(stored, message) else {
+                throw TimelineRuntimeRepositoryError.appendOnlyViolation(messageID: messageID)
+            }
+            try await turnRuntime.saveMessage(message)
+            return
+        }
+
         let model = try MessageModel(message)
         modelContext.insert(model)
         do {
@@ -495,5 +527,25 @@ public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository {
             ])
             throw error
         }
+        try await turnRuntime.saveMessage(message)
+    }
+
+    private static func messagesEquivalentIgnoringTimestamp(
+        _ lhs: TimelineMessage,
+        _ rhs: TimelineMessage
+    ) -> Bool {
+        lhs.id == rhs.id
+            && lhs.timelineID == rhs.timelineID
+            && lhs.role == rhs.role
+            && lhs.content == rhs.content
+            && lhs.parentID == rhs.parentID
+            && lhs.reasoning == rhs.reasoning
+            && lhs.toolCalls == rhs.toolCalls
+            && lhs.toolCallID == rhs.toolCallID
+            && lhs.agentID == rhs.agentID
+            && lhs.executionKind == rhs.executionKind
+            && lhs.remoteDepth == rhs.remoteDepth
+            && lhs.snapshotData == rhs.snapshotData
+            && lhs.status == rhs.status
     }
 }

@@ -96,4 +96,38 @@ struct ToolApprovalTests {
         #expect(decision == .approve)
         #expect(approver.pending.isEmpty)
     }
+
+    @MainActor
+    @Test("An external approval (remote permission request) enqueues and resolves like a local one")
+    func externalApprovalEnqueues() async {
+        let approver = MainActorToolApprover()
+
+        let child = Task {
+            await approver.requestExternalApproval(
+                toolId: "call-1",
+                toolName: "Write a file",
+                argumentSummary: "Write a file"
+            )
+        }
+
+        var item: PendingToolApproval?
+        for _ in 0 ..< 1000 {
+            if let first = approver.pending.first { item = first; break }
+            await Task.yield()
+        }
+        guard let item else {
+            #expect(Bool(false), "expected a pending approval to appear")
+            child.cancel()
+            return
+        }
+
+        #expect(item.toolId == "call-1")
+        #expect(item.toolName == "Write a file")
+
+        approver.approve(item)
+
+        let decision = await child.value
+        #expect(decision == .approve)
+        #expect(approver.pending.isEmpty)
+    }
 }
