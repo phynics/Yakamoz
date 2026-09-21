@@ -96,7 +96,7 @@ struct NetworkChatView: View {
         }
         viewModel = ChatViewModel(
             timelineId: key.objectID,
-            runner: backend,
+            runner: backend.scoped(to: key),
             modelName: timeline?.provenance.providerID ?? "network"
         )
     }

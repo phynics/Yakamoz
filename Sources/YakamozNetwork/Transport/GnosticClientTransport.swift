@@ -93,18 +93,25 @@ public struct GnosticTurnPermissionRequest: Sendable, Equatable {
     }
 }
 
-/// One identified remote Turn: the addressed Timeline plus the stable client-supplied
-/// Turn identity that makes the Turn replayable.
+/// One identified remote Turn: the provider-scoped addressed Timeline plus the stable
+/// client-supplied Turn identity that makes the Turn replayable.
 public struct GnosticTurnRequest: Sendable, Equatable {
-    public let timelineID: UUID
+    /// The provider-scoped Timeline addressed by this Turn.
+    public let timelineKey: NetworkObjectKey
+    /// The stable client-supplied Turn identity used for replay and correlation.
     public let clientTurnID: String
+    /// The user message sent to the remote Ascendant.
     public let message: String
 
-    public init(timelineID: UUID, clientTurnID: String, message: String) {
-        self.timelineID = timelineID
+    public init(timelineKey: NetworkObjectKey, clientTurnID: String, message: String) {
+        self.timelineKey = timelineKey
         self.clientTurnID = clientTurnID
         self.message = message
     }
+
+    /// The advertised Timeline identifier, projected for upstream operations that
+    /// address the object separately from its serving provider.
+    public var timelineID: UUID { timelineKey.objectID }
 }
 
 /// Whether a discovered Workspace can be attached without ambiguity.

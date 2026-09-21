@@ -2,6 +2,28 @@ import Foundation
 import PKContracts
 import YakamozCore
 
+/// Failures raised when a Network Turn cannot represent a local chat request.
+public enum GnosticBackendError: Error, Sendable, Equatable, LocalizedError {
+    /// The request uses a local-only field that Gnostic cannot execute.
+    case unsupportedRequestField(String)
+    /// The backend must be scoped to the selected provider-scoped Timeline first.
+    case timelineScopeRequired
+    /// The view model addressed a different Timeline than the backend scope.
+    case timelineMismatch(expected: UUID, actual: UUID)
+
+    /// A user-facing explanation of why the Network Turn could not start or continue.
+    public var errorDescription: String? {
+        switch self {
+        case let .unsupportedRequestField(field):
+            "Network Turns do not support the \(field) request option."
+        case .timelineScopeRequired:
+            "The Network Turn is missing its provider-scoped Timeline."
+        case let .timelineMismatch(expected, actual):
+            "The Network Turn addressed \(actual), but this backend is scoped to \(expected)."
+        }
+    }
+}
+
 /// Runs remote Ascendant Turns through the shared `ChatRunning` seam, so
 /// `ChatViewModel` (and the app's chat surface) drive a network Turn exactly like a
 /// local one (issue #10).
@@ -23,15 +45,43 @@ public struct GnosticBackend: ChatRunning, BackendInspectorProviding {
 
     private let transport: any GnosticClientTransport
     private let approver: MainActorToolApprover
+    private let timelineKey: NetworkObjectKey?
 
-    public init(transport: any GnosticClientTransport, approver: MainActorToolApprover) {
+    /// Creates a Network backend, optionally scoped to one provider-scoped Timeline.
+    ///
+    /// An unscoped value is useful as a factory for ``scoped(to:)`` but cannot run a
+    /// Turn until it has a Timeline scope.
+    ///
+    /// - Parameters:
+    ///   - transport: The Gnostic transport adapter.
+    ///   - approver: The approval surface for remote tool permissions.
+    ///   - timelineKey: The provider-scoped Timeline, when this value is used directly.
+    public init(
+        transport: any GnosticClientTransport,
+        approver: MainActorToolApprover,
+        timelineKey: NetworkObjectKey? = nil
+    ) {
         self.transport = transport
         self.approver = approver
+        self.timelineKey = timelineKey
+    }
+
+    /// Returns a Network backend scoped to one provider-scoped Timeline.
+    public func scoped(to timelineKey: NetworkObjectKey) -> GnosticBackend {
+        GnosticBackend(transport: transport, approver: approver, timelineKey: timelineKey)
     }
 
     public func run(_ request: ChatRunRequest) async throws -> AsyncStream<TurnEvent> {
+        try Self.validate(request)
+        guard let timelineKey else { throw GnosticBackendError.timelineScopeRequired }
+        guard request.timelineID == timelineKey.objectID else {
+            throw GnosticBackendError.timelineMismatch(
+                expected: timelineKey.objectID,
+                actual: request.timelineID
+            )
+        }
         let turnRequest = GnosticTurnRequest(
-            timelineID: request.timelineID,
+            timelineKey: timelineKey,
             clientTurnID: request.requestID.uuidString,
             message: request.message
         )
@@ -72,13 +122,21 @@ public struct GnosticBackend: ChatRunning, BackendInspectorProviding {
                         toolName: permission.title,
                         argumentSummary: permission.title
                     )
-                    // A failed publish leaves the Ascendant waiting; the Turn's own
-                    // terminal timeout then surfaces the failure on the update stream.
-                    try? await transport.respondToPermission(
-                        correlationID: permission.correlationID,
-                        approved: decision == .approve,
-                        request: turnRequest
-                    )
+                    do {
+                        try await transport.respondToPermission(
+                            correlationID: permission.correlationID,
+                            approved: decision == .approve,
+                            request: turnRequest
+                        )
+                    } catch {
+                        pair.continuation.yield(.error(
+                            .error(message: Self.message(for: error), identity: nil)
+                        ))
+                        pair.continuation.finish()
+                        // Releasing `events` on return triggers the transport stream's
+                        // termination hook, which cancels the underlying remote Turn.
+                        return
+                    }
 
                 case .completed:
                     pair.continuation.finish()
@@ -95,10 +153,42 @@ public struct GnosticBackend: ChatRunning, BackendInspectorProviding {
                     return
                 }
             }
+            pair.continuation.yield(.error(
+                .error(
+                    message: "The Network Turn ended before it completed.",
+                    identity: nil
+                )
+            ))
             pair.continuation.finish()
         }
         pair.continuation.onTermination = { _ in task.cancel() }
         return pair.stream
+    }
+
+    private static func validate(_ request: ChatRunRequest) throws {
+        if !request.tools.isEmpty { throw GnosticBackendError.unsupportedRequestField("tools") }
+        if request.systemInstructions != nil {
+            throw GnosticBackendError.unsupportedRequestField("systemInstructions")
+        }
+        if request.maxModelRounds != 5 {
+            throw GnosticBackendError.unsupportedRequestField("maxModelRounds")
+        }
+        if request.generationParameters != nil {
+            throw GnosticBackendError.unsupportedRequestField("generationParameters")
+        }
+        if request.structuredOutput != nil {
+            throw GnosticBackendError.unsupportedRequestField("structuredOutput")
+        }
+        if !request.sidecars.isEmpty {
+            throw GnosticBackendError.unsupportedRequestField("sidecars")
+        }
+        if let toolOutputs = request.toolOutputs, !toolOutputs.isEmpty {
+            throw GnosticBackendError.unsupportedRequestField("toolOutputs")
+        }
+    }
+
+    private static func message(for error: Error) -> String {
+        (error as? any LocalizedError)?.errorDescription ?? error.localizedDescription
     }
 
     /// Projects one remote tool state onto the turn vocabulary `ChatEventReducer`

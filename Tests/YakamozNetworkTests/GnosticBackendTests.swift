@@ -9,18 +9,23 @@ import YakamozCore
 @Suite("GnosticBackend")
 @MainActor
 struct GnosticBackendTests {
+    private static let timelineKey = NetworkObjectKey(
+        objectID: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+        providerID: "provider.one"
+    )
+
     private func makeBackend(
         transport: FakeGnosticTransport,
         approver: MainActorToolApprover = MainActorToolApprover()
     ) -> GnosticBackend {
-        GnosticBackend(transport: transport, approver: approver)
+        GnosticBackend(transport: transport, approver: approver).scoped(to: Self.timelineKey)
     }
 
     private func makeViewModel(
         backend: GnosticBackend,
         tools: [AnyTool] = []
     ) -> ChatViewModel {
-        ChatViewModel(timelineId: UUID(), runner: backend, tools: tools)
+        ChatViewModel(timelineId: Self.timelineKey.objectID, runner: backend, tools: tools)
     }
 
     /// Yields to the turn pipeline until `condition` holds or the deadline passes.
@@ -48,6 +53,52 @@ struct GnosticBackendTests {
     func inspectorUnavailable() {
         let backend = makeBackend(transport: FakeGnosticTransport())
         #expect(backend.inspectorAvailable == false)
+    }
+
+    @Test("A scoped Network backend preserves the provider-scoped Timeline key")
+    func preservesTimelineKey() async throws {
+        let transport = FakeGnosticTransport()
+        let key = NetworkObjectKey(
+            objectID: Self.timelineKey.objectID,
+            providerID: "provider.two"
+        )
+        let backend = GnosticBackend(
+            transport: transport,
+            approver: MainActorToolApprover()
+        ).scoped(to: key)
+
+        let stream = try await backend.run(ChatRunRequest(
+            timelineID: key.objectID,
+            message: "hello",
+            tools: []
+        ))
+        await waitUntil { await transport.turnRequests.count == 1 }
+
+        #expect(await transport.turnRequests.first?.timelineKey == key)
+        await transport.finishTurnStreams()
+        for await _ in stream {}
+    }
+
+    @Test("Network backend rejects local-only request options before starting a Turn")
+    func rejectsUnsupportedRequestOptions() async {
+        let transport = FakeGnosticTransport()
+        let backend = makeBackend(transport: transport)
+
+        do {
+            _ = try await backend.run(ChatRunRequest(
+                timelineID: Self.timelineKey.objectID,
+                message: "hello",
+                tools: [],
+                systemInstructions: "local only"
+            ))
+            Issue.record("expected unsupported request option failure")
+        } catch let error as GnosticBackendError {
+            #expect(error == .unsupportedRequestField("systemInstructions"))
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+
+        #expect(await transport.turnRequests.isEmpty)
     }
 
     // MARK: - Text streaming
@@ -253,6 +304,62 @@ struct GnosticBackendTests {
 
         await transport.emitTurn(.completed)
         await viewModel.awaitSendCompletion()
+    }
+
+    @Test("A failed permission publish becomes a terminal turn error")
+    func permissionPublishFailureSurfacesError() async {
+        let transport = FakeGnosticTransport()
+        await transport.failNextPermission(.turnUnavailable("permission channel closed"))
+        let approver = MainActorToolApprover()
+        let viewModel = makeViewModel(backend: makeBackend(transport: transport, approver: approver))
+
+        viewModel.send("do it")
+        await waitUntil { await transport.turnRequests.count == 1 }
+        await transport.emitTurn(.permission(GnosticTurnPermissionRequest(
+            correlationID: "corr-failure",
+            toolCallID: "call-failure",
+            title: "Write a file",
+            status: .pending
+        )))
+
+        await waitUntil { approver.oldestPending != nil }
+        if let pending = approver.oldestPending {
+            approver.approve(pending)
+        }
+        await viewModel.awaitSendCompletion()
+
+        let errorRow = viewModel.transcript.last { item in
+            if case .error = item { return true }
+            return false
+        }
+        guard case let .error(_, message, _) = errorRow else {
+            Issue.record("expected a permission publish error row")
+            return
+        }
+        #expect(message.contains("permission channel closed"))
+        #expect(viewModel.isSending == false)
+    }
+
+    @Test("An unexpected source-stream end becomes a terminal turn error")
+    func unexpectedStreamEndSurfacesError() async {
+        let transport = FakeGnosticTransport()
+        let viewModel = makeViewModel(backend: makeBackend(transport: transport))
+
+        viewModel.send("hello")
+        await waitUntil { await transport.turnRequests.count == 1 }
+        await transport.dropTurnStreams()
+        await viewModel.awaitSendCompletion()
+
+        let errorRow = viewModel.transcript.last { item in
+            if case .error = item { return true }
+            return false
+        }
+        guard case let .error(_, message, _) = errorRow else {
+            Issue.record("expected an unexpected-stream error row")
+            return
+        }
+        #expect(message == "The Network Turn ended before it completed.")
+        #expect(viewModel.isSending == false)
     }
 
     @Test("A resolved permission state is not re-presented for approval")

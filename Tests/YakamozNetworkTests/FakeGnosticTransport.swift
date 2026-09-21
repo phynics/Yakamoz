@@ -19,6 +19,7 @@ actor FakeGnosticTransport: GnosticClientTransport {
     private(set) var detachRequests: [DetachRequest] = []
     private var turnContinuations: [UUID: AsyncStream<GnosticTurnEvent>.Continuation] = [:]
     private var turnFailuresRemaining = 0
+    private var permissionError: GnosticTransportError?
 
     struct RecordedPermissionResponse: Equatable, Sendable {
         let correlationID: String
@@ -112,6 +113,10 @@ actor FakeGnosticTransport: GnosticClientTransport {
         approved: Bool,
         request: GnosticTurnRequest
     ) async throws {
+        if let permissionError {
+            self.permissionError = nil
+            throw permissionError
+        }
         permissionResponses.append(RecordedPermissionResponse(
             correlationID: correlationID,
             approved: approved,
@@ -122,6 +127,11 @@ actor FakeGnosticTransport: GnosticClientTransport {
     /// The next `count` runTurn calls throw.
     func failNextTurns(_ count: Int) {
         turnFailuresRemaining = count
+    }
+
+    /// Makes the next permission response fail.
+    func failNextPermission(_ error: GnosticTransportError) {
+        permissionError = error
     }
 
     /// Pushes one turn event to every live turn stream.

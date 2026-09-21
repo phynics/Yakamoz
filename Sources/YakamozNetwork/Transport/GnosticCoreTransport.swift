@@ -22,11 +22,6 @@ public final class GnosticCoreTransport: GnosticClientTransport {
     private var turnClient: GnosticTurnClient?
     private var workspaceClient: GnosticWorkspaceClient?
     private var forwardTask: Task<Void, Never>?
-    /// Timeline object id -> serving provider id, learned from the catalog. A remote
-    /// Turn and its permission responses must address the provider that serves the
-    /// Timeline, and the update stream carries no provider id of its own.
-    private var turnProviders: [UUID: String] = [:]
-
     public init() {
         let pair = AsyncStream<GnosticTransportEvent>.makeStream(bufferingPolicy: .bufferingNewest(256))
         stream = pair.stream
@@ -70,7 +65,6 @@ public final class GnosticCoreTransport: GnosticClientTransport {
         // Seed objects that advertised before this subscription was attached.
         let existing = await session.networkObjects(includeIncompatible: true)
         for entry in existing {
-            remember(entry)
             if let object = Self.map(entry) {
                 continuation.yield(.discovered(object))
             }
@@ -82,7 +76,6 @@ public final class GnosticCoreTransport: GnosticClientTransport {
         forwardTask = nil
         turnClient = nil
         workspaceClient = nil
-        turnProviders = [:]
         if let session {
             await session.stop()
             self.session = nil
@@ -100,7 +93,7 @@ public final class GnosticCoreTransport: GnosticClientTransport {
 
     public func runTurn(_ request: GnosticTurnRequest) async throws -> AsyncStream<GnosticTurnEvent> {
         guard session != nil, let turnClient else { throw GnosticTransportError.notConnected }
-        let providerID = turnProviders[request.timelineID]
+        let providerID = request.timelineKey.providerID
         let pair = AsyncStream<GnosticTurnEvent>.makeStream(bufferingPolicy: .bufferingNewest(256))
 
         let task = Task {
@@ -163,11 +156,7 @@ public final class GnosticCoreTransport: GnosticClientTransport {
         request: GnosticTurnRequest
     ) async throws {
         guard let turnClient else { throw GnosticTransportError.notConnected }
-        guard let providerID = turnProviders[request.timelineID] else {
-            throw GnosticTransportError.turnUnavailable(
-                "no serving provider is known for timeline \(request.timelineID)"
-            )
-        }
+        let providerID = request.timelineKey.providerID
         let response = AscendantPermissionResponse(
             correlationID: correlationID,
             timelineID: request.timelineID,
@@ -210,12 +199,6 @@ public final class GnosticCoreTransport: GnosticClientTransport {
         }
     }
 
-    private func remember(_ entry: NetworkCatalogEntry) {
-        if entry.objectType == GnosticObjectType.timeline {
-            turnProviders[entry.objectID] = entry.providerID
-        }
-    }
-
     private func startForwarding(from session: GnosticConsumerSession) async {
         let updates = await session.catalogUpdates()
         forwardTask = Task { [weak self] in
@@ -229,7 +212,6 @@ public final class GnosticCoreTransport: GnosticClientTransport {
     private func forward(_ change: NetworkCatalogChange) {
         switch change {
         case let .advertised(entry):
-            remember(entry)
             if let object = Self.map(entry) {
                 continuation.yield(.discovered(object))
             }
