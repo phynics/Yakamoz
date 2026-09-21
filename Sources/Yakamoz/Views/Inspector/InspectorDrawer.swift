@@ -212,7 +212,6 @@ struct InspectorDrawer: View {
                 composeSection(title: "Workspace") {
                     WorkspaceInspectorView(
                         presentation: workspacePresentation,
-                        touchedFiles: [],
                         onRefresh: onRefreshWorkspace,
                         onAttachDocuments: onAttachDocuments,
                         onChooseFolder: onChooseWorkspace,

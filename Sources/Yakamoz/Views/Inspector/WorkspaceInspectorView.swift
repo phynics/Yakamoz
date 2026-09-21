@@ -2,30 +2,21 @@ import SwiftUI
 import YakamozCore
 
 /// Workspace tab: the folder attached to the conversation (if any) — its name, path,
-/// health, the filesystem tools it exposes, and the files the model has touched so far in
-/// the selected turn. A **Detach** action clears the conversation's workspace mid-conversation.
+/// health, and the filesystem tools it exposes. A **Detach** action clears the
+/// conversation's workspace mid-conversation.
 ///
 /// **YAK-17:** this tab no longer renders a file listing — `WorkspacePresentation` stopped
 /// enumerating the folder's contents, so there is nothing to project here. Identity
 /// (name/path/health) and a Detach action are the essential content.
 ///
 /// **Gap 2 note:** a workspace is attached at the conversation level, not per-turn, so
-/// this tab's primary content (`presentation`) is independent of `InspectionViewModel`'s
+/// this tab's content (`presentation`) is independent of `InspectionViewModel`'s
 /// turn-scoped data — it is loaded once per conversation by `ChatView` via
 /// `YakamozRuntime.makeWorkspacePresentation(for:)`, which returns the `Sendable`
 /// `WorkspacePresentation` value type so this app-target view never imports
-/// `Workspace`/`PositronicKit` directly. `touchedFiles` (from the selected turn's
-/// `ChatTurnState.workspaceFiles`) is the one piece of genuinely turn-scoped data and is
-/// passed in separately.
-///
-/// **UIX-3 note:** this view now only renders in Compose mode (no turn is selected), which
-/// hard-codes `touchedFiles: []` — there is no "selected turn" in Compose mode. The
-/// per-turn touched-files list is surfaced instead in Inspect mode's `ToolsInspectorView`
-/// (see its `touchedFiles` property), which is the view actually shown once a turn is
-/// selected.
+/// `Workspace`/`PositronicKit` directly.
 struct WorkspaceInspectorView: View {
     let presentation: WorkspacePresentation?
-    let touchedFiles: [String]
     let onRefresh: () -> Void
     let onAttachDocuments: () -> Void
     let onChooseFolder: () -> Void
@@ -52,9 +43,6 @@ struct WorkspaceInspectorView: View {
             VStack(alignment: .leading, spacing: 12) {
                 header(presentation)
                 toolsSection(presentation)
-                if !touchedFiles.isEmpty {
-                    touchedFilesSection
-                }
             }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -108,17 +96,6 @@ struct WorkspaceInspectorView: View {
                 Text("No tools available").font(.caption).foregroundStyle(.secondary)
             } else {
                 FlowText(items: presentation.toolNames)
-            }
-        }
-    }
-
-    private var touchedFilesSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Files Touched This Turn").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            ForEach(touchedFiles, id: \.self) { file in
-                Text(file)
-                    .font(.system(.caption, design: .monospaced))
-                    .textSelection(.enabled)
             }
         }
     }
