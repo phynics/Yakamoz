@@ -69,7 +69,7 @@ public enum TurnSegment: Sendable, Equatable {
 
 /// The accumulated, reducer-owned state of a single in-flight (or completed) assistant
 /// turn: reconstructed streaming text/thinking, per-tool traces (ordered by first
-/// appearance), workspace context files, and final response metadata.
+/// appearance), and final response metadata.
 ///
 /// This is the pure-data target of `ChatEventReducer.reduce` — it carries no behavior
 /// beyond small mutating helpers so the reducer itself stays a single dispatch point.
@@ -91,7 +91,6 @@ public struct ChatTurnState: Sendable, Equatable {
     /// turn's prompt/response/tool-trace payload.
     public var inspectionTurnIndex: Int?
     public var response = Response()
-    public var workspaceFiles: [String] = []
     /// Tool traces in first-seen order, keyed by `toolCallId`.
     public var toolOrder: [String] = []
     public var tools: [String: ToolTrace] = [:]

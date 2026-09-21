@@ -120,9 +120,7 @@ selected assistant turn in five tabs:
 3. **Journal** — the turn's `PromptJournal` evolution: changed/added/removed semi-stable
    sections, stable-prefix count, and whether compaction ran.
 4. **Response** — reconstructed text/thinking, model, finish reason, and token usage.
-5. **Tools** — every tool call in the turn, with status, output/error, and elapsed time; a
-   turn still live in memory also lists the workspace files it touched (a reloaded turn
-   shows none).
+5. **Tools** — every tool call in the turn, with status, output/error, and elapsed time.
 
 The attached workspace itself (identity, path, health, tools, and detach) is shown in
 **Compose → Workspace**; the toolbar's workspace chip attaches folders and creates terminals.
