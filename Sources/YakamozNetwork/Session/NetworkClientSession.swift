@@ -23,6 +23,9 @@ public final class NetworkClientSession {
     public private(set) var openSessions: [NetworkObjectKey: DiscoveredNetworkObject]
     /// The broker configuration currently in effect.
     public private(set) var configuration: NetworkBrokerConfiguration
+    /// True when connection fields changed while the client was already enabled; the
+    /// edit is held until ``reconnect()`` so typing never churns the connection.
+    public private(set) var needsReconnect = false
 
     private let transport: any GnosticClientTransport
     private let backoff: BackoffSchedule
@@ -104,16 +107,35 @@ public final class NetworkClientSession {
                 generation += 1
                 await transport.disconnect()
             }
+            needsReconnect = false
             state = .disabled
             return
         }
 
-        guard !wasEnabled else { return }
+        guard !wasEnabled else {
+            needsReconnect = hasStarted
+            return
+        }
+        needsReconnect = false
         if hasStarted {
             await connectLoop(startAttempt: 0)
         } else {
             await start()
         }
+    }
+
+    /// Drops the current connection and connects again with the configuration in
+    /// effect, applying held field edits and retrying after a `.failed` state.
+    public func reconnect() async {
+        guard configuration.isEnabled else { return }
+        needsReconnect = false
+        guard hasStarted else {
+            await start()
+            return
+        }
+        generation += 1
+        await transport.disconnect()
+        await connectLoop(startAttempt: 0)
     }
 
     /// Re-sends discovery while online, leaving the session connected.
@@ -132,6 +154,16 @@ public final class NetworkClientSession {
     public func openSession(_ key: NetworkObjectKey) {
         guard let object = catalog.object(for: key) ?? openSessions[key] else { return }
         openSessions[key] = object
+    }
+
+    /// The live object for `key`, falling back to its open-session snapshot.
+    public func object(for key: NetworkObjectKey) -> DiscoveredNetworkObject? {
+        catalog.object(for: key) ?? openSessions[key]
+    }
+
+    /// Whether `key` is currently advertised (not merely retained as an open session).
+    public func isLive(_ key: NetworkObjectKey) -> Bool {
+        catalog.object(for: key) != nil
     }
 
     /// Releases an open session; a deadvertised object then leaves the browser.
@@ -204,7 +236,7 @@ public final class NetworkClientSession {
                 guard generation == self.generation else { return }
                 attempt += 1
                 if attempt > retryLimit {
-                    state = .failed(String(describing: error))
+                    state = .failed(Log.userFriendlyErrorMessage(for: error))
                     return
                 }
             }

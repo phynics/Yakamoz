@@ -8,7 +8,8 @@ import YakamozNetwork
 /// the injected ``NetworkSettings``, while the broker password is staged in local
 /// `@State` and only reaches the secret store on explicit Apply. Every change is
 /// persisted and pushed to the session; an enable/disable edge reconnects or
-/// disconnects the client.
+/// disconnects the client. Field edits made while connected are held by the session
+/// (never reconnecting per keystroke) and applied by the status section's Reconnect.
 struct NetworkSettingsView: View {
     @Bindable var settings: NetworkSettings
     let session: NetworkClientSession?
@@ -19,9 +20,9 @@ struct NetworkSettingsView: View {
 
     var body: some View {
         Form {
+            statusSection
             connectionSection
             credentialsSection
-            statusSection
         }
         .formStyle(.grouped)
         .task {
@@ -32,10 +33,7 @@ struct NetworkSettingsView: View {
     // MARK: - Connection
 
     private var connectionSection: some View {
-        Section("Connection") {
-            Toggle("Connect to a Gnostic network", isOn: $settings.isEnabled)
-                .onChange(of: settings.isEnabled) { _, _ in persistAndApply() }
-
+        Section("Broker") {
             TextField("Broker Host", text: $settings.host)
                 .textFieldStyle(.roundedBorder)
                 .disableAutocorrection(true)
@@ -72,6 +70,7 @@ struct NetworkSettingsView: View {
                 }
             }
         }
+        .disabled(!settings.isEnabled)
     }
 
     // MARK: - Credentials
@@ -112,27 +111,52 @@ struct NetworkSettingsView: View {
                     .foregroundStyle(.red)
             }
         }
+        .disabled(!settings.isEnabled)
     }
 
     // MARK: - Status
 
     private var statusSection: some View {
-        Section("Status") {
-            if let session {
+        Section {
+            Toggle("Connect to a Gnostic network", isOn: $settings.isEnabled)
+                .onChange(of: settings.isEnabled) { _, _ in persistAndApply() }
+
+            if let session, settings.isEnabled {
                 HStack {
-                    Label(session.state.label, systemImage: statusIcon(for: session.state))
-                        .foregroundStyle(statusColor(for: session.state))
+                    Label(session.state.shortLabel, systemImage: session.state.symbolName)
+                        .foregroundStyle(session.state.tint)
                     Spacer()
                     if session.state.isOnline {
-                        Button("Force Refresh") {
+                        Button("Refresh Discovery") {
                             Task { await session.forceRefresh() }
                         }
                     }
+                    if session.state.failureMessage != nil || session.needsReconnect {
+                        Button("Reconnect") {
+                            Task { await session.reconnect() }
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
                 }
-            } else {
+
+                if let failure = session.state.failureMessage {
+                    Text(failure)
+                        .font(.callout)
+                        .foregroundStyle(.red)
+                        .textSelection(.enabled)
+                } else if session.needsReconnect {
+                    Text("Broker settings changed. Reconnect to apply them.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            } else if session == nil {
                 Text("Network client unavailable.")
                     .foregroundStyle(.secondary)
             }
+        } footer: {
+            Text("Yakamoz joins as a client: it discovers Ascendants, timelines, and workspaces on the broker and hosts nothing.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -146,23 +170,5 @@ struct NetworkSettingsView: View {
               let configuration = try? settings.brokerConfiguration(secrets: secrets)
         else { return }
         Task { await session.update(configuration: configuration) }
-    }
-
-    private func statusIcon(for state: NetworkConnectionState) -> String {
-        switch state {
-        case .disabled: "circle.slash"
-        case .connecting, .retrying: "arrow.triangle.2.circlepath"
-        case .online: "checkmark.circle.fill"
-        case .failed: "exclamationmark.triangle.fill"
-        }
-    }
-
-    private func statusColor(for state: NetworkConnectionState) -> Color {
-        switch state {
-        case .disabled: .secondary
-        case .connecting, .retrying: .orange
-        case .online: .green
-        case .failed: .red
-        }
     }
 }

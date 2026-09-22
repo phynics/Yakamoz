@@ -118,4 +118,24 @@ struct NetworkWorkspaceControllerTests {
         #expect(!succeeded)
         #expect(controller.errorMessage?.contains("detach rejected") == true)
     }
+
+    @Test("The menu offers detach, attach, or an inline reason")
+    func menuActions() async {
+        let transport = FakeGnosticTransport()
+        let attachable = UUID()
+        let ambiguous = UUID()
+        await transport.setAttachment(.available(providerID: "provider.one", uri: "file:///w"), for: attachable)
+        await transport.setEffectiveStatus(.available, for: attachable)
+        await transport.setAttachment(.ambiguous, for: ambiguous)
+        let controller = NetworkWorkspaceController(transport: transport)
+        await controller.refreshStatuses(workspaceIDs: [attachable, ambiguous])
+
+        #expect(controller.menuAction(workspaceID: attachable, attachedIDs: [attachable]) == .detach)
+        #expect(controller.menuAction(workspaceID: attachable, attachedIDs: []) == .attach)
+        guard case .unavailable(let reason) = controller.menuAction(workspaceID: ambiguous, attachedIDs: []) else {
+            Issue.record("expected an inline refusal reason")
+            return
+        }
+        #expect(!reason.isEmpty)
+    }
 }

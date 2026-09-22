@@ -39,7 +39,7 @@ struct AgentSidebarView: View {
             }
 
             if let networkSettings, networkSettings.isEnabled, let networkSession {
-                NetworkSidebarSection(session: networkSession)
+                NetworkSidebarSection(session: networkSession, selection: selection)
             }
         }
         .animation(.default, value: conversations.map(\.id))
