@@ -45,10 +45,10 @@ private extension ToolsInspectorView {
                 }
             }
         } else {
-            ContentUnavailableView(
+            InspectorEmptyState(
                 "No Tool Calls",
                 systemImage: "wrench.and.screwdriver",
-                description: Text("This turn did not call any tools.")
+                detail: "This turn did not call any tools."
             )
         }
     }

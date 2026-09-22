@@ -72,8 +72,9 @@ struct ContentView: View {
 
     private var unavailable: some View {
         ContentUnavailableView(
-            "Select an Operator or Conversation",
-            systemImage: "bubble.left.and.bubble.right"
+            "No Conversation Selected",
+            systemImage: "bubble.left.and.bubble.right",
+            description: Text("Choose an operator or conversation in the sidebar, or press ⌘N to start one.")
         )
     }
 }

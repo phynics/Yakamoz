@@ -127,12 +127,12 @@ struct TurnInspector: View {
             if let inspection = viewModel.inspection {
                 tabView(inspection: inspection)
             } else if let error = viewModel.loadError {
-                ContentUnavailableView("Inspection Unavailable", systemImage: "exclamationmark.triangle", description: Text(error))
+                InspectorEmptyState("Inspection Unavailable", systemImage: "exclamationmark.triangle", detail: error)
             } else {
-                ContentUnavailableView(
+                InspectorEmptyState(
                     "Nothing to Inspect Yet",
                     systemImage: "cursorarrow.rays",
-                    description: Text("Once the operator replies, its prompt, request, and response appear here.")
+                    detail: "Once the operator replies, its prompt, request, and response appear here."
                 )
             }
         }
@@ -156,5 +156,37 @@ struct TurnInspector: View {
         case .tools:
             EmptyView()
         }
+    }
+}
+
+/// A compact empty state sized for the narrow inspector column, where
+/// `ContentUnavailableView`'s large title wraps awkwardly.
+struct InspectorEmptyState: View {
+    let title: String
+    let systemImage: String
+    let detail: String
+
+    init(_ title: String, systemImage: String, detail: String) {
+        self.title = title
+        self.systemImage = systemImage
+        self.detail = detail
+    }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .font(.title2)
+                .foregroundStyle(.tertiary)
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(.secondary)
+            Text(detail)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
     }
 }

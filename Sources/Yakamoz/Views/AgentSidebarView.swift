@@ -33,12 +33,19 @@ struct AgentSidebarView: View {
 
     var body: some View {
         List(selection: $selection) {
-            ForEach(groups) { group in
-                if group.isUnassigned {
-                    unassignedSection(group)
-                } else {
-                    agentSection(group)
+            // An explicit header: macOS 26 doesn't render the sidebar's navigation title,
+            // so without it operators read as loose rows next to the labelled groups.
+            let operatorGroups = groups.filter { !$0.isUnassigned }
+            if !operatorGroups.isEmpty {
+                Section("Operators") {
+                    ForEach(operatorGroups) { group in
+                        agentSection(group)
+                    }
                 }
+            }
+
+            ForEach(groups.filter(\.isUnassigned)) { group in
+                unassignedSection(group)
             }
 
             if let networkSettings, networkSettings.isEnabled, let networkSession {

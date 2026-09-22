@@ -42,7 +42,7 @@ struct NetworkSettingsView: View {
             HStack {
                 Text("Port")
                 Spacer()
-                TextField("Port", value: $settings.port, format: .number)
+                TextField("Port", value: $settings.port, format: .number.grouping(.never))
                     .frame(width: 90)
                     .textFieldStyle(.roundedBorder)
                     .multilineTextAlignment(.trailing)
@@ -83,6 +83,7 @@ struct NetworkSettingsView: View {
                 .onChange(of: settings.username) { _, _ in persistAndApply() }
 
             SecureField("Password", text: $passwordDraft)
+                .textFieldStyle(.roundedBorder)
 
             Text("Stored in UserDefaults (plaintext). See README for security context.")
                 .font(.caption)

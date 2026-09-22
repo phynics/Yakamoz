@@ -14,10 +14,10 @@ struct ResponseInspectorView: View {
         if let response {
             content(response)
         } else {
-            ContentUnavailableView(
+            InspectorEmptyState(
                 "No Response Yet",
                 systemImage: "hourglass",
-                description: Text("Response metadata is captured once this turn finishes streaming.")
+                detail: "Response metadata is captured once this turn finishes streaming."
             )
         }
     }
