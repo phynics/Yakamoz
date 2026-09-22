@@ -18,12 +18,23 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Select Xcode 27
+        env:
+          # Pin the Xcode release CI builds with. Match on the bundle's own version,
+          # not the file name: preview images carry betas under aliases (e.g.
+          # Xcode_27.2.app -> Xcode_27.2_beta.app) that a name filter lets through.
+          XCODE_VERSION: "27.0"
         run: |
-          # Newest non-beta Xcode 27: preview images also carry betas (e.g.
-          # Xcode_27.2_beta.app), which would otherwise win the version sort.
-          xcode=$(ls -d /Applications/Xcode_27*.app 2>/dev/null | grep -vi beta | sort -V | tail -1)
+          xcode=""
+          for app in /Applications/Xcode*.app; do
+            version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$app/Contents/Info.plist" 2>/dev/null || true)
+            if [ "$version" = "$XCODE_VERSION" ]; then
+              xcode="$app"
+              break
+            fi
+          done
           if [ -z "$xcode" ]; then
-            echo "::error::No non-beta Xcode 27 install found on this runner image."
+            echo "::error::No Xcode $XCODE_VERSION install found on this runner image."
+            ls -d /Applications/Xcode*.app
             exit 1
           fi
           sudo xcode-select -s "$xcode"
