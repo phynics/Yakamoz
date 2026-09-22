@@ -66,41 +66,75 @@ struct SettingsView: View {
                 .textFieldStyle(.roundedBorder)
                 .disableAutocorrection(true)
 
-            if providerStatus.isLoadingModels {
-                ProgressView("Loading models…")
-                    .controlSize(.small)
-            } else if !providerStatus.rankedModels.isEmpty {
-                Picker("Suggested Model", selection: suggestedModelBinding) {
-                    ForEach(providerStatus.rankedModels, id: \.self) { modelID in
-                        Text(modelID).tag(modelID)
+            // One Model row: typed entry for any model id, a favourite toggle, and a menu of
+            // the provider's models (favourites and recents first). Replaces the separate
+            // "Suggested Model" picker, which edited the same value as the text field.
+            LabeledContent("Model") {
+                HStack(spacing: 6) {
+                    TextField("Model", text: $settings.model)
+                        .textFieldStyle(.roundedBorder)
+                        .labelsHidden()
+                        .onChange(of: settings.model) { _, _ in settings.persist() }
+
+                    let currentModel = settings.model.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let isFavorite = !currentModel.isEmpty && settings.isFavoriteModel(currentModel)
+                    Button {
+                        providerStatus.toggleFavoriteCurrent()
+                    } label: {
+                        Image(systemName: isFavorite ? "star.fill" : "star")
+                            .foregroundStyle(isFavorite ? .yellow : .secondary)
                     }
+                    .buttonStyle(.borderless)
+                    .disabled(currentModel.isEmpty)
+                    .help(isFavorite ? "Remove from favourites" : "Add to favourites (listed first)")
+                    .accessibilityLabel(isFavorite ? "Unfavorite model" : "Favorite model")
+
+                    modelMenu
                 }
             }
-
-            TextField("Model", text: $settings.model)
-                .textFieldStyle(.roundedBorder)
-                .onChange(of: settings.model) { _, _ in settings.persist() }
 
             if let modelLoadError = providerStatus.modelLoadError {
                 Text(modelLoadError)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+        }
+    }
 
-            HStack {
-                Button("Refresh Models") {
-                    Task { await providerStatus.refreshModels() }
-                }
-                .disabled(providerStatus.isLoadingModels)
-
-                let currentModel = settings.model.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !currentModel.isEmpty {
-                    Button(settings.isFavoriteModel(currentModel) ? "Unfavorite" : "Favorite Model") {
-                        providerStatus.toggleFavoriteCurrent()
+    private var modelMenu: some View {
+        Menu {
+            if providerStatus.rankedModels.isEmpty {
+                Text(providerStatus.isLoadingModels ? "Loading models…" : "No models loaded")
+            } else {
+                ForEach(providerStatus.rankedModels, id: \.self) { modelID in
+                    Toggle(isOn: Binding(
+                        get: { modelID == settings.model },
+                        set: { if $0 { providerStatus.selectModel(modelID) } }
+                    )) {
+                        if settings.isFavoriteModel(modelID) {
+                            Label(modelID, systemImage: "star.fill")
+                        } else {
+                            Text(modelID)
+                        }
                     }
                 }
             }
+            Divider()
+            Button("Refresh Models", systemImage: "arrow.clockwise") {
+                Task { await providerStatus.refreshModels() }
+            }
+            .disabled(providerStatus.isLoadingModels)
+        } label: {
+            if providerStatus.isLoadingModels {
+                ProgressView().controlSize(.small)
+            } else {
+                Image(systemName: "list.bullet")
+            }
         }
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Choose from the provider's models")
+        .accessibilityLabel("Available models")
     }
 
     // MARK: - Credentials
@@ -221,13 +255,6 @@ struct SettingsView: View {
     }
 
     // MARK: - Helpers
-
-    private var suggestedModelBinding: Binding<String> {
-        Binding(
-            get: { settings.model },
-            set: { providerStatus.selectModel($0) }
-        )
-    }
 
     private var presetBinding: Binding<ProviderPreset> {
         Binding(
