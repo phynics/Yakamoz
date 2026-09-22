@@ -246,23 +246,38 @@ private func holdAndRecord(
     }
 }
 
-/// Polls the scheduler's waiter count for `key` until it reaches `count` (within a bounded
-/// number of yields). The scheduler exposes `waiterCount(forKey:)` for exactly this.
-private func waitForWaiterCount(_ scheduler: WorkspaceTurnScheduler, key: UUID, count: Int) async throws {
-    for _ in 0 ..< 200 {
+/// Polls the scheduler's waiter count for `key` until it reaches `count`. The scheduler
+/// exposes `waiterCount(forKey:)` for exactly this. Bounded by wall-clock time, not a yield
+/// count: a fixed number of yields can elapse before a contending task even starts on a busy
+/// CI host, letting later owners queue out of order. The timeout only makes a real bug fail
+/// fast instead of hanging.
+private func waitForWaiterCount(
+    _ scheduler: WorkspaceTurnScheduler,
+    key: UUID,
+    count: Int,
+    timeout: Duration = .seconds(5)
+) async throws {
+    let deadline = ContinuousClock.now.advanced(by: timeout)
+    while ContinuousClock.now < deadline {
         let actual = await scheduler.waiterCount(forKey: key)
         if actual >= count { return }
-        await Task.yield()
+        try await Task.sleep(for: .milliseconds(1))
     }
     let actual = await scheduler.waiterCount(forKey: key)
     Issue.record("waiter count for \(key) never reached \(count); was \(actual)")
 }
 
-/// Waits until `key` has a holder (an owner has entered its protected section).
-private func waitUntilHolder(_ scheduler: WorkspaceTurnScheduler, key: UUID) async {
-    for _ in 0 ..< 200 {
+/// Waits until `key` has a holder (an owner has entered its protected section). Bounded by
+/// wall-clock time for the same reason as `waitForWaiterCount`.
+private func waitUntilHolder(
+    _ scheduler: WorkspaceTurnScheduler,
+    key: UUID,
+    timeout: Duration = .seconds(5)
+) async {
+    let deadline = ContinuousClock.now.advanced(by: timeout)
+    while ContinuousClock.now < deadline {
         if await scheduler.holder(forKey: key) != nil { return }
-        await Task.yield()
+        try? await Task.sleep(for: .milliseconds(1))
     }
     Issue.record("no holder ever acquired key \(key)")
 }

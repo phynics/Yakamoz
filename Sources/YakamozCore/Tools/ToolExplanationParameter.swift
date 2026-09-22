@@ -1,5 +1,6 @@
 import JSONSchema
 import JSONSchemaBuilder
+import Logging
 import PKContracts
 
 public enum ToolExplanationParameter {
@@ -10,7 +11,12 @@ public enum ToolExplanationParameter {
 public extension AnyTool {
     func withExplanationParameter() -> AnyTool {
         guard parametersSchema.asDictionary["properties"]?.asDictionary?[ToolExplanationParameter.key] == nil else {
-            assertionFailure("Yakamoz tool '\(callName)' declares reserved parameter '\(ToolExplanationParameter.key)'")
+            // Leave the tool's own `explanation` in place; logging (not asserting) keeps
+            // this documented skip path reachable in Debug builds and tests.
+            Log.runtime.warning("tool declares reserved parameter; skipping explanation decoration", metadata: [
+                "tool": "\(callName)",
+                "parameter": "\(ToolExplanationParameter.key)",
+            ])
             return self
         }
         return AnyTool(ExplainedTool(wrapped: self), origin: origin)

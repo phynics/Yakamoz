@@ -13,7 +13,7 @@ DERIVED_DATA_PATH = $(CURDIR)/DerivedData
 SOURCE_PACKAGES_PATH = $(CURDIR)/.build/SourcePackages
 TEST_LOG = $(CURDIR)/.build/test-xcodebuild.log
 VERIFY_LOG = $(CURDIR)/.build/verify-xcodebuild.log
-XCODEBUILD_FLAGS = -derivedDataPath '$(DERIVED_DATA_PATH)' -clonedSourcePackagesDirPath '$(SOURCE_PACKAGES_PATH)' -skipMacroValidation
+XCODEBUILD_FLAGS = -derivedDataPath '$(DERIVED_DATA_PATH)' -clonedSourcePackagesDirPath '$(SOURCE_PACKAGES_PATH)' -skipMacroValidation -skipPackagePluginValidation
 # Highest per-bundle test count reported in a log (0 when nothing ran). Both
 # XCTest ("Executed N tests") and Swift Testing ("Test run with N tests") lines
 # are considered; max keeps the two report styles from double-counting.
