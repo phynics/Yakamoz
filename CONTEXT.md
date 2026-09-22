@@ -37,9 +37,8 @@ _Avoid_: folder, project, directory
 ### Inspection & providers
 
 **Inspector**:
-The right-pane drawer with two modes: compose (provider, workspace, and tool settings) and
-inspect, which shows the selected assistant turn as prompt, sent, journal, response, and
-tools tabs.
+The right-hand column that shows one assistant turn — the selected one, else the latest —
+as prompt, sent, journal, response, and tools tabs. It holds no settings (ADR 0003).
 _Avoid_: panel, debugger
 
 **Provider preset**:

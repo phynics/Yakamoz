@@ -93,6 +93,33 @@ public final class ChatViewModel {
         return nil
     }
 
+    /// The most recent assistant turn that has a persisted inspection row.
+    public var latestInspectedTurn: ChatTurnState? {
+        for item in transcript.reversed() {
+            if case let .assistant(_, turn) = item, turn.inspectionTurnIndex != nil {
+                return turn
+            }
+        }
+        return nil
+    }
+
+    /// The turn the inspector shows: the one the user selected, else the latest. The
+    /// inspector is glass only (ADR 0003), so it always has a turn to show once one exists.
+    public var inspectedTurnState: ChatTurnState? {
+        selectedTurnState ?? latestInspectedTurn
+    }
+
+    /// The inspection row behind ``inspectedTurnState``.
+    public var inspectedInspectionTurnIndex: Int? {
+        selectedInspectionTurnIndex ?? latestInspectedTurn?.inspectionTurnIndex
+    }
+
+    /// Whether the inspector is showing the latest turn (nothing older is pinned).
+    public var isInspectingLatest: Bool {
+        guard let selectedInspectionTurnIndex else { return true }
+        return selectedInspectionTurnIndex == latestInspectedTurn?.inspectionTurnIndex
+    }
+
     private var sendTask: Task<Void, Never>?
     private let runner: any ChatRunning
     private let inspector: SwiftDataPromptInspector?

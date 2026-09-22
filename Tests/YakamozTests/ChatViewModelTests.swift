@@ -74,6 +74,46 @@ struct ChatViewModelTests {
         return SwiftDataPromptInspector(modelContainer: container)
     }
 
+    @Test("The inspector follows the latest inspected turn until an older one is selected (ADR 0003)")
+    func inspectorFollowsLatestTurn() {
+        func turn(_ index: Int, inspection: Int?) -> TranscriptItem {
+            var state = ChatTurnState(turnIndex: index)
+            state.inspectionTurnIndex = inspection
+            return .assistant(id: UUID(), turn: state)
+        }
+        let viewModel = ChatViewModel(
+            timelineId: UUID(),
+            runner: ScriptedRunner(),
+            initialTranscript: [
+                .user(id: UUID(), text: "a", timestamp: .now),
+                turn(0, inspection: 0),
+                .user(id: UUID(), text: "b", timestamp: .now),
+                turn(1, inspection: 1),
+                turn(2, inspection: nil),
+            ]
+        )
+
+        #expect(viewModel.inspectedInspectionTurnIndex == 1)
+        #expect(viewModel.inspectedTurnState?.turnIndex == 1)
+        #expect(viewModel.isInspectingLatest)
+
+        viewModel.selectTurn(0)
+        #expect(viewModel.inspectedInspectionTurnIndex == 0)
+        #expect(!viewModel.isInspectingLatest)
+
+        viewModel.selectTurn(nil)
+        #expect(viewModel.inspectedInspectionTurnIndex == 1)
+        #expect(viewModel.isInspectingLatest)
+    }
+
+    @Test("An empty conversation has nothing to inspect")
+    func emptyConversationHasNothingToInspect() {
+        let viewModel = ChatViewModel(timelineId: UUID(), runner: ScriptedRunner())
+        #expect(viewModel.inspectedInspectionTurnIndex == nil)
+        #expect(viewModel.inspectedTurnState == nil)
+        #expect(viewModel.isInspectingLatest)
+    }
+
     @Test("Sending a message immediately inserts a user transcript item and sets isSending")
     func sendInsertsUserItemAndSetsIsSending() async {
         let runner = ScriptedRunner()

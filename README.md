@@ -3,7 +3,7 @@
 A native macOS chat client that puts the **prompt pipeline under glass**. Yakamoz drives
 the shared [`PositronicKit`](https://github.com/phynics/PositronicKit) agent runtime and, for every assistant turn,
 exposes exactly what was assembled, sent, journaled, and returned — through a five-tab
-inspector drawer. It is a showcase/dev app, not a shipping product. Work is tracked as
+inspector. It is a showcase/dev app, not a shipping product. Work is tracked as
 [GitHub issues](https://github.com/phynics/Yakamoz/issues).
 
 ## Prerequisites
@@ -103,8 +103,8 @@ those bookmarks before tool use.
 
 ## Terminal workspaces and the unjailed-shell tradeoff
 
-A folder workspace can also spin up a **terminal workspace** ("Create Terminal" on the folder
-chip): a persistent, PTY-backed shell the agent drives through five tools (`terminal_run` plus
+A folder workspace can also spin up a **terminal workspace** (**Workspaces ▸ New Terminal…**
+in the conversation toolbar, or **Create Terminal Here** on an attached folder): a persistent, PTY-backed shell the agent drives through five tools (`terminal_run` plus
 `terminal_read`/`terminal_send_input`/`terminal_interrupt`/`terminal_wait`). The shell is a real
 login shell rooted at the folder, and is **not confined** to that folder — it can `cd` anywhere
 the user can. This is inherent to offering a usable shell and is **accepted deliberately**,
@@ -128,9 +128,9 @@ or temporary `ModelContainer`s and do not touch this location.
 
 ## The inspector — five tabs
 
-Open with the toolbar info button or **⌘I**. The drawer has two modes. **Compose** shows the
-conversation's provider, workspace, and tool settings; **Inspect** shows the currently
-selected assistant turn in five tabs:
+Open with the toolbar's inspector button or **⌘I**. The inspector is glass only
+([ADR 0003](docs/adr/0003-inspector-is-glass.md)): it follows the latest assistant turn, or
+the turn whose reply you click (its **Latest** button resumes following), in five tabs:
 
 1. **Prompt** — the assembled section tree (role, priority, compression, cache policy,
    estimated tokens, and per-section compression outcome).
@@ -141,11 +141,13 @@ selected assistant turn in five tabs:
 4. **Response** — reconstructed text/thinking, model, finish reason, and token usage.
 5. **Tools** — every tool call in the turn, with status, output/error, and elapsed time.
 
-The attached workspace itself (identity, path, health, tools, and detach) is shown in
-**Compose → Workspace**; the toolbar's workspace chip attaches folders and creates terminals.
+Conversation setup lives in the toolbar, where each menu shows its current state:
+**Operator**, **Workspaces** (attach folders or terminals, attach from or manage the library),
+**Tools** (per-group toggles and Automatic Titles & Sections), and the **model** menu, which is
+app-wide. Operator profile and vault open in a separate operator window (**Edit Operator…**).
+See [docs/design/interaction-paradigm.md](docs/design/interaction-paradigm.md).
 
-Keyboard: **⌘1…⌘5** jump directly to an inspect tab (opening the drawer if closed); with no
-turn selected, Compose mode has no tabs and the shortcuts are a no-op.
+Keyboard: **⌘1…⌘5** jump directly to an inspector tab (opening the inspector if closed).
 
 ## Exact-vs-projected data boundary
 
@@ -180,9 +182,9 @@ from disk.
 
 | Shortcut | Action                         |
 | -------- | ------------------------------ |
-| ⌘N       | New chat                       |
-| ⌘I       | Toggle the inspector drawer    |
-| ⌘1 … ⌘5  | Select an inspect tab (turn selected) |
+| ⌘N       | New conversation               |
+| ⌘I       | Toggle the inspector           |
+| ⌘1 … ⌘5  | Select an inspector tab        |
 | ↩        | Send (⇧↩ inserts a newline)    |
 
 The composer regains focus after each send.

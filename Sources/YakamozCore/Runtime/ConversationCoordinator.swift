@@ -51,7 +51,7 @@ public struct ConversationCoordinator {
     /// persists both, and returns the conversation.
     @discardableResult
     public func createConversation(
-        title: String = "New Chat",
+        title: String = "New Conversation",
         agentId: UUID? = nil,
         attachedWorkspaceIds: [UUID] = [],
         isHomeTimeline: Bool = false

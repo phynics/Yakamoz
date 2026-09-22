@@ -346,9 +346,8 @@ private extension Font.TextStyle {
 
 /// UIX-3 decision: tapping a tool row opens its detail popover only — it deliberately does
 /// NOT call `onSelectTurn`/select the owning turn, unlike the assistant bubble button above
-/// it. Selection is the Compose/Inspect mode driver (`RightPanePresentation.mode`), so
-/// making a tool-row tap also select the turn would force-switch the inspector into Inspect
-/// mode as a side effect of what's meant to be a lightweight, transient detail lookup.
+/// it. Selecting a turn pins the inspector to it (ADR 0003), which shouldn't happen as a
+/// side effect of a lightweight, transient detail lookup.
 private struct ToolTranscriptRow: View {
     let trace: ToolTrace
     @State private var isShowingDetail = false

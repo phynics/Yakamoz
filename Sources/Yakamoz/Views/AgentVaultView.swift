@@ -47,7 +47,7 @@ struct AgentVaultView: View {
                 ContentUnavailableView(
                     "No Memory Notes",
                     systemImage: "note.text",
-                    description: Text("Notes the agent saves under Memory/ will appear here.")
+                    description: Text("Notes the operator saves under Memory/ appear here.")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {

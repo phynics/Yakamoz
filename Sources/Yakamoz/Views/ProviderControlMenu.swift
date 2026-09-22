@@ -3,6 +3,9 @@ import YakamozCore
 
 /// Compact chat-toolbar control showing the active provider/model and connection state.
 ///
+/// The model is app-wide (`ProviderSettings`), not per conversation; the menu's header and
+/// help text say so, since the control sits in each conversation's toolbar.
+///
 /// Exposes quick-action menu items (model switch, refresh, favorite toggle, connection test,
 /// open Settings) without requiring the user to leave chat. Shares `ProviderStatusViewModel`
 /// with `SettingsView` so model-list and health state are not duplicated.
@@ -13,7 +16,7 @@ struct ProviderControlMenu: View {
     var body: some View {
         Menu {
             // Header info rows (disabled items used as labels)
-            Section {
+            Section("Model for All Conversations") {
                 Text(presetLabel)
                     .foregroundStyle(.secondary)
                 if let host = settings.baseURL.host {
@@ -144,7 +147,7 @@ struct ProviderControlMenu: View {
     }
 
     private var menuHelp: String {
-        let base = "\(presetLabel) / \(settings.baseURL.host ?? settings.baseURL.absoluteString)"
+        let base = "App-wide model · \(presetLabel) / \(settings.baseURL.host ?? settings.baseURL.absoluteString)"
         guard let health = status.healthStatus else { return base }
         let healthLabel = switch health {
         case .ok: "Healthy"
