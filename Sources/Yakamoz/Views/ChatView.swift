@@ -19,11 +19,7 @@ struct ChatView: View {
 
     @State private var viewModel: ChatViewModel?
     @State private var inspectionViewModel: InspectionViewModel?
-    @State private var detailWidth: CGFloat = 0
     @State private var draft = ""
-    @State private var workspacePresentation: WorkspacePresentation?
-    @State private var workspacePromptId: UUID?
-    @State private var dismissedWorkspacePromptConversationId: UUID?
     @State private var composerFocusToken = 0
     /// SID-2: section-title navigation chips for the current conversation, fetched from
     /// `TimelineAnnotationModel` rows. Refreshed on conversation switch and after each
@@ -155,39 +151,39 @@ struct ChatView: View {
         }
         .navigationTitle(conversation.title)
         .toolbar {
-            ToolbarItem(placement: .automatic) {
+            // docs/design/interaction-paradigm.md §3.3: the conversation's whole setup,
+            // each control labelled with its current state.
+            ToolbarItemGroup(placement: .primaryAction) {
+                ConversationOperatorMenu(conversation: conversation)
+                ConversationWorkspacesMenu(conversation: conversation)
+                ConversationToolsMenu(
+                    conversation: conversation,
+                    availableTools: availableInspectorTools,
+                    enabledToolIds: effectiveEnabledToolIds,
+                    onSetToolEnabled: setToolEnabled
+                )
+                if let providerStatus, let providerSettings {
+                    ProviderControlMenu(status: providerStatus, settings: providerSettings)
+                }
+            }
+
+            ToolbarItem(placement: .primaryAction) {
                 Button {
                     withAnimation(.snappy) { isInspectorOpen.toggle() }
                 } label: {
-                    Label("Inspector", systemImage: "info.circle")
+                    Label("Inspector", systemImage: "sidebar.trailing")
                 }
                 .keyboardShortcut("i", modifiers: .command)
                 .help(isInspectorOpen ? "Hide inspector (⌘I)" : "Show inspector (⌘I)")
                 .accessibilityLabel(isInspectorOpen ? "Hide inspector" : "Show inspector")
             }
-
-            ToolbarItem(placement: .automatic) {
-                WorkspacePicker(conversation: conversation)
-            }
-
-            ToolbarItem(placement: .automatic) {
-                OperatorChip(conversation: conversation)
-            }
-
-            ToolbarItem(placement: .automatic) {
-                SidecarControls(conversation: conversation)
-            }
-
-            // UIX-3 review fix #2: `ProviderControlMenu` used to live in the toolbar, but
-            // Compose mode (InspectorDrawer's default, no-turn-selected pane) now owns
-            // next-turn controls including the provider menu — rendering it here too was a
-            // duplicate control. Compose mode is the single place it renders now.
+        }
+        .inspector(isPresented: $isInspectorOpen) {
+            inspector
+                .inspectorColumnWidth(min: 280, ideal: 360, max: 640)
         }
         .task(id: conversation.id) {
             await buildViewModelIfNeeded()
-        }
-        .task(id: workspaceAttachmentKey) {
-            await refreshWorkspacePresentation()
         }
         .task(id: toolSyncKey) {
             await refreshViewModelTools()
@@ -210,11 +206,7 @@ struct ChatView: View {
             withAnimation(.snappy) { isInspectorOpen.toggle() }
         }
         .onChange(of: coordinator.inspectorTabRequest.token) { _, _ in
-            // UIX-3 review fix #3: Command-1…5 select a per-turn Inspect tab, but Compose
-            // mode (no turn selected) has no tabs to select — applying the request there
-            // silently did nothing. Only act on the request when a turn is actually
-            // selected, so the shortcut is a deliberate no-op rather than a silent one.
-            guard viewModel?.selectedInspectionTurnIndex != nil else { return }
+            // The inspector always shows its five tabs (ADR 0003), so ⌘1…⌘5 always apply.
             let tabs = ["prompt", "sent", "journal", "response", "tools"]
             let index = coordinator.inspectorTabRequest.index
             guard tabs.indices.contains(index) else { return }
@@ -253,69 +245,87 @@ struct ChatView: View {
     }
 
     private func chatBody(viewModel: ChatViewModel) -> some View {
-        HStack(spacing: 0) {
-                VStack(spacing: 0) {
-                    if let terminalApprover {
-                        TerminalApprovalBanner(
-                            approver: terminalApprover,
-                            workspaceIDs: Set(attachedTerminalWorkspaces.map(\.id))
-                        )
-                    }
+        VStack(spacing: 0) {
+            if let terminalApprover {
+                TerminalApprovalBanner(
+                    approver: terminalApprover,
+                    workspaceIDs: Set(attachedTerminalWorkspaces.map(\.id))
+                )
+            }
 
-                    if let toolApprover {
-                        ToolApprovalBanner(approver: toolApprover)
-                    }
+            if let toolApprover {
+                ToolApprovalBanner(approver: toolApprover)
+            }
 
-                    conversationStack(viewModel: viewModel)
-                        .onChange(of: viewModel.selectedInspectionTurnIndex) { _, newIndex in
-                            Task { await inspectionViewModel?.select(conversationId: conversation.id, turnIndex: newIndex) }
-                            if newIndex != nil, !isInspectorOpen {
-                                withAnimation(.snappy) { isInspectorOpen = true }
-                            }
-                        }
-
-                    Divider()
-
-                    ComposerView(
-                        text: $draft,
-                        isSending: viewModel.isSending,
-                        onSend: { send(viewModel: viewModel) },
-                        onCancel: { viewModel.cancel() },
-                        focusToken: composerFocusToken,
-                        isDisabled: AgentSidebarPresentation.isSendDisabled(agentId: conversation.agentId),
-                        disabledReason: "Assign an operator before sending."
-                    )
+            conversationStack(viewModel: viewModel)
+                .onChange(of: viewModel.inspectedInspectionTurnIndex, initial: true) { _, newIndex in
+                    Task { await inspectionViewModel?.select(conversationId: conversation.id, turnIndex: newIndex) }
                 }
 
-                if let inspectionViewModel {
-                    InspectorDrawer(
-                        viewModel: inspectionViewModel,
-                        detailWidth: detailWidth,
-                        selectedTurnState: viewModel.selectedTurnState,
-                        workspacePresentation: workspacePresentation,
-                        providerStatus: providerStatus,
-                        providerSettings: providerSettings,
-                        availableTools: availableInspectorTools,
-                        enabledToolIds: effectiveEnabledToolIds,
-                        onRefreshWorkspace: { Task { await refreshWorkspacePresentation() } },
-                        onAttachDocuments: attachDefaultWorkspace,
-                        onChooseWorkspace: pickFolderForPrompt,
-                        onDetachWorkspace: detachWorkspace,
-                        onSetToolEnabled: setToolEnabled,
-                        onCreateTerminal: pickFolderForTerminal,
-                        selectedInspectionTurnIndex: viewModel.selectedInspectionTurnIndex,
-                        onCloseInspection: { viewModel.selectInspectionTurn(nil) },
-                        isOpen: $isInspectorOpen,
-                        selectedTabRaw: $selectedInspectorTabRaw,
-                        canSelectTurn: { viewModel.canSelectInspectionTurn($0) },
-                        onSelectTurn: { viewModel.selectInspectionTurn($0) }
-                    )
-                }
+            Divider()
+
+            ComposerView(
+                text: $draft,
+                isSending: viewModel.isSending,
+                onSend: { send(viewModel: viewModel) },
+                onCancel: { viewModel.cancel() },
+                focusToken: composerFocusToken,
+                isDisabled: AgentSidebarPresentation.isSendDisabled(agentId: conversation.agentId),
+                disabledReason: "Assign an operator before sending."
+            )
         }
-        .onGeometryChange(for: CGFloat.self) { proxy in
-            proxy.size.width
-        } action: { newWidth in
-            detailWidth = newWidth
+    }
+
+    @ViewBuilder
+    private var inspector: some View {
+        if let viewModel, let inspectionViewModel {
+            TurnInspector(
+                viewModel: inspectionViewModel,
+                turnState: viewModel.inspectedTurnState,
+                isFollowingLatest: viewModel.isInspectingLatest,
+                onFollowLatest: { viewModel.selectTurn(nil) },
+                selectedTabRaw: $selectedInspectorTabRaw,
+                canSelectTurn: { viewModel.canSelectInspectionTurn($0) },
+                onSelectTurn: { viewModel.selectInspectionTurn($0) }
+            )
+        } else {
+            ContentUnavailableView("Inspector Unavailable", systemImage: "sidebar.trailing")
+        }
+    }
+
+    /// Selecting a reply pins the inspector to it (opening the inspector if needed);
+    /// deselecting returns the inspector to following the latest turn.
+    private func selectTurn(_ turnIndex: Int?, in viewModel: ChatViewModel) {
+        viewModel.selectTurn(turnIndex)
+        if turnIndex != nil, !isInspectorOpen {
+            withAnimation(.snappy) { isInspectorOpen = true }
+        }
+    }
+
+    /// Shown in place of the transcript until the first message: who you're talking to and,
+    /// when nothing is attached, the workspace suggestion that used to be injected into the
+    /// transcript as a prompt row.
+    private var emptyConversation: some View {
+        let operatorName = conversation.agentId.flatMap { id in agents.first { $0.id == id }?.name }
+        return ContentUnavailableView {
+            Label(
+                operatorName.map { "Talk to \($0)" } ?? "No Operator",
+                systemImage: operatorName == nil ? "person.crop.circle.badge.questionmark" : "bubble.left.and.bubble.right"
+            )
+        } description: {
+            if operatorName == nil {
+                Text("Choose an operator from the toolbar to start this conversation.")
+            } else if conversation.allAttachedWorkspaceIds.isEmpty {
+                Text("Attach a folder to let the operator read files, or just start typing.")
+            } else {
+                Text("Send a message to start. Select a reply to inspect how its prompt was built.")
+            }
+        } actions: {
+            if operatorName != nil, conversation.allAttachedWorkspaceIds.isEmpty {
+                Button("Attach Folder…") {
+                    WorkspaceActions.pickFolder(for: conversation, modelContext: modelContext)
+                }
+            }
         }
     }
 
@@ -346,14 +356,24 @@ struct ChatView: View {
         return !turn.isComplete
     }
 
+    @ViewBuilder
     private func conversationStack(viewModel: ChatViewModel) -> some View {
+        if viewModel.transcript.isEmpty {
+            emptyConversation
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            transcriptStack(viewModel: viewModel)
+        }
+    }
+
+    private func transcriptStack(viewModel: ChatViewModel) -> some View {
         VStack(spacing: 0) {
             // SID-2: section-title navigation chips. Tapping a chip selects the turn
             // it anchors to in the transcript (reusing `viewModel.selectTurn`, the same
             // seam the existing turn-selection UI uses).
             SectionNavigationBar(
                 annotations: sectionAnnotations,
-                onSelect: { turnIndex in viewModel.selectTurn(turnIndex) }
+                onSelect: { turnIndex in selectTurn(turnIndex, in: viewModel) }
             )
             ScrollViewReader { proxy in
                 ScrollView {
@@ -362,7 +382,7 @@ struct ChatView: View {
                             MessageBubble(
                                 item: item,
                                 isSelected: isSelected(item, viewModel: viewModel),
-                                onSelectTurn: { viewModel.selectTurn($0) },
+                                onSelectTurn: { selectTurn($0, in: viewModel) },
                                 onSelectPromptOption: handlePromptSelection,
                                 onRetry: { viewModel.retryFailedTurn(errorId: $0) }
                             )
@@ -515,7 +535,6 @@ struct ChatView: View {
         // task can release it. `cancel()` is idempotent, so this is safe when nothing is
         // in flight and safe to run again from `.onDisappear` on window close.
         viewModel?.cancel()
-        workspacePromptId = nil
         // SID-2: feed the last accepted section-title annotation as the "current section"
         // context for the upcoming turn's `section_title` directive (mirrors SID-1's
         // current-title feed). Fetched via the runtime so the app target does not need
@@ -532,7 +551,7 @@ struct ChatView: View {
             sidecarDirectivesEnabled: conversation.sidecarDirectivesEnabled,
             // SID-1 cadence state: treat the conversation as "untitled" until the
             // title directive has actually returned a non-null value, so a manually
-            // set initial title (e.g. "New Chat") is not mistaken for the model's
+            // set initial title (e.g. "New Conversation") is not mistaken for the model's
             // current title for comparison. `hasReceivedTitleDirective` flips on the
             // first accepted title directive; only then do we feed `conversation.title`.
             conversationTitle: conversation.hasReceivedTitleDirective ? conversation.title : nil,
@@ -555,25 +574,8 @@ struct ChatView: View {
         let inspection = runtime.makeInspectionViewModel()
         viewModel = chat
         inspectionViewModel = inspection
-        await inspection.select(conversationId: conversation.id, turnIndex: chat.selectedInspectionTurnIndex)
-        await refreshWorkspacePresentation()
+        await inspection.select(conversationId: conversation.id, turnIndex: chat.inspectedInspectionTurnIndex)
         await refreshSectionAnnotations()
-        offerWorkspacePromptIfNeeded(in: chat)
-    }
-
-    /// Rebuilds the Workspace-tab presentation from the conversation's first attached folder
-    /// workspace (or clears it when none is attached). Runs on conversation open and
-    /// whenever `workspaceAttachmentKey` changes (i.e. any attached workspace is added or
-    /// removed, not just the first).
-    private func refreshWorkspacePresentation() async {
-        guard let runtime, let workspace = attachedFolderWorkspaces.first else {
-            workspacePresentation = nil
-            return
-        }
-        // Extract Sendable values on the MainActor; never send the @Model across the boundary.
-        let folderPath = workspace.folderPath
-        let displayName = workspace.displayName
-        workspacePresentation = await runtime.makeWorkspacePresentation(folderPath: folderPath, displayName: displayName)
     }
 
     /// SID-2: refreshes the section-title navigation chips from persisted
@@ -599,93 +601,10 @@ struct ChatView: View {
         viewModel.updateTools(tools)
     }
 
-    private func offerWorkspacePromptIfNeeded(in viewModel: ChatViewModel) {
-        guard conversation.allAttachedWorkspaceIds.isEmpty else { return }
-        guard dismissedWorkspacePromptConversationId != conversation.id else { return }
-        guard workspacePromptId == nil else { return }
-        guard viewModel.transcript.allSatisfy({ item in
-            if case .prompt = item { return true }
-            return false
-        }) else { return }
-
-        workspacePromptId = viewModel.presentPrompt(ChatPrompt(
-            title: "Attach a folder?",
-            detail: "Use it as this chat's workspace.",
-            options: [
-                ChatPromptOption(id: "documents", title: "Documents", systemImage: "folder"),
-                ChatPromptOption(id: "choose", title: "Choose Folder", systemImage: "folder.badge.plus"),
-                ChatPromptOption(id: "skip", title: "Skip", systemImage: "xmark"),
-            ]
-        ))
-    }
-
-    private func handlePromptSelection(promptId: UUID, option: ChatPromptOption) {
+    /// Transcript prompt rows are dismissed when answered; nothing in this view presents
+    /// one anymore (the workspace suggestion moved to the empty state).
+    private func handlePromptSelection(promptId: UUID, option _: ChatPromptOption) {
         viewModel?.dismissTranscriptItem(id: promptId)
-        if workspacePromptId == promptId {
-            workspacePromptId = nil
-            dismissedWorkspacePromptConversationId = conversation.id
-        }
-
-        switch option.id {
-        case "documents":
-            if let url = WorkspaceAttachmentSupport.defaultDocumentsURL {
-                WorkspaceAttachmentSupport.attachWorkspace(to: conversation, modelContext: modelContext, url: url)
-                Task { await buildViewModelIfNeeded() }
-            }
-        case "choose":
-            pickFolderForPrompt()
-        default:
-            break
-        }
-    }
-
-    private func pickFolderForPrompt() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Attach"
-        panel.message = "Choose a folder to use as this conversation's workspace."
-
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        WorkspaceAttachmentSupport.attachWorkspace(to: conversation, modelContext: modelContext, url: url)
-        Task { await buildViewModelIfNeeded() }
-    }
-
-    private func pickFolderForTerminal() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Create Terminal"
-        panel.message = """
-        Choose a folder to be your terminal's starting directory.
-
-        The terminal shell is NOT jailed to this folder; it can access any file on your system. \
-        Each command is approval-gated unless you allow the terminal for the session.
-        """
-
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        WorkspaceAttachmentSupport.createTerminalFromFolderURL(url, for: conversation, modelContext: modelContext)
-        Task { await buildViewModelIfNeeded() }
-    }
-
-    private func attachDefaultWorkspace() {
-        guard let url = WorkspaceAttachmentSupport.defaultDocumentsURL else { return }
-        WorkspaceAttachmentSupport.attachWorkspace(to: conversation, modelContext: modelContext, url: url)
-        Task { await buildViewModelIfNeeded() }
-    }
-
-    /// Detaches the folder workspace currently shown in the inspector.
-    ///
-    /// The Workspace inspector presents only the first attached *folder* workspace
-    /// (`attachedFolderWorkspaces.first`), so this detaches that same workspace explicitly
-    /// by id, rather than relying on the legacy "first/legacy" heuristic in
-    /// `WorkspaceAttachmentSupport.detachWorkspace(from:modelContext:)`.
-    private func detachWorkspace() {
-        guard let first = attachedFolderWorkspaces.first else { return }
-        WorkspaceAttachmentSupport.detachWorkspace(id: first.id, from: conversation, modelContext: modelContext)
-        Task { await buildViewModelIfNeeded() }
     }
 
     private func setToolEnabled(id: String, isEnabled: Bool) {

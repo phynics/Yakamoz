@@ -3,10 +3,11 @@ import SwiftUI
 import YakamozCore
 import YakamozNetwork
 
-/// ATW-8: the agents-centric sidebar. Top-level rows are agents (expanding one reveals its
-/// operated non-home timelines, newest first); a trailing "Unassigned" group holds
-/// timelines with no operator. Footer actions create a new agent or a new (unassigned)
-/// timeline.
+/// ATW-8: the operator-centric sidebar. Selecting an operator opens its home conversation;
+/// expanding it reveals its other conversations, newest first. A trailing "Unassigned" group
+/// holds conversations with no operator. The toolbar creates operators and conversations;
+/// each operator row's context menu edits, extends, or deletes it
+/// (docs/design/interaction-paradigm.md §3.2).
 struct AgentSidebarView: View {
     @Binding var selection: SidebarSelection?
 
@@ -22,7 +23,9 @@ struct AgentSidebarView: View {
 
     @State private var expandedAgentIds: Set<UUID> = []
     @State private var creationError: String?
-    @State private var isWorkspaceLibraryPresented = false
+    @State private var pendingOperatorDeletion: AgentSidebarGroup?
+
+    @Environment(\.openWindow) private var openWindow
 
     private var groups: [AgentSidebarGroup] {
         AgentSidebarPresentation.groups(agents: agents, conversations: conversations)
@@ -43,25 +46,19 @@ struct AgentSidebarView: View {
             }
         }
         .animation(.default, value: conversations.map(\.id))
-        .navigationTitle("Agents")
+        .navigationTitle("Operators")
         .toolbar {
             ToolbarItem {
                 Menu {
                     Button {
                         createAgent()
                     } label: {
-                        Label("New Agent", systemImage: "person.crop.circle.badge.plus")
+                        Label("New Operator", systemImage: "person.crop.circle.badge.plus")
                     }
                     Button {
                         createUnassignedTimeline()
                     } label: {
-                        Label("New Timeline", systemImage: "plus.bubble")
-                    }
-                    Divider()
-                    Button {
-                        isWorkspaceLibraryPresented = true
-                    } label: {
-                        Label("Workspace Library", systemImage: "folder.badge.gearshape")
+                        Label("New Conversation", systemImage: "plus.bubble")
                     }
                 } label: {
                     Label("Add", systemImage: "plus")
@@ -72,8 +69,21 @@ struct AgentSidebarView: View {
         .onChange(of: coordinator.newChatToken) { _, _ in
             createUnassignedTimeline()
         }
-        .sheet(isPresented: $isWorkspaceLibraryPresented) {
-            WorkspaceLibraryView()
+        .confirmationDialog(
+            "Delete \(pendingOperatorDeletion?.agentName ?? "Operator")?",
+            isPresented: Binding(
+                get: { pendingOperatorDeletion != nil },
+                set: { if !$0 { pendingOperatorDeletion = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let group = pendingOperatorDeletion { deleteOperator(group.id) }
+                pendingOperatorDeletion = nil
+            }
+            Button("Cancel", role: .cancel) { pendingOperatorDeletion = nil }
+        } message: {
+            Text("This deletes the operator's home conversation and vault. Conversations it merely operated become unassigned.")
         }
         .errorAlert("Couldn't Complete Action", message: $creationError)
     }
@@ -88,6 +98,18 @@ struct AgentSidebarView: View {
         } label: {
             Label(group.agentName, systemImage: "person.crop.circle")
                 .tag(SidebarSelection.agent(group.id))
+                .contextMenu {
+                    Button("Edit Operator…", systemImage: "person.text.rectangle") {
+                        openWindow(id: OperatorWindow.id, value: group.id)
+                    }
+                    Button("New Conversation", systemImage: "plus.bubble") {
+                        createConversation(operatorId: group.id)
+                    }
+                    Divider()
+                    Button("Delete Operator…", systemImage: "trash", role: .destructive) {
+                        pendingOperatorDeletion = group
+                    }
+                }
         }
     }
 
@@ -122,11 +144,28 @@ struct AgentSidebarView: View {
     }
 
     private func createUnassignedTimeline() {
+        createConversation(operatorId: nil)
+    }
+
+    private func createConversation(operatorId: UUID?) {
         guard let runtime else { return }
         Task {
             do {
-                let conversation = try await runtime.createConversation(modelContext: modelContext)
+                let conversation = try await runtime.createConversation(modelContext: modelContext, agentId: operatorId)
+                if let operatorId { expandedAgentIds.insert(operatorId) }
                 withAnimation { selection = .timeline(conversation.id) }
+            } catch {
+                creationError = Log.userFriendlyErrorMessage(for: error)
+            }
+        }
+    }
+
+    private func deleteOperator(_ id: UUID) {
+        guard let runtime else { return }
+        Task {
+            do {
+                try await runtime.deleteAgent(id: id, modelContext: modelContext)
+                if selection == .agent(id) { selection = nil }
             } catch {
                 creationError = Log.userFriendlyErrorMessage(for: error)
             }

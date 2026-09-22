@@ -26,7 +26,7 @@ struct ContentView: View {
         switch selection {
         case let .agent(agentId):
             if let agent = agents.first(where: { $0.id == agentId }) {
-                AgentDetailView(agent: agent, onDeleted: { selection = nil })
+                OperatorHomeView(agent: agent)
             } else {
                 unavailable
             }
@@ -72,7 +72,7 @@ struct ContentView: View {
 
     private var unavailable: some View {
         ContentUnavailableView(
-            "Select an Agent or Timeline",
+            "Select an Operator or Conversation",
             systemImage: "bubble.left.and.bubble.right"
         )
     }

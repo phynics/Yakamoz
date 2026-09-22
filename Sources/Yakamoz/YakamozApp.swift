@@ -301,22 +301,31 @@ struct YakamozApp: App {
         }
     }
 
+    /// Injects the shared model container and app services into a scene's root view.
+    private func appEnvironment(
+        _ content: some View,
+        modelContainer: ModelContainer,
+        runtime: YakamozRuntime
+    ) -> some View {
+        content
+            .modelContainer(modelContainer)
+            .environment(\.yakamozRuntime, runtime)
+            .environment(\.providerSettings, settings)
+            .environment(\.secretStore, secrets)
+            .environment(\.terminalApprover, terminalApprover)
+            .environment(\.toolApprover, toolApprover)
+            .environment(\.uiCoordinator, coordinator)
+            .environment(\.providerStatus, providerStatus)
+            .environment(\.networkSettings, networkSettings)
+            .environment(\.networkSession, networkSession)
+            .environment(\.gnosticBackend, networkBackend)
+            .environment(\.networkWorkspaceController, networkWorkspaceController)
+    }
+
     var body: some Scene {
         WindowGroup {
             if let modelContainer, let runtime {
-                ContentView()
-                    .modelContainer(modelContainer)
-                    .environment(\.yakamozRuntime, runtime)
-                    .environment(\.providerSettings, settings)
-                    .environment(\.secretStore, secrets)
-                    .environment(\.terminalApprover, terminalApprover)
-                    .environment(\.toolApprover, toolApprover)
-                    .environment(\.uiCoordinator, coordinator)
-                    .environment(\.providerStatus, providerStatus)
-                    .environment(\.networkSettings, networkSettings)
-                    .environment(\.networkSession, networkSession)
-                    .environment(\.gnosticBackend, networkBackend)
-                    .environment(\.networkWorkspaceController, networkWorkspaceController)
+                appEnvironment(ContentView(), modelContainer: modelContainer, runtime: runtime)
                     .frame(minWidth: 900, minHeight: 620)
                     .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
                         // Best-effort teardown of any live terminal shells on quit. This detached
@@ -338,6 +347,15 @@ struct YakamozApp: App {
             YakamozCommands(coordinator: coordinator)
         }
         .defaultSize(width: 1200, height: 820)
+
+        // The operator window (Profile + Vault), opened from the conversation toolbar's
+        // operator menu or the sidebar (docs/design/interaction-paradigm.md §3.5).
+        WindowGroup("Operator", id: OperatorWindow.id, for: UUID.self) { $agentId in
+            if let modelContainer, let runtime {
+                appEnvironment(OperatorWindow(agentId: agentId), modelContainer: modelContainer, runtime: runtime)
+            }
+        }
+        .defaultSize(width: 720, height: 560)
 
         Settings {
             if let providerStatus {

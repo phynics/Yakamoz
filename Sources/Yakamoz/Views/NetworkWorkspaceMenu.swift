@@ -70,11 +70,9 @@ struct NetworkWorkspaceMenu: View {
                 ProgressView()
                     .controlSize(.small)
             } else {
-                Label(
-                    attached.isEmpty ? "Workspaces" : "Workspaces (\(attached.count))",
-                    systemImage: "externaldrive.connected.to.line.below"
-                )
-                .labelStyle(.titleAndIcon)
+                // Same label scheme as the local `ConversationWorkspacesMenu`.
+                Label(label, systemImage: "externaldrive.connected.to.line.below")
+                    .labelStyle(.titleAndIcon)
             }
         }
         .disabled(controller.isWorking)
@@ -109,6 +107,14 @@ struct NetworkWorkspaceMenu: View {
             }
         }
         .errorAlert("Couldn't Update Workspace", message: $controller.errorMessage)
+    }
+
+    private var label: String {
+        switch attached.count {
+        case 0: "No Workspace"
+        case 1: attached[0].displayName
+        default: "\(attached.count) Workspaces"
+        }
     }
 
     @ViewBuilder

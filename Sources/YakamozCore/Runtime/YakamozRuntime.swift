@@ -480,7 +480,7 @@ public actor YakamozRuntime: ChatRunning {
     @MainActor
     public func createConversation(
         modelContext: ModelContext,
-        title: String = "New Chat",
+        title: String = "New Conversation",
         agentId: UUID? = nil,
         attachedWorkspaceIds: [UUID] = [],
         isHomeTimeline: Bool = false
@@ -496,7 +496,7 @@ public actor YakamozRuntime: ChatRunning {
     @MainActor
     public func createAgent(
         modelContext: ModelContext,
-        name: String = "New Agent",
+        name: String = "New Operator",
         instructions: String = ""
     ) throws -> AgentModel {
         let factory = AgentVaultFactory()
