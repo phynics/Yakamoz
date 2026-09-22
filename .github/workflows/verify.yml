@@ -7,11 +7,31 @@ on:
 jobs:
   verify:
     name: Build and test
-    runs-on: macos-latest
+    # PositronicKit 6 and Gnostic 0.4.2 declare swift-tools-version 6.4, which
+    # needs Xcode 27+. `macos-latest` still defaults to Xcode 26.x, so use the
+    # Xcode 27 hosted image (public preview, actions/runner-images#14404).
+    # Move to a GA macOS 27 image once one ships Xcode 27.
+    runs-on: xcode-27
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Select Xcode 27
+        run: |
+          xcode=$(ls -d /Applications/Xcode_27*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$xcode" ]; then
+            echo "::error::No Xcode 27 install found on this runner image."
+            exit 1
+          fi
+          sudo xcode-select -s "$xcode"
+          xcodebuild -version
+          swift --version
+          swift_version=$(swift --version 2>&1 | sed -nE 's/.*Swift version ([0-9]+\.[0-9]+).*/\1/p' | head -1)
+          if [ "$(printf '%s\n' 6.4 "$swift_version" | sort -V | head -1)" != "6.4" ]; then
+            echo "::error::Swift $swift_version is older than 6.4; PositronicKit and Gnostic need Xcode 27+."
+            exit 1
+          fi
 
       - name: Install XcodeGen
         run: brew install xcodegen
