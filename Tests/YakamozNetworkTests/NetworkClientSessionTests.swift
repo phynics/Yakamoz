@@ -188,6 +188,56 @@ struct NetworkClientSessionTests {
         #expect(connects == 1)
     }
 
+    @Test("A field edit while connected is held until reconnect applies it")
+    func fieldEditHeldUntilReconnect() async {
+        let transport = FakeGnosticTransport()
+        let session = makeSession(transport: transport)
+        await session.start()
+        var edited = makeConfiguration()
+        edited.host = "10.0.0.2"
+
+        await session.update(configuration: edited)
+
+        #expect(session.needsReconnect)
+        #expect(await transport.connectCount == 1)
+
+        await session.reconnect()
+
+        #expect(!session.needsReconnect)
+        #expect(session.state == .online)
+        #expect(await transport.connectCount == 2)
+        #expect(await transport.lastConfiguration?.host == "10.0.0.2")
+    }
+
+    @Test("Reconnect recovers from the failed state")
+    func reconnectRecoversFromFailure() async {
+        let transport = FakeGnosticTransport()
+        let session = makeSession(transport: transport, retryLimit: 0)
+        await transport.failNextConnects(1)
+        await session.start()
+        #expect(session.state.failureMessage != nil)
+
+        await session.reconnect()
+
+        #expect(session.state == .online)
+    }
+
+    @Test("Object lookup falls back to the open-session snapshot")
+    func objectLookupFallsBackToOpenSession() async {
+        let transport = FakeGnosticTransport()
+        let session = makeSession(transport: transport)
+        await session.start()
+        let key = TestEntities.key(UUID())
+        await session.ingest(.discovered(.timeline(TestEntities.timeline(key: key, title: "T"))))
+        session.openSession(key)
+        #expect(session.isLive(key))
+
+        await session.ingest(.deadvertised(key))
+
+        #expect(!session.isLive(key))
+        #expect(session.object(for: key)?.sortName == "T")
+    }
+
     @Test("Catalog events are ingested from the transport")
     func ingestsCatalogEvents() async {
         let transport = FakeGnosticTransport()

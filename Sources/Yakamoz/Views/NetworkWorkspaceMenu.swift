@@ -4,13 +4,15 @@ import YakamozNetwork
 /// Browse, attach, and detach discovered network Workspaces for the selected
 /// Timeline (issue #12).
 ///
-/// Attachment always goes through an explicit confirmation; workspaces whose
-/// advertisement is missing, malformed, ambiguous, unsupported, or currently
+/// Attached workspaces come first, each with its own Detach; the rest follow with an
+/// Attach… action or — since macOS menus show no tooltips — the reason it can't be
+/// attached, inline. Attachment always goes through an explicit confirmation; workspaces
+/// whose advertisement is missing, malformed, ambiguous, unsupported, or currently
 /// unusable cannot be attached (`NetworkWorkspaceController.canAttach`).
 struct NetworkWorkspaceMenu: View {
     let timelineKey: NetworkObjectKey
     let session: NetworkClientSession
-    let controller: NetworkWorkspaceController
+    @Bindable var controller: NetworkWorkspaceController
 
     @State private var pendingAttach: NetworkWorkspaceRef?
 
@@ -19,8 +21,16 @@ struct NetworkWorkspaceMenu: View {
     }
 
     private var attachedWorkspaceIDs: Set<UUID> {
-        guard case let .timeline(timeline)? = session.catalog.object(for: timelineKey) else { return [] }
+        guard case let .timeline(timeline)? = session.object(for: timelineKey) else { return [] }
         return Set(timeline.attachedWorkspaceIDs)
+    }
+
+    private var attached: [NetworkWorkspaceRef] {
+        workspaces.filter { attachedWorkspaceIDs.contains($0.key.objectID) }
+    }
+
+    private var available: [NetworkWorkspaceRef] {
+        workspaces.filter { !attachedWorkspaceIDs.contains($0.key.objectID) }
     }
 
     /// Re-fetches statuses when the discovered set or the timeline's attachment list changes.
@@ -33,24 +43,50 @@ struct NetworkWorkspaceMenu: View {
     var body: some View {
         Menu {
             if workspaces.isEmpty {
-                Text("No network workspaces discovered")
-            } else {
-                ForEach(workspaces) { workspace in
-                    workspaceItem(workspace)
+                Text("No network workspaces advertised")
+            }
+            if !attached.isEmpty {
+                Section("Attached") {
+                    ForEach(attached) { workspace in
+                        Menu(workspace.displayName) {
+                            Text(workspace.trustLevel.displayName)
+                            Button("Detach", role: .destructive) {
+                                let workspaceID = workspace.key.objectID
+                                Task { await controller.detach(workspaceID: workspaceID, from: timelineKey.objectID) }
+                            }
+                        }
+                    }
                 }
             }
-            if controller.isWorking {
-                Divider()
-                Text("Working…")
+            if !available.isEmpty {
+                Section("Available") {
+                    ForEach(available) { workspace in
+                        availableItem(workspace)
+                    }
+                }
             }
         } label: {
-            Label("Workspaces", systemImage: "folder.badge.gearshape")
+            if controller.isWorking {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                Label(
+                    attached.isEmpty ? "Workspaces" : "Workspaces (\(attached.count))",
+                    systemImage: "externaldrive.connected.to.line.below"
+                )
+                .labelStyle(.titleAndIcon)
+            }
         }
+        .disabled(controller.isWorking)
+        .help(attached.isEmpty
+            ? "Attach a network workspace to this timeline"
+            : "\(attached.count) network workspace\(attached.count == 1 ? "" : "s") attached")
+        .accessibilityLabel("Network Workspaces")
         .task(id: refreshKey) {
             await controller.refreshStatuses(workspaceIDs: workspaces.map(\.key.objectID))
         }
         .confirmationDialog(
-            "Attach \u{201C}\(pendingAttach?.uri ?? "")\u{201D}?",
+            "Attach \u{201C}\(pendingAttach?.displayName ?? "")\u{201D}?",
             isPresented: Binding(
                 get: { pendingAttach != nil },
                 set: { if !$0 { pendingAttach = nil } }
@@ -68,35 +104,25 @@ struct NetworkWorkspaceMenu: View {
                 pendingAttach = nil
             }
         } message: {
-            Text("Its tools become usable by the remote Ascendant during turns on this Timeline.")
+            if let workspace = pendingAttach {
+                Text("The remote Ascendant will be able to use its tools (\(workspace.trustLevel.displayName.lowercased())) during turns on this timeline.")
+            }
         }
-        .alert(
-            "Workspace Operation Failed",
-            isPresented: Binding(
-                get: { controller.errorMessage != nil },
-                set: { if !$0 { controller.errorMessage = nil } }
-            )
-        ) {
-            Button("OK") {}
-        } message: {
-            Text(controller.errorMessage ?? "")
-        }
+        .errorAlert("Couldn't Update Workspace", message: $controller.errorMessage)
     }
 
     @ViewBuilder
-    private func workspaceItem(_ workspace: NetworkWorkspaceRef) -> some View {
-        let workspaceID = workspace.key.objectID
-        if attachedWorkspaceIDs.contains(workspaceID) {
-            Text("\(workspace.uri) — attached")
-            Button("Detach") {
-                Task { await controller.detach(workspaceID: workspaceID, from: timelineKey.objectID) }
-            }
-        } else {
-            Button("Attach \(workspace.uri)…") {
+    private func availableItem(_ workspace: NetworkWorkspaceRef) -> some View {
+        switch controller.menuAction(workspaceID: workspace.key.objectID, attachedIDs: attachedWorkspaceIDs) {
+        case .attach:
+            Button("Attach \(workspace.displayName)…") {
                 pendingAttach = workspace
             }
-            .disabled(!controller.canAttach(workspaceID: workspaceID))
-            .help(controller.refusalReason(workspaceID: workspaceID) ?? "")
+        case let .unavailable(reason):
+            Button("\(workspace.displayName) — \(reason)") {}
+                .disabled(true)
+        case .detach:
+            EmptyView()
         }
     }
 }

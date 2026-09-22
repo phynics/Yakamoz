@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import YakamozCore
 
 /// App-facing state for attaching discovered network Workspaces to a network Timeline
 /// (issue #12).
@@ -68,6 +69,14 @@ public final class NetworkWorkspaceController {
         return nil
     }
 
+    /// What the Workspaces menu offers for `workspaceID` on a Timeline whose attached
+    /// workspace ids are `attachedIDs`.
+    public func menuAction(workspaceID: UUID, attachedIDs: Set<UUID>) -> NetworkWorkspaceMenuAction {
+        if attachedIDs.contains(workspaceID) { return .detach }
+        if canAttach(workspaceID: workspaceID) { return .attach }
+        return .unavailable(refusalReason(workspaceID: workspaceID) ?? "This workspace can't be attached.")
+    }
+
     /// Attaches `workspaceID` to `timelineID` after the caller's explicit approval.
     ///
     /// - Returns: `true` when the Ascendant accepted the attachment.
@@ -98,8 +107,18 @@ public final class NetworkWorkspaceController {
             try await operation()
             return true
         } catch {
-            errorMessage = (error as? any LocalizedError)?.errorDescription ?? error.localizedDescription
+            errorMessage = Log.userFriendlyErrorMessage(for: error)
             return false
         }
     }
+}
+
+/// The single action the Workspaces menu offers for one Network workspace.
+public enum NetworkWorkspaceMenuAction: Equatable, Sendable {
+    /// Already attached to the Timeline; offer detach.
+    case detach
+    /// Attachable; offer attach (behind a confirmation).
+    case attach
+    /// Not attachable; show the reason inline instead of an action.
+    case unavailable(String)
 }

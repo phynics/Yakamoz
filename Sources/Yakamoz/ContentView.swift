@@ -51,18 +51,22 @@ struct ContentView: View {
         }
     }
 
-    /// Timelines open the network chat surface (#10); Ascendants and Workspaces keep
-    /// the browsable detail surface until their own interaction tickets land.
+    /// Timelines open the network chat surface (#10); Ascendants and Workspaces open
+    /// detail surfaces whose timeline links route back through the sidebar selection.
     @ViewBuilder
     private func networkDetail(
-        _ selection: NetworkSidebarSelection,
+        _ networkSelection: NetworkSidebarSelection,
         session: NetworkClientSession,
         backend: GnosticBackend
     ) -> some View {
-        if case let .timeline(key) = selection {
+        let openTimeline: (NetworkObjectKey) -> Void = { selection = .network(.timeline($0)) }
+        switch networkSelection {
+        case let .timeline(key):
             NetworkChatView(key: key, session: session, backend: backend)
-        } else {
-            NetworkPlaceholderDetailView(selection: selection, session: session)
+        case let .ascendant(key):
+            NetworkAscendantDetailView(key: key, session: session, onOpenTimeline: openTimeline)
+        case let .workspace(key):
+            NetworkWorkspaceDetailView(key: key, session: session, onOpenTimeline: openTimeline)
         }
     }
 
