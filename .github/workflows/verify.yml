@@ -19,9 +19,11 @@ jobs:
 
       - name: Select Xcode 27
         run: |
-          xcode=$(ls -d /Applications/Xcode_27*.app 2>/dev/null | sort -V | tail -1)
+          # Newest non-beta Xcode 27: preview images also carry betas (e.g.
+          # Xcode_27.2_beta.app), which would otherwise win the version sort.
+          xcode=$(ls -d /Applications/Xcode_27*.app 2>/dev/null | grep -vi beta | sort -V | tail -1)
           if [ -z "$xcode" ]; then
-            echo "::error::No Xcode 27 install found on this runner image."
+            echo "::error::No non-beta Xcode 27 install found on this runner image."
             exit 1
           fi
           sudo xcode-select -s "$xcode"
