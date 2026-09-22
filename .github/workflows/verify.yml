@@ -33,6 +33,11 @@ jobs:
             exit 1
           fi
 
+      # SwiftTerm compiles a .metal shader; the image ships Xcode without the
+      # Metal Toolchain component.
+      - name: Install Metal Toolchain
+        run: xcodebuild -downloadComponent MetalToolchain
+
       - name: Install XcodeGen
         run: brew install xcodegen
 
