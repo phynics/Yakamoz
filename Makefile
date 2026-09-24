@@ -4,6 +4,11 @@ SHELL := /bin/bash
 # Disable SwiftPM macro prebuilts to avoid incompatible SwiftSyntax prebuilt modules
 # on Xcode 27 / Swift 6.4 toolchains.
 export SWIFTPM_ENABLE_MACROS_PREBUILTS := NO
+# Invoke xcodegen by its resolved real path: it locates its SettingPresets relative to
+# the invoked path, so a symlinked install (e.g. a Nix profile) otherwise loads no presets
+# (issue #35). project.yml pins the Debug-critical settings regardless.
+XCODEGEN ?= $(or $(realpath $(shell command -v xcodegen 2>/dev/null)),xcodegen)
+PBXPROJ = Yakamoz.xcodeproj/project.pbxproj
 TEST_DESTINATION = platform=macOS
 TEST_SCHEME ?= Yakamoz
 # A filter names a suite/class in either test bundle; scope it to both so a
@@ -23,7 +28,12 @@ COUNT_TESTS = awk '\
 	END { print max + 0 }'
 
 generate:
-	xcodegen generate
+	'$(XCODEGEN)' generate
+	@# Fail fast if the Debug pins are missing: xcodebuild would silently build "Debug"
+	@# with -O and no DEBUG, stripping assert/assertionFailure (issue #35).
+	@grep -q 'SWIFT_OPTIMIZATION_LEVEL = "-Onone";' '$(PBXPROJ)' \
+		&& grep -Eq 'SWIFT_ACTIVE_COMPILATION_CONDITIONS = "?([^;]* )?DEBUG( [^;]*)?"?;' '$(PBXPROJ)' \
+		|| { echo "error: $(PBXPROJ) lacks SWIFT_OPTIMIZATION_LEVEL=-Onone / SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG; keep the settings.configs.debug pins in project.yml (see AGENTS.md Gotchas)"; exit 1; }
 
 build: generate
 	xcodebuild -project Yakamoz.xcodeproj -scheme Yakamoz -destination '$(TEST_DESTINATION)' $(XCODEBUILD_FLAGS) build
@@ -38,8 +48,7 @@ test: generate
 		exit 1; \
 	fi
 
-verify:
-	xcodegen generate
+verify: generate
 	@mkdir -p '$(dir $(VERIFY_LOG))'
 	@set -o pipefail; xcodebuild -project Yakamoz.xcodeproj -scheme Yakamoz -destination '$(TEST_DESTINATION)' $(XCODEBUILD_FLAGS) test 2>&1 | tee '$(VERIFY_LOG)'
 	@executed=$$($(COUNT_TESTS) '$(VERIFY_LOG)'); \
