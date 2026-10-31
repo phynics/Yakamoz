@@ -1,5 +1,8 @@
 # Embed GnosticCore as a consumer-only Gnostic client
 
+Amended by [ADR 0004](0004-yakamoz-is-a-gnostic-client.md): the client is now the product,
+not a mode.
+
 Yakamoz gains a Gnostic client mode by linking `GnosticCore` and Axoloty inside a dedicated
 `YakamozNetwork` module, and acting strictly as a consumer: it discovers advertised objects
 and runs Turns, but never hosts a Node or advertises one. The cost is shared with Gnostic:
