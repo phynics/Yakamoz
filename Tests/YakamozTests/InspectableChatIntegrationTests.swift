@@ -85,8 +85,7 @@ struct InspectableChatIntegrationTests {
         let workspace = WorkspaceReference(
             uri: .timelineWorkspace(timelineId),
             location: .runtime,
-            rootPath: workspaceURL.path,
-            trustLevel: .full
+            rootPath: workspaceURL.path
         )
         let kit = await runtime.kit
         let stores = await runtime.stores
@@ -283,8 +282,7 @@ struct InspectableChatIntegrationTests {
         let workspace = WorkspaceReference(
             uri: .timelineWorkspace(timelineId),
             location: .runtime,
-            rootPath: workspaceURL.path,
-            trustLevel: .full
+            rootPath: workspaceURL.path
         )
         let kit = await runtime.kit
         let stores = await runtime.stores

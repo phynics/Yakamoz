@@ -54,8 +54,10 @@ enum TestEntities {
         NetworkObjectKey(objectID: objectID, providerID: provider)
     }
 
-    static func compatibility(major: Int? = 2, compatible: Bool = true) -> NetworkCompatibility {
-        NetworkCompatibility(protocolMajor: major, isCompatible: compatible)
+    /// A compatible object speaks the supported major; an incompatible one defaults to the
+    /// last major before it.
+    static func compatibility(major: Int? = nil, compatible: Bool = true) -> NetworkCompatibility {
+        NetworkCompatibility(protocolMajor: major ?? (compatible ? 3 : 2), isCompatible: compatible)
     }
 
     static func ascendant(

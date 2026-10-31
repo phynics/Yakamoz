@@ -32,11 +32,10 @@ public actor FileSystemWorkspace: WorkspaceToolProvider, WorkspaceFileProvider {
     public nonisolated var reference: WorkspaceReference {
         WorkspaceReference(
             id: id,
-            uri: .requestOriginProject(hostname: "yakamoz", path: rootURL.path),
+            uri: WorkspaceURI(host: "yakamoz", path: rootURL.path),
             location: .attached,
             tools: Self.toolIds.map { .known(id: $0) },
-            rootPath: rootURL.path,
-            trustLevel: .full
+            rootPath: rootURL.path
         )
     }
 

@@ -1,5 +1,6 @@
 import Foundation
 import PKContracts
+import PositronicKit
 
 /// A single persona: a named, reusable bundle of system instructions a conversation can adopt.
 ///

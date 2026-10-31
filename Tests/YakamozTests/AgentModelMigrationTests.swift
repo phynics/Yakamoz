@@ -102,6 +102,32 @@ struct AgentModelMigrationTests {
         #expect(conversation.attachedWorkspaceIds.first == legacyWorkspaceID)
     }
 
+    @Test("A version 2 store opens the way the app opens it and gains the version 3 entities")
+    @MainActor
+    func migratesVersion2StoreToVersion3() throws {
+        let storeURL = FileManager.default.temporaryDirectory.appending(path: "YakamozV3Migration-\(UUID()).store")
+        defer { try? FileManager.default.removeItem(at: storeURL) }
+        let timelineID = UUID()
+        do {
+            let schema = Schema(versionedSchema: YakamozSchemaV2.self)
+            let container = try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, url: storeURL))
+            container.mainContext.insert(TimelineModel(id: timelineID, title: "Before version 3"))
+            try container.mainContext.save()
+        }
+
+        let schema = Schema(YakamozSchema.models)
+        let migrated = try ModelContainer(for: schema, migrationPlan: YakamozMigrationPlan.self,
+                                          configurations: ModelConfiguration(schema: schema, url: storeURL))
+
+        let timeline = try #require(try migrated.mainContext.fetch(FetchDescriptor<TimelineModel>()).first)
+        #expect(timeline.id == timelineID)
+        migrated.mainContext.insert(TurnMessageMembershipModel(turnId: UUID(), messageId: UUID(), timelineId: timelineID, ordinal: 0))
+        migrated.mainContext.insert(TimelineLifetimeModel(timelineId: timelineID, isEphemeral: true, forkedFromData: nil))
+        try migrated.mainContext.save()
+        #expect(try migrated.mainContext.fetchCount(FetchDescriptor<TurnMessageMembershipModel>()) == 1)
+        #expect(try migrated.mainContext.fetchCount(FetchDescriptor<TimelineLifetimeModel>()) == 1)
+    }
+
     @Test("Versioned migration seeds and resolves a built-in persona slug")
     @MainActor
     func migratesBuiltInSlugWithoutExistingAgents() throws {

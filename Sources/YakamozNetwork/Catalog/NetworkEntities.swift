@@ -40,6 +40,10 @@ public struct NetworkProvenance: Hashable, Sendable {
 /// Incompatible objects are retained — never dropped — so the UI can explain
 /// why they are unavailable. They are simply flagged here.
 public struct NetworkCompatibility: Hashable, Sendable {
+    /// The one protocol major this client speaks. A mapping test pins it to the linked
+    /// Gnostic's `GnosticProtocol.currentMajor`.
+    public static let supportedProtocolMajor = 3
+
     /// The advertised protocol major, when the payload carried one.
     public let protocolMajor: Int?
     /// Whether this client supports the advertised protocol major.

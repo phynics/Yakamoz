@@ -1,6 +1,7 @@
 import Foundation
 import JSONSchemaBuilder
 import PKContracts
+import PositronicKit
 
 /// The payload shape for the `section_title` sidecar directive (SID-2): a single
 /// optional string, mirroring `TitleDirectivePayload`. `nil`/absent means "this turn

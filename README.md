@@ -10,7 +10,7 @@ inspector. It is a showcase/dev app, not a shipping product. Work is tracked as
 
 - **macOS 26** (Tahoe) or later — the deployment target is `macOS 26.0` (required by
   the Gnostic/Axoloty client stack; see ADR 0002).
-- **Xcode 27+** with the Swift 6.4 toolchain (PositronicKit 6 requires
+- **Xcode 27+** with the Swift 6.4 toolchain (PositronicKit 7 requires
   `swift-tools-version: 6.4`; the project builds with `SWIFT_VERSION = 6.0` and
   `SWIFT_STRICT_CONCURRENCY = complete`).
 - **[XcodeGen](https://github.com/yonsei/XcodeGen)** (`brew install xcodegen`) — the
@@ -66,6 +66,14 @@ Override `GNOSTIC_CONFIG`, `YAKAMOZ_GNOSTIC_HOST`, `YAKAMOZ_GNOSTIC_PORT`,
 `YAKAMOZ_GNOSTIC_NAMESPACE`, or `YAKAMOZ_SMOKE_TOOL_ID` for another local Node. A configured
 LLM is optional for this smoke: the Network Turn must reach a terminal result, while Workspace
 attachment and invocation are asserted as successful operations.
+
+To check discovery alone, with no Workspace or Runtime process, start a Node yourself and
+run the `GnosticLiveDiscoveryTests` suite. It prints each object the Node advertises:
+
+```bash
+YAKAMOZ_GNOSTIC_SMOKE=1 YAKAMOZ_GNOSTIC_NAMESPACE=<namespace> \
+  make test TEST_SCHEME=YakamozGnosticSmoke TEST_FILTER=GnosticLiveDiscoveryTests
+```
 
 To run the app, open the generated `Yakamoz.xcodeproj` in Xcode and run the **Yakamoz**
 scheme (the app target links `YakamozCore` and `YakamozNetwork`; see the boundary note below).
@@ -209,13 +217,22 @@ The **app target** (`Sources/Yakamoz`) imports only `SwiftUI`, `SwiftData`,
 directly — boundary mirror types (e.g. `AppHealthStatus`, `UICoordinator`) live in the
 app/core so the optimized test build's linker never needs the unembedded framework
 metadata. All shared runtime logic lives in `YakamozCore` (which links PositronicKit),
-`YakamozNetwork` (which links `GnosticCore`), or upstream in `PositronicKit` itself.
+`YakamozNetwork` (which links `GnosticClient` and `GnosticProtocol`), or upstream in `PositronicKit` itself.
 
 **Gnostic boundary** (ADR 0002): the Gnostic consumer client lives in `YakamozNetwork`,
 which depends on `YakamozCore` one-way. Neither the app target nor `YakamozCore` names a
-`GnosticCore` type; `Sources/YakamozNetwork/Transport/GnosticCoreTransport.swift` is the
-only file under `Sources/` that imports `GnosticCore`. Its mapping test links `GnosticCore`
-to build catalog fixtures; every other network test runs offline against a fake transport.
+Gnostic type; `Sources/YakamozNetwork/Transport/LiveGnosticClientTransport.swift` is the
+only file under `Sources/` that imports a Gnostic module. `YakamozNetwork` also links
+`GnosticCore`, but only because the Gnostic client libraries' public signatures name its
+types. `LiveGnosticClientTransportMappingTests.swift` is the only test file that imports a
+Gnostic module: it builds catalog fixtures and holds the Gnostic-typed half of the opt-in
+live tests. Every other network test runs offline against a fake transport.
+
+**Pins:** Yakamoz pins PositronicKit `7.0.0-rc.2` and Gnostic commit
+`6132067c24c2e1033ee118023685741a62fe4bc4` (protocol major 3), because Gnostic 0.5.0 is
+unreleased (ADR 0004, #42). That commit requires exactly that PositronicKit version, so the
+two pins move together. Objects from any other protocol major stay listed, marked
+incompatible, with the reason shown.
 
 ## License
 

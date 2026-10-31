@@ -279,7 +279,8 @@ public struct ChatTurnState: Sendable, Equatable {
             if trace.startedAt == nil {
                 trace.startedAt = now
             }
-        case let .success(result):
+        case let .success(result),
+             let .workspaceSucceeded(result, _, _):
             trace.state = .succeeded
             trace.output = result.output
             trace.error = result.error
@@ -461,7 +462,7 @@ public enum ChatEventReducer {
         case let .completion(.sidecarsCompleted(completion)):
             state.sidecarResults = completion.results
 
-        case .delta(.reasoning), .delta(.generation), .delta(.audio):
+        case .delta(.reasoning), .delta(.generation), .delta(.audio), .promptCacheReport:
             break
         }
     }

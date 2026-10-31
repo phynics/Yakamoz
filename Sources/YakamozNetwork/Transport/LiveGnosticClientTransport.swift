@@ -1,21 +1,23 @@
 import Foundation
+import GnosticClient
 import GnosticCore
+import GnosticProtocol
 import Logging
 import YakamozCore
 
 /// The production ``GnosticClientTransport``, wrapping `GnosticConsumerSession`.
 ///
-/// **This is the only file in `Sources/` that imports `GnosticCore`.** Every
+/// **This is the only file in `Sources/` that imports a Gnostic module.** Every
 /// upstream type (`GnosticConsumerSession`, `GnosticBrokerSettings`,
 /// `NetworkCatalogEntry`, `NetworkCatalogChange`, `NetworkDynamicValue`) is mapped
-/// into the module-local value types here, so no GnosticCore symbol crosses into
+/// into the module-local value types here, so no Gnostic symbol crosses into
 /// `YakamozCore` or the app target.
 ///
 /// `GnosticConsumerSession` owns the Axoloty transport, subscription, and catalog;
 /// this adapter forwards its `catalogUpdates()` stream as ``GnosticTransportEvent``
 /// values and seeds the current snapshot after subscribing.
 @MainActor
-public final class GnosticCoreTransport: GnosticClientTransport {
+public final class LiveGnosticClientTransport: GnosticClientTransport {
     private let stream: AsyncStream<GnosticTransportEvent>
     private let continuation: AsyncStream<GnosticTransportEvent>.Continuation
     private var session: GnosticConsumerSession?
@@ -222,11 +224,11 @@ public final class GnosticCoreTransport: GnosticClientTransport {
         }
     }
 
-    // MARK: - GnosticCore -> module-local mapping
+    // MARK: - Gnostic -> module-local mapping
 
     /// Maps one turn update into zero or more module-local events.
     ///
-    /// Internal rather than private so `GnosticCoreTransportMappingTests` can pin the
+    /// Internal rather than private so `LiveGnosticClientTransportMappingTests` can pin the
     /// vocabulary against recorded `AscendantTurnUpdate` fixtures without a broker.
     static func map(_ update: AscendantTurnUpdate) -> [GnosticTurnEvent] {
         switch update.updateKind {
@@ -311,11 +313,14 @@ public final class GnosticCoreTransport: GnosticClientTransport {
 
     /// Maps one catalog entry, or returns `nil` for a type the browser does not list.
     ///
-    /// Internal rather than private so `GnosticCoreTransportMappingTests` can pin the
+    /// Internal rather than private so `LiveGnosticClientTransportMappingTests` can pin the
     /// mapping against recorded `NetworkCatalogEntry` fixtures without a broker.
     static func map(_ entry: NetworkCatalogEntry) -> DiscoveredNetworkObject? {
         if entry.objectType == GnosticObjectType.ascendant {
             return .ascendant(ascendant(from: entry))
+        }
+        if entry.objectType == GnosticObjectType.runtimeInstance {
+            return .ascendant(runtimeInstance(from: entry))
         }
         if entry.objectType == GnosticObjectType.timeline {
             return .timeline(timeline(from: entry))
@@ -341,6 +346,25 @@ public final class GnosticCoreTransport: GnosticClientTransport {
             backendHealth: NetworkBackendHealth(reported: string(properties, "backendHealth")),
             backendKind: string(properties, "backendKind"),
             backendVersion: string(properties, "backendVersion"),
+            provenance: provenance(for: entry, properties: properties),
+            compatibility: compatibility(for: entry)
+        )
+    }
+
+    /// Maps a Runtime instance onto the Ascendant UI model. A protocol major 3 Node
+    /// advertises this instead of an Ascendant, and a Timeline's `attachedAscendantID`
+    /// names it. It has no description, and its ACP capabilities are a nested object
+    /// rather than the retired Gnostic capability list.
+    private static func runtimeInstance(from entry: NetworkCatalogEntry) -> NetworkAscendant {
+        let properties = entry.knownProperties
+        return NetworkAscendant(
+            key: key(for: entry),
+            name: entry.name,
+            summary: "",
+            capabilities: [],
+            backendHealth: NetworkBackendHealth(reported: string(properties, "health")),
+            backendKind: string(properties, "runtimeKind"),
+            backendVersion: string(properties, "runtimeVersion"),
             provenance: provenance(for: entry, properties: properties),
             compatibility: compatibility(for: entry)
         )

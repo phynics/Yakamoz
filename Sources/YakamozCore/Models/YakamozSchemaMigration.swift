@@ -39,6 +39,18 @@ public enum YakamozSchemaV1: VersionedSchema {
 
 public enum YakamozSchemaV2: VersionedSchema {
     public static let versionIdentifier = Schema.Version(2, 0, 0)
+    public static var models: [any PersistentModel.Type] {
+        [ConversationModel.self, MessageModel.self, TurnInspectionModel.self, PersonaModel.self,
+         AgentModel.self, WorkspaceModel.self, TimelineModel.self, WorkspaceReferenceModel.self,
+         ToolReferenceModel.self, AgentInstanceModel.self, AgentTemplateModel.self,
+         RequestOriginModel.self, TimelineAnnotationModel.self, ConversationMigrationPayload.self]
+    }
+}
+
+/// Adds the Turn membership and Timeline lifetime rows PositronicKit 7's repository
+/// contract needs.
+public enum YakamozSchemaV3: VersionedSchema {
+    public static let versionIdentifier = Schema.Version(3, 0, 0)
     public static var models: [any PersistentModel.Type] { YakamozSchema.models }
 }
 
@@ -50,8 +62,9 @@ public enum YakamozSchemaV1_5: VersionedSchema {
 }
 
 public enum YakamozMigrationPlan: SchemaMigrationPlan {
-    public static var schemas: [any VersionedSchema.Type] { [YakamozSchemaV1.self, YakamozSchemaV1_5.self, YakamozSchemaV2.self] }
-    public static var stages: [MigrationStage] { [v1ToV1_5, v1_5ToV2] }
+    public static var schemas: [any VersionedSchema.Type] { [YakamozSchemaV1.self, YakamozSchemaV1_5.self, YakamozSchemaV2.self, YakamozSchemaV3.self] }
+    public static var stages: [MigrationStage] { [v1ToV1_5, v1_5ToV2, v2ToV3] }
+    private static let v2ToV3 = MigrationStage.lightweight(fromVersion: YakamozSchemaV2.self, toVersion: YakamozSchemaV3.self)
     private static let v1ToV1_5 = MigrationStage.lightweight(fromVersion: YakamozSchemaV1.self, toVersion: YakamozSchemaV1_5.self)
     private static let v1_5ToV2 = MigrationStage.custom(
         fromVersion: YakamozSchemaV1_5.self,

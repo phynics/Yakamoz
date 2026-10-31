@@ -1,5 +1,6 @@
 import Foundation
 import PKContracts
+import PositronicKit
 import SwiftData
 
 /// Single source of truth for the full SwiftData schema: every `@Model` type that must
@@ -21,6 +22,8 @@ public enum YakamozSchema {
         RequestOriginModel.self,
         TimelineAnnotationModel.self,
         ConversationMigrationPayload.self,
+        TurnMessageMembershipModel.self,
+        TimelineLifetimeModel.self,
     ]
 }
 
@@ -395,12 +398,57 @@ public final class TimelineModel {
     }
 }
 
+/// Records that a message belongs to a Turn, in the Turn's write order.
+///
+/// `SwiftDataTimelineRuntimeRepository` inserts this row in the same `ModelContext.save()`
+/// as the message it names, so one transaction makes both visible or neither. A retried
+/// Turn can adopt its predecessor's input, so a message may have more than one row.
+@Model
+public final class TurnMessageMembershipModel {
+    /// `"<turnId>:<messageId>"`.
+    @Attribute(.unique) public var id: String
+    public var turnId: UUID
+    public var messageId: UUID
+    /// The Timeline that owns the message, so deleting the Timeline can cascade.
+    public var timelineId: UUID
+    /// The message's position in `TurnRecord.memberMessageIDs`.
+    public var ordinal: Int
+
+    public init(turnId: UUID, messageId: UUID, timelineId: UUID, ordinal: Int) {
+        id = "\(turnId.uuidString):\(messageId.uuidString)"
+        self.turnId = turnId
+        self.messageId = messageId
+        self.timelineId = timelineId
+        self.ordinal = ordinal
+    }
+}
+
+/// The `TimelineRecord` lifetime fields that `TimelineModel` has no column for.
+///
+/// An ordinary Timeline has no row. This is a separate entity because changing
+/// `TimelineModel` would change the checksum of every earlier `VersionedSchema` that
+/// shares the class, and stores on disk could then no longer be matched for migration.
+@Model
+public final class TimelineLifetimeModel {
+    @Attribute(.unique) public var timelineId: UUID
+    public var isEphemeral: Bool
+    /// JSON-encoded `TimelineForkOrigin`, when the Timeline was forked.
+    public var forkedFromData: Data?
+
+    public init(timelineId: UUID, isEphemeral: Bool, forkedFromData: Data?) {
+        self.timelineId = timelineId
+        self.isEphemeral = isEphemeral
+        self.forkedFromData = forkedFromData
+    }
+}
+
 /// A persisted `PositronicKit.WorkspaceReference` (runtime/virtual document workspace).
 ///
 /// Distinct from `WorkspaceModel` (Yakamoz's folder-backed workspace, Task 3): this
-/// entity stores the full `WorkspaceReference` surface (URI, trust level, status,
-/// origin attribution) needed by `WorkspaceStore`. Nested `tools` are
-/// stored separately as `ToolReferenceModel` rows keyed by `workspaceId`.
+/// entity stores the `WorkspaceReference` surface (URI, status, origin attribution)
+/// needed by `WorkspaceStore`. Nested `tools` are stored separately as
+/// `ToolReferenceModel` rows keyed by `workspaceId`. PositronicKit 7 removed the trust
+/// level; `trustLevelRaw` stays only so existing stores keep their schema.
 @Model
 public final class WorkspaceReferenceModel {
     @Attribute(.unique) public var id: UUID
@@ -414,6 +462,9 @@ public final class WorkspaceReferenceModel {
     public var statusRaw: String
     public var contextInjection: String?
     public var createdAt: Date
+
+    /// The value written to `trustLevelRaw`, which nothing reads any more.
+    static let retiredTrustLevelRaw = "full"
 
     public init(
         id: UUID,

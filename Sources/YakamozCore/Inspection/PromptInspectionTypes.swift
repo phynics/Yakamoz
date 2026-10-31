@@ -1,5 +1,6 @@
 import Foundation
 import PKContracts
+import PositronicKit
 import PKPrompt
 
 /// Yakamoz's persisted prompt-inspection input. PositronicKit v4 intentionally keeps prompt

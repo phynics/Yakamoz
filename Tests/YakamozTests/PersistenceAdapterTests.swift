@@ -30,7 +30,7 @@ struct PersistenceAdapterTests {
     @Test("Round-trips messages ordered by timestamp")
     func messagesRoundTrip() async throws {
         let stores = try makeStores()
-        let messageStore: any TimelineMessageStoreProtocol = stores.runtime
+        let messageStore = stores.runtime
         let timelineId = UUID()
 
         let first = TimelineMessage(
@@ -69,7 +69,7 @@ struct PersistenceAdapterTests {
     @Test("Prunes old messages excluding recent ones, supports dry run")
     func messagePruning() async throws {
         let stores = try makeStores()
-        let messageStore: any TimelineMessageStoreProtocol = stores.runtime
+        let messageStore = stores.runtime
         let timelineId = UUID()
 
         let old = TimelineMessage(
@@ -101,7 +101,7 @@ struct PersistenceAdapterTests {
     @Test("Fetches turn snapshots for a timeline")
     func messageSnapshots() async throws {
         let stores = try makeStores()
-        let messageStore: any TimelineMessageStoreProtocol = stores.runtime
+        let messageStore = stores.runtime
         let timelineId = UUID()
 
         let snapshot = TurnSnapshot(
@@ -110,13 +110,12 @@ struct PersistenceAdapterTests {
             modelRoundIndex: 0,
             maxModelRounds: 5
         )
-        let snapshotData = try JSONEncoder().encode(snapshot)
 
         let message = TimelineMessage(
             timelineID: timelineId,
             role: .assistant,
             content: "Response",
-            snapshotData: snapshotData
+            turnSnapshot: snapshot
         )
         try await messageStore.saveMessage(message)
 
@@ -130,7 +129,7 @@ struct PersistenceAdapterTests {
     @Test("Round-trips timelines")
     func timelinesRoundTrip() async throws {
         let stores = try makeStores()
-        let timelineStore: any TimelinePersistenceProtocol = stores.runtime
+        let timelineStore = stores.runtime
 
         var timeline = YakamozThread(
             title: "Test Timeline"
@@ -158,7 +157,7 @@ struct PersistenceAdapterTests {
     @Test("Prunes old timelines excluding specified ids")
     func timelinePruning() async throws {
         let stores = try makeStores()
-        let timelineStore: any TimelinePersistenceProtocol = stores.runtime
+        let timelineStore = stores.runtime
 
         let oldTimeline = YakamozThread(
             title: "Old",
@@ -220,12 +219,12 @@ struct PersistenceAdapterTests {
     @Test("Adds, syncs, and looks up known and custom tool references")
     func toolsRoundTrip() async throws {
         let stores = try makeStores()
-        let toolStore: any ToolPersistenceProtocol = stores.tools
+        let toolStore = stores.tools
 
         let workspaceId = UUID()
         try await toolStore.addToolToWorkspace(workspaceID: workspaceId, tool: .known(id: "shell"))
 
-        let customDefinition = WorkspaceToolDefinition(
+        let customDefinition = ToolDefinition(
             id: "custom-tool",
             name: "Custom Tool",
             description: "A custom tool"
@@ -253,7 +252,7 @@ struct PersistenceAdapterTests {
     @Test("Fetches origin-hosted tools")
     func originToolsRoundTrip() async throws {
         let stores = try makeStores()
-        let toolStore: any ToolPersistenceProtocol = stores.tools
+        let toolStore = stores.tools
         let originId = UUID()
         let workspaceId = UUID()
 
@@ -275,8 +274,8 @@ struct PersistenceAdapterTests {
     @Test("Round-trips agent instances and their attached timelines")
     func agentInstancesRoundTrip() async throws {
         let stores = try makeStores()
-        let agentStore: any AgentStoreProtocol = stores.agents
-        let timelineStore: any TimelinePersistenceProtocol = stores.runtime
+        let agentStore = stores.agents
+        let timelineStore = stores.runtime
 
         let privateTimelineId = UUID()
         let instance = Agent(
@@ -311,7 +310,7 @@ struct PersistenceAdapterTests {
     @Test("Round-trips agent templates by id and key")
     func agentTemplatesRoundTrip() async throws {
         let stores = try makeStores()
-        let templateStore: any AgentTemplateStoreProtocol = stores.templates
+        let templateStore = stores.templates
 
         let template = AgentTemplate(
             id: UUID(),
