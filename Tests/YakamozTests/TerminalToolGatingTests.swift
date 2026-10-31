@@ -185,6 +185,9 @@ private func clearPersistedWorkspaceKind(in storeURL: URL) throws {
         throw SQLiteFixtureError.open(sqliteMessage(database))
     }
     defer { sqlite3_close(database) }
+    // SwiftData releases the store asynchronously after its container is torn down, so
+    // wait out its lock instead of failing the first statement.
+    sqlite3_busy_timeout(database, 5000)
 
     let tables = try sqliteTextRows(database, sql: "SELECT name FROM sqlite_master WHERE type = 'table'")
     let workspaceTables = tables.filter { $0.uppercased().contains("WORKSPACEMODEL") }

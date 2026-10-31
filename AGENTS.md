@@ -29,6 +29,16 @@ Gotchas: run `make generate` after editing `project.yml`; trust `make verify` (a
 `swift test` can pass having run **0** tests); if a build fails with `missing Metal
 Toolchain`, run `xcodebuild -downloadComponent MetalToolchain` once.
 
+Gotcha — XcodeGen presets (issue #35): xcodegen finds its `SettingPresets` relative to the
+path it was *invoked* by, so a symlinked install (e.g. a Nix profile's
+`/etc/profiles/per-user/$USER/bin/xcodegen`) silently loads none. Without presets or pins,
+xcodebuild compiles "Debug" with `-O` and no `DEBUG`, stripping `assert`/`assertionFailure`,
+so tests pass locally and trap in CI. Keep the `settings.configs.debug`/`release` pins in
+`project.yml`; the Makefile invokes xcodegen by its resolved real path (override with
+`XCODEGEN=`) and `make generate` fails fast if the generated pbxproj lacks
+`SWIFT_OPTIMIZATION_LEVEL = "-Onone"` / `DEBUG`. To confirm a build,
+`grep -- '-Onone' .build/verify-xcodebuild.log`.
+
 The opt-in `make gnostic-smoke` target is excluded from `make verify` and CI. It uses
 `GNOSTIC_CONFIG` (default `~/.gnostic/config.json`), starts a temporary `gnostic serve`
 process, and expects Mosquitto on `127.0.0.1:1883`. If Mosquitto is not on `PATH`, the
