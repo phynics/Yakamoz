@@ -20,6 +20,16 @@ struct NetworkDisplayTests {
         #expect(NetworkEntityStatus.live.explanation == nil)
     }
 
+    @Test("The incompatibility reason says which side is out of date")
+    func incompatibilityReasons() {
+        #expect(NetworkEntityStatus.incompatible(protocolMajor: 2).explanation
+            == "Its Node runs an older Gnostic (protocol 2). Yakamoz needs protocol 3, so upgrade the Node.")
+        #expect(NetworkEntityStatus.incompatible(protocolMajor: 4).explanation
+            == "Its Node runs a newer Gnostic (protocol 4). Yakamoz needs protocol 3, so upgrade Yakamoz.")
+        #expect(NetworkEntityStatus.incompatible(protocolMajor: nil).explanation
+            == "Its Node did not advertise a protocol version. Yakamoz needs protocol 3.")
+    }
+
     @Test("An unusable workspace is degraded with its effective-status description")
     func workspaceStatus() {
         let key = TestEntities.key(UUID())

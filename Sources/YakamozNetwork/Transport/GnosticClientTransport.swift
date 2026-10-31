@@ -2,9 +2,9 @@ import Foundation
 
 /// A change pushed by a ``GnosticClientTransport`` as it observes the network.
 ///
-/// This is the module-local seam event. Upstream `GnosticCore` catalog types are
-/// mapped into ``DiscoveredNetworkObject`` inside `GnosticCoreTransport`, so no
-/// GnosticCore symbol crosses this boundary.
+/// This is the module-local seam event. Upstream Gnostic catalog types are mapped into
+/// ``DiscoveredNetworkObject`` inside `LiveGnosticClientTransport`, so no Gnostic symbol
+/// crosses this boundary.
 public enum GnosticTransportEvent: Sendable, Equatable {
     /// A supported object was advertised or resolved.
     case discovered(DiscoveredNetworkObject)
@@ -20,7 +20,7 @@ public enum GnosticTransportEvent: Sendable, Equatable {
 /// A streamed step of one remote Turn, mapped from the Gnostic update vocabulary.
 ///
 /// Module-local so the backend adapter can fold these into PositronicKit
-/// ``TurnEvent``s without any GnosticCore symbol crossing the transport seam.
+/// ``TurnEvent``s without any Gnostic symbol crossing the transport seam.
 public enum GnosticTurnEvent: Sendable, Equatable {
     /// An assistant-text fragment to append.
     case textDelta(String)
@@ -188,7 +188,7 @@ public enum GnosticTransportError: Error, Sendable, Equatable, LocalizedError {
 /// The connection/discovery seam between ``NetworkClientSession`` and a concrete
 /// Gnostic client.
 ///
-/// Production is ``GnosticCoreTransport``; tests use an offline fake. Keeping the
+/// Production is ``LiveGnosticClientTransport``; tests use an offline fake. Keeping the
 /// seam narrow means the connection lifecycle, backoff, and catalog reduction stay
 /// pure and unit-testable with no broker in CI (issue #8).
 public protocol GnosticClientTransport: Sendable {

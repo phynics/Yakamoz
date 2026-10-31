@@ -37,7 +37,6 @@ struct TerminalWorkspaceTests {
 
         #expect(reference.location == .attached)
         #expect(reference.rootPath == rootURL.path)
-        #expect(reference.trustLevel == .full)
         await registry.terminateAll()
     }
 

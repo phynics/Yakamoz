@@ -93,7 +93,6 @@ public struct ProviderSettingsSnapshot: Sendable, Equatable {
             modelName: model,
             utilityModel: model,
             fastModel: model,
-            toolFormat: .openAI,
             timeoutInterval: timeoutInterval,
             maxRetries: maxRetries,
             temperature: temperature,

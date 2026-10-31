@@ -59,7 +59,7 @@ extension MessageModel {
 }
 
 /// Wraps the full `TimelineMessage` so non-scalar fields (reasoning, toolCalls,
-/// toolCallID, agentID, executionKind, snapshotData, status) survive the round
+/// toolCallID, agentID, executionKind, turnSnapshot, status) survive the round
 /// trip through `MessageModel.messageEnvelopeData`.
 private struct MessageStoreEnvelope: Codable {
     var message: TimelineMessage
@@ -80,8 +80,16 @@ extension TimelineModel {
         )
     }
 
-    func toTimelineRecord() -> TimelineRecord {
-        TimelineRecord(
+    func toTimelineRecord(lifetime: TimelineLifetimeModel?) throws -> TimelineRecord {
+        let forkedFrom: TimelineForkOrigin?
+        do {
+            forkedFrom = try lifetime?.forkedFromData.map {
+                try JSONDecoder().decode(TimelineForkOrigin.self, from: $0)
+            }
+        } catch {
+            throw PersistenceError.decoding("TimelineForkOrigin: \(error)")
+        }
+        return TimelineRecord(
             id: id,
             title: title,
             createdAt: createdAt,
@@ -89,7 +97,9 @@ extension TimelineModel {
             isArchived: isArchived,
             workingDirectory: workingDirectory,
             attachedAgentID: attachedAgentInstanceId,
-            isPrivate: isPrivate
+            isPrivate: isPrivate,
+            isEphemeral: lifetime?.isEphemeral ?? false,
+            forkedFrom: forkedFrom
         )
     }
 
@@ -108,12 +118,13 @@ extension TimelineModel {
 
 /// SwiftData-backed `TimelineRuntimeRepository`: Timeline identity and message
 /// history are durable rows in the shared `ModelContainer`, while Turn lifecycle
-/// bookkeeping (admission, notices, correlations, intents, results, summaries)
-/// is delegated to an in-process `InMemoryTimelineRuntimeRepository`.
+/// bookkeeping (admission, notices, correlations, intents, results) is delegated to an
+/// in-process `InMemoryTimelineRuntimeRepository`.
 ///
-/// Message writes are mirrored into that in-memory store after the durable save, so
-/// summary projections validate against the same history the Turn bookkeeping sees.
-/// Summaries themselves stay in-process with the rest of the bookkeeping.
+/// Message writes are mirrored into that in-memory store, so the Turn bookkeeping
+/// validates against the same history the durable rows hold. Turn membership is durable:
+/// every Turn-owned message write saves its `TurnMessageMembershipModel` row in the same
+/// `ModelContext.save()` as the message, so one transaction commits both or neither.
 ///
 /// Message reads order by the stored `createdAt`; messages written with identical
 /// timestamps have no append-order column, so their relative order is unspecified.
@@ -132,13 +143,13 @@ extension TimelineModel {
 ///
 /// **Failure ordering:** Turn lifecycle moves still mutate the in-memory
 /// bookkeeping first and persist to SwiftData second (`admitTurn`,
-/// `recordToolResult(_:message:)`, `completeTurn`); message-only writes
-/// (`saveMessage`) save durably first and mirror second. A SwiftData save failure
+/// `recordTurnMessage`, `recordToolResult(_:message:)`, `completeTurn`); message-only
+/// writes (`saveMessage`) save durably first and mirror second. A SwiftData save failure
 /// can therefore leave the bookkeeping ahead of disk for the life of the process;
 /// the durable migration is tracked by running the upstream
 /// `TimelineRuntimeRepositoryConformanceSuite` against this adapter.
 @ModelActor
-public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository, TimelineSummaryStore {
+public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository {
     public nonisolated let isDurable = true
 
     private let turnRuntime = InMemoryTimelineRuntimeRepository()
@@ -153,6 +164,7 @@ public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository, Time
         } else {
             try modelContext.insert(TimelineModel(timeline))
         }
+        try stageLifetime(of: timeline)
         do {
             try modelContext.save()
             // Turn admission validates Timeline existence against the bookkeeping
@@ -171,7 +183,7 @@ public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository, Time
         var descriptor = FetchDescriptor<TimelineModel>(predicate: #Predicate { $0.id == id })
         descriptor.fetchLimit = 1
         do {
-            return try modelContext.fetch(descriptor).first?.toTimelineRecord()
+            return try modelContext.fetch(descriptor).first?.toTimelineRecord(lifetime: lifetime(of: id))
         } catch {
             Log.runtime.warning("failed to fetch Timeline", metadata: [
                 "store": "TimelineRuntimeRepository",
@@ -192,7 +204,9 @@ public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository, Time
             )
         }
         do {
-            return try modelContext.fetch(descriptor).map { $0.toTimelineRecord() }
+            let lifetimes = try modelContext.fetch(FetchDescriptor<TimelineLifetimeModel>())
+            let lifetimesByTimeline = Dictionary(uniqueKeysWithValues: lifetimes.map { ($0.timelineId, $0) })
+            return try modelContext.fetch(descriptor).map { try $0.toTimelineRecord(lifetime: lifetimesByTimeline[$0.id]) }
         } catch {
             Log.runtime.warning("failed to fetch all Timelines", metadata: [
                 "store": "TimelineRuntimeRepository",
@@ -202,8 +216,8 @@ public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository, Time
     }
 
     public func deleteTimeline(id: UUID) async throws {
-        // Cascade: messages and summaries go with the Timeline.
-        try modelContext.delete(model: MessageModel.self, where: #Predicate { $0.conversationId == id })
+        // Cascade: messages and their Turn membership go with the Timeline.
+        try stageHistoryDeletion(ofTimeline: id)
         try modelContext.delete(model: TimelineModel.self, where: #Predicate { $0.id == id })
         do {
             try modelContext.save()
@@ -214,6 +228,23 @@ public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository, Time
                 "timelineID": "\(id)",
             ])
             throw error
+        }
+    }
+
+    public func deleteEphemeralTimeline(id: UUID) async throws {
+        var descriptor = FetchDescriptor<TimelineModel>(predicate: #Predicate { $0.id == id })
+        descriptor.fetchLimit = 1
+        guard try modelContext.fetch(descriptor).first != nil else { return }
+        guard try lifetime(of: id)?.isEphemeral == true else {
+            throw TimelineRuntimeRepositoryError.historyDeletionForbidden(timelineID: id)
+        }
+        try await deleteTimeline(id: id)
+    }
+
+    public func purgeEphemeralTimelines() async throws {
+        let descriptor = FetchDescriptor<TimelineLifetimeModel>(predicate: #Predicate { $0.isEphemeral })
+        for id in try modelContext.fetch(descriptor).map(\.timelineId) {
+            try await deleteTimeline(id: id)
         }
     }
 
@@ -230,7 +261,7 @@ public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository, Time
                 let id = model.id
                 modelContext.delete(model)
                 // Cascade: a pruned Timeline must not leave unreachable history behind.
-                try modelContext.delete(model: MessageModel.self, where: #Predicate { $0.conversationId == id })
+                try stageHistoryDeletion(ofTimeline: id)
             }
             do {
                 try modelContext.save()
@@ -251,7 +282,8 @@ public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository, Time
     // MARK: - TimelineMessageStoreProtocol
 
     public func saveMessage(_ message: TimelineMessage) async throws {
-        try await persist(message)
+        try persist(message)
+        try await turnRuntime.saveMessage(message)
     }
 
     public func fetchMessages(for timelineID: UUID) async throws -> [TimelineMessage] {
@@ -280,6 +312,8 @@ public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository, Time
         let matches = try modelContext.fetch(descriptor)
         if !dryRun {
             for model in matches {
+                let messageId = model.id
+                try modelContext.delete(model: TurnMessageMembershipModel.self, where: #Predicate { $0.messageId == messageId })
                 modelContext.delete(model)
             }
             do {
@@ -303,12 +337,8 @@ public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository, Time
         let models = try modelContext.fetch(descriptor)
         var snapshots: [TurnSnapshot] = []
         for model in models {
-            let message = try model.toTimelineMessage()
-            guard let data = message.snapshotData else { continue }
-            do {
-                try snapshots.append(JSONDecoder().decode(TurnSnapshot.self, from: data))
-            } catch {
-                throw PersistenceError.decoding("TurnSnapshot: \(error)")
+            if let snapshot = try model.toTimelineMessage().turnSnapshot {
+                snapshots.append(snapshot)
             }
         }
         return snapshots
@@ -338,7 +368,7 @@ public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository, Time
             now: now
         )
         if admission.disposition == .admitted, let inputMessage {
-            try await persist(inputMessage)
+            try persist(inputMessage, memberOf: admission.turn.identity.turnID)
         }
         return admission
     }
@@ -369,13 +399,47 @@ public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository, Time
             now: now
         )
         if admission.disposition == .admitted, let inputMessage {
-            try await persist(inputMessage)
+            try persist(inputMessage, memberOf: admission.turn.identity.turnID)
         }
         return admission
     }
 
     public func fetchTurn(id: UUID) async throws -> TurnRecord? {
         try await turnRuntime.fetchTurn(id: id)
+    }
+
+    /// Reads the durable membership rows, falling back to the bookkeeping record only to
+    /// tell a known message-free Turn (`[]`) from an unknown one (`nil`).
+    public func fetchTurnMessages(turnID: UUID) async throws -> [TimelineMessage]? {
+        let descriptor = FetchDescriptor<TurnMessageMembershipModel>(
+            predicate: #Predicate { $0.turnId == turnID },
+            sortBy: [SortDescriptor(\.ordinal)]
+        )
+        let memberIDs = try modelContext.fetch(descriptor).map(\.messageId)
+        guard !memberIDs.isEmpty else {
+            guard let recorded = try await turnRuntime.fetchTurn(id: turnID)?.memberMessageIDs else { return nil }
+            if let missing = recorded.first {
+                throw TimelineRuntimeRepositoryError.memberMessageMissing(turnID: turnID, messageID: missing)
+            }
+            return []
+        }
+        let models = try modelContext.fetch(FetchDescriptor<MessageModel>(predicate: #Predicate { memberIDs.contains($0.id) }))
+        let modelsByID = Dictionary(uniqueKeysWithValues: models.map { ($0.id, $0) })
+        return try memberIDs.map { id in
+            guard let model = modelsByID[id] else {
+                throw TimelineRuntimeRepositoryError.memberMessageMissing(turnID: turnID, messageID: id)
+            }
+            return try model.toTimelineMessage()
+        }
+    }
+
+    public func recordTurnMessage(_ message: TimelineMessage, turnID: UUID) async throws {
+        try await turnRuntime.recordTurnMessage(message, turnID: turnID)
+        try persist(message, memberOf: turnID)
+    }
+
+    public func fetchQuarantinedTurn(for timelineID: UUID) async throws -> TurnRecord? {
+        try await turnRuntime.fetchQuarantinedTurn(for: timelineID)
     }
 
     public func fetchActiveTurn(for timelineID: UUID) async throws -> TurnRecord? {
@@ -426,7 +490,7 @@ public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository, Time
 
     public func recordToolResult(_ result: RuntimeToolResult, message: TimelineMessage) async throws {
         try await turnRuntime.recordToolResult(result, message: message)
-        try await persist(message)
+        try persist(message, memberOf: result.turnID)
     }
 
     public func fetchToolIntents(turnID: UUID) async throws -> [RuntimeToolIntent] {
@@ -454,7 +518,7 @@ public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository, Time
         // Only the first, winning completion appends its final message; a late
         // first-writer-wins call reports the original record and must not duplicate it.
         if let finalMessage, record.terminalMessageID == finalMessage.id {
-            try await persist(finalMessage)
+            try persist(finalMessage, memberOf: turnID)
         }
         return record
     }
@@ -487,14 +551,6 @@ public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository, Time
         )
     }
 
-    public func saveSummary(_ summary: TimelineSummary) async throws {
-        try await turnRuntime.saveSummary(summary)
-    }
-
-    public func fetchSummaries(for timelineID: UUID) async throws -> [TimelineSummary] {
-        try await turnRuntime.fetchSummaries(for: timelineID)
-    }
-
     // MARK: - Helpers
 
     /// Rehydrates the durable Timeline identity needed by the in-memory admission state.
@@ -505,37 +561,77 @@ public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository, Time
         var descriptor = FetchDescriptor<TimelineModel>(predicate: #Predicate { $0.id == timelineID })
         descriptor.fetchLimit = 1
         guard let model = try modelContext.fetch(descriptor).first else { return }
-        try await turnRuntime.saveTimeline(model.toTimelineRecord())
+        try await turnRuntime.saveTimeline(model.toTimelineRecord(lifetime: lifetime(of: timelineID)))
     }
 
-    /// Persists one message with append-only semantics:
+    private func lifetime(of timelineID: UUID) throws -> TimelineLifetimeModel? {
+        var descriptor = FetchDescriptor<TimelineLifetimeModel>(predicate: #Predicate { $0.timelineId == timelineID })
+        descriptor.fetchLimit = 1
+        return try modelContext.fetch(descriptor).first
+    }
+
+    /// Stages the lifetime row for `timeline`, removing it for an ordinary Timeline. The
+    /// caller's save commits it with the Timeline row.
+    private func stageLifetime(of timeline: TimelineRecord) throws {
+        let existing = try lifetime(of: timeline.id)
+        guard timeline.isEphemeral || timeline.forkedFrom != nil else {
+            if let existing { modelContext.delete(existing) }
+            return
+        }
+        let forkedFromData: Data?
+        do {
+            forkedFromData = try timeline.forkedFrom.map { try JSONEncoder().encode($0) }
+        } catch {
+            throw PersistenceError.encoding("TimelineForkOrigin: \(error)")
+        }
+        if let existing {
+            existing.isEphemeral = timeline.isEphemeral
+            existing.forkedFromData = forkedFromData
+        } else {
+            modelContext.insert(TimelineLifetimeModel(
+                timelineId: timeline.id,
+                isEphemeral: timeline.isEphemeral,
+                forkedFromData: forkedFromData
+            ))
+        }
+    }
+
+    /// Stages the deletion of everything a Timeline owns other than its own row.
+    private func stageHistoryDeletion(ofTimeline id: UUID) throws {
+        try modelContext.delete(model: MessageModel.self, where: #Predicate { $0.conversationId == id })
+        try modelContext.delete(model: TurnMessageMembershipModel.self, where: #Predicate { $0.timelineId == id })
+        try modelContext.delete(model: TimelineLifetimeModel.self, where: #Predicate { $0.timelineId == id })
+    }
+
+    /// Persists one message with append-only semantics, and its Turn membership when
+    /// `turnID` is given, in a single `ModelContext.save()`:
     ///
     /// - a message whose id is already stored is a no-op when it matches the stored
     ///   message ignoring `timestamp` (duplicate delivery), and throws
     ///   ``TimelineRuntimeRepositoryError/appendOnlyViolation(messageID:)`` when any
     ///   other field differs.
-    /// - otherwise the message is inserted and saved.
+    /// - otherwise the message is inserted.
     ///
-    /// Mirrors `InMemoryTimelineRuntimeRepository`'s equivalence rule, then mirrors the
-    /// message into that same in-memory store so summary projections validate against
-    /// the full history.
-    private func persist(_ message: TimelineMessage) async throws {
+    /// A retried Turn adopts its predecessor's stored input, so a membership row can be
+    /// new even when the message is not. A failed staging or save rolls back both inserts.
+    private func persist(_ message: TimelineMessage, memberOf turnID: UUID? = nil) throws {
         let messageID = message.id
         let descriptor = FetchDescriptor<MessageModel>(predicate: #Predicate { $0.id == messageID })
         if let existing = try modelContext.fetch(descriptor).first {
-            let stored = try existing.toTimelineMessage()
-            guard Self.messagesEquivalentIgnoringTimestamp(stored, message) else {
+            guard Self.messagesEquivalentIgnoringTimestamp(try existing.toTimelineMessage(), message) else {
                 throw TimelineRuntimeRepositoryError.appendOnlyViolation(messageID: messageID)
             }
-            try await turnRuntime.saveMessage(message)
-            return
+        } else {
+            try modelContext.insert(MessageModel(message))
         }
-
-        let model = try MessageModel(message)
-        modelContext.insert(model)
         do {
+            if let turnID {
+                try stageMembership(of: message, in: turnID)
+            }
+            guard modelContext.hasChanges else { return }
             try modelContext.save()
         } catch {
+            modelContext.rollback()
             Log.runtime.error("failed to save TimelineMessage", metadata: [
                 "store": "TimelineRuntimeRepository",
                 "timelineID": "\(message.timelineID)",
@@ -543,7 +639,20 @@ public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository, Time
             ])
             throw error
         }
-        try await turnRuntime.saveMessage(message)
+    }
+
+    private func stageMembership(of message: TimelineMessage, in turnID: UUID) throws {
+        let messageID = message.id
+        let rows = try modelContext.fetch(FetchDescriptor<TurnMessageMembershipModel>(
+            predicate: #Predicate { $0.turnId == turnID }
+        ))
+        guard !rows.contains(where: { $0.messageId == messageID }) else { return }
+        modelContext.insert(TurnMessageMembershipModel(
+            turnId: turnID,
+            messageId: messageID,
+            timelineId: message.timelineID,
+            ordinal: rows.count
+        ))
     }
 
     private static func messagesEquivalentIgnoringTimestamp(
@@ -561,7 +670,7 @@ public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository, Time
             && lhs.agentID == rhs.agentID
             && lhs.executionKind == rhs.executionKind
             && lhs.remoteDepth == rhs.remoteDepth
-            && lhs.snapshotData == rhs.snapshotData
+            && lhs.turnSnapshot == rhs.turnSnapshot
             && lhs.status == rhs.status
     }
 }

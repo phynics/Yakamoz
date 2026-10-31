@@ -146,7 +146,7 @@ struct YakamozApp: App {
 
         // Gnostic client mode (ADR 0002, issues #7/#8). Settings and the client session are
         // owned here and injected into the environment; the transport is the only object that
-        // touches GnosticCore. The session stays disconnected unless the pane's toggle is on.
+        // touches a Gnostic module. The session stays disconnected unless the pane's toggle is on.
         let networkSettings = NetworkSettings()
         self.networkSettings = networkSettings
         let initialNetworkConfiguration = (try? networkSettings.brokerConfiguration(secrets: secrets))
@@ -157,7 +157,7 @@ struct YakamozApp: App {
                 identity: NetworkSettingsDefaults.identity,
                 isEnabled: false
             )
-        let networkTransport = GnosticCoreTransport()
+        let networkTransport = LiveGnosticClientTransport()
         let networkSession = NetworkClientSession(
             configuration: initialNetworkConfiguration,
             transport: networkTransport

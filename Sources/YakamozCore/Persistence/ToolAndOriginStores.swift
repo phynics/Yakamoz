@@ -56,14 +56,13 @@ extension RequestOriginModel {
     }
 }
 
-/// `ToolPersistenceProtocol` adapter persisting `ToolReference` values as
-/// `ToolReferenceModel` rows keyed by `(workspaceId, toolId)`.
+/// Persists `ToolReference` values as `ToolReferenceModel` rows keyed by `(workspaceId, toolId)`.
 ///
 /// Origin-hosted tools (`fetchOriginTools`) are resolved by finding the workspace(s)
 /// attributed to the origin via `WorkspaceReferenceModel.originId`, then fetching
 /// their tool rows — there is no separate origin-to-tool table.
 @ModelActor
-public actor SwiftDataToolStore: ToolPersistenceProtocol {
+public actor SwiftDataToolStore {
     public nonisolated let isDurable = true
 
     public func addToolToWorkspace(workspaceID: UUID, tool: ToolReference) async throws {

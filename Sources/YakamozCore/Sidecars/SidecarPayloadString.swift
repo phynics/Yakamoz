@@ -1,5 +1,6 @@
 import Foundation
 import PKContracts
+import PositronicKit
 
 /// Shared decode path for sidecar-directive `.value` payloads (SID-3).
 ///

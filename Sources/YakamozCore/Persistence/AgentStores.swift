@@ -247,7 +247,9 @@ public actor SwiftDataAgentInstanceStore: AgentStoreProtocol {
             sortBy: [SortDescriptor(\.createdAt)]
         )
         do {
-            return try modelContext.fetch(descriptor).map { $0.toTimelineRecord() }
+            let lifetimes = try modelContext.fetch(FetchDescriptor<TimelineLifetimeModel>())
+            let lifetimesByTimeline = Dictionary(uniqueKeysWithValues: lifetimes.map { ($0.timelineId, $0) })
+            return try modelContext.fetch(descriptor).map { try $0.toTimelineRecord(lifetime: lifetimesByTimeline[$0.id]) }
         } catch {
             Log.runtime.warning("failed to fetch Timelines for Agent", metadata: [
                 "store": "AgentInstanceStore",
@@ -258,14 +260,13 @@ public actor SwiftDataAgentInstanceStore: AgentStoreProtocol {
     }
 }
 
-/// `AgentTemplateStoreProtocol` adapter persisting `AgentTemplate` values as
-/// `AgentTemplateModel` rows. `fetchAgentTemplate(key:)`/`hasAgentTemplate(id:)`
-/// take `String` per the protocol (templates may be looked up by either the
+/// Persists `AgentTemplate` values as `AgentTemplateModel` rows.
+/// `fetchAgentTemplate(key:)`/`hasAgentTemplate(id:)` take `String` (templates may be looked up by either the
 /// UUID's string form or another stable key); this adapter matches against
 /// `id.uuidString` since `AgentTemplate.id` is the only stable identifier on
 /// the value type.
 @ModelActor
-public actor SwiftDataAgentTemplateStore: AgentTemplateStoreProtocol {
+public actor SwiftDataAgentTemplateStore {
     public nonisolated let isDurable = true
 
     public func saveAgentTemplate(_ agent: AgentTemplate) async throws {

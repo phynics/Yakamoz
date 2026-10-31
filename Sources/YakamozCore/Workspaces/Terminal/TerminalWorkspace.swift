@@ -37,8 +37,7 @@ public actor TerminalWorkspace: WorkspaceToolProvider, WorkspaceFileProvider {
             uri: .terminal(rootPath: rootURL.path),
             location: .attached,
             tools: Self.toolIds.map { .known(id: $0) },
-            rootPath: rootURL.path,
-            trustLevel: .full
+            rootPath: rootURL.path
         )
     }
 

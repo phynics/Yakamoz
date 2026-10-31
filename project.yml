@@ -36,16 +36,17 @@ settings:
 packages:
   PositronicKit:
     url: https://github.com/phynics/PositronicKit.git
-    exactVersion: "6.1.0-rc.1"
-  # GnosticCore provides the consumer primitives (connection, discovery, catalog) that
-  # YakamozNetwork wraps behind its own protocol seam. Gnostic 0.4.2 is built against
-  # PositronicKit `exact: 6.1.0-rc.1` — the same pin Yakamoz uses above — so the two
-  # exact pins co-resolve. Moving either one requires moving the other in the same commit.
-  # 0.4.2 also drops the 27-only `withTaskCancellationShield` call (its inlined body
-  # referenced runtime symbols absent before macOS 27), so GnosticCore loads on 26 again.
+    exactVersion: "7.0.0-rc.2"
+  # GnosticClient and GnosticProtocol provide the consumer session, typed clients, and
+  # wire vocabulary (protocol major 3) that YakamozNetwork wraps behind its own protocol
+  # seam; GnosticCore is linked only because those clients' public signatures name its
+  # types (`AscendantTurnUpdate`, `NetworkCatalogChange`). Gnostic 0.5.0 is unreleased, so this is a revision pin until it ships (#42,
+  # ADR 0004). That commit declares PositronicKit `exact: 7.0.0-rc.2` — the same pin
+  # Yakamoz uses above — so the two co-resolve. Moving either one requires moving the
+  # other in the same commit.
   Gnostic:
     url: https://github.com/phynics/Gnostic.git
-    exactVersion: "0.4.2"
+    revision: 6132067c24c2e1033ee118023685741a62fe4bc4
   # ErrorKit provides `userFriendlyMessage` and the `Error` string-interpolation
   # used by YakamozCore's logging and YakamozNetwork's session. Pinned to the
   # already-resolved 1.2.1 so resolution is a no-op; declared explicitly so the
@@ -96,10 +97,10 @@ targets:
       - target: YakamozNetwork
       - package: MarkdownUI
         product: MarkdownUI
-  # Gnostic consumer client. Keeps MQTT/GnosticCore out of YakamozCore's local chat stack
+  # Gnostic consumer client. Keeps MQTT/Gnostic out of YakamozCore's local chat stack
   # (ADR 0002). One-way dependency: YakamozNetwork -> YakamozCore. The app target imports
-  # YakamozNetwork but never a GnosticCore type; `Transport/GnosticCoreTransport.swift` is
-  # the single file that imports GnosticCore.
+  # YakamozNetwork but never a Gnostic type; `Transport/LiveGnosticClientTransport.swift`
+  # is the single file that imports a Gnostic module.
   YakamozNetwork:
     type: framework
     platform: macOS
@@ -111,7 +112,7 @@ targets:
         PRODUCT_NAME: YakamozNetwork
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGNING_ALLOWED: NO
-        # Static linkage keeps a single copy of the PositronicKit/GnosticCore type
+        # Static linkage keeps a single copy of the PositronicKit/Gnostic type
         # metadata in the process. As a dynamic framework this target embedded its own
         # copy, so cross-framework error casts (e.g. the upstream conformance suite
         # catching a PositronicKit error thrown by YakamozCore) failed identity checks.
@@ -119,10 +120,18 @@ targets:
     dependencies:
       - target: YakamozCore
       - package: Gnostic
+        product: GnosticClient
+      - package: Gnostic
+        product: GnosticProtocol
+      # `GnosticTurnClient.updates` and `GnosticConsumerSession.catalogUpdates` return
+      # types that only GnosticCore declares.
+      - package: Gnostic
         product: GnosticCore
       # GnosticBackend conforms to the shared ChatRunning seam, which traffics in
       # PositronicKit's TurnEvent vocabulary. Only this module's backend adapter names
       # those types; the app target still never imports them.
+      - package: PositronicKit
+        product: PositronicKit
       - package: PositronicKit
         product: PKContracts
       - package: swift-log
@@ -201,12 +210,19 @@ targets:
     dependencies:
       - target: YakamozNetwork
       - target: YakamozCore
-      # GnosticCore is linked here only so `GnosticCoreTransportMappingTests` can build
-      # `NetworkCatalogEntry` fixtures for the adapter's mapping. The boundary rule
-      # ("one file imports GnosticCore") is about `Sources/`; every other test stays
-      # offline against `FakeGnosticTransport`.
+      # Gnostic is linked here only for `LiveGnosticClientTransportMappingTests`, which builds
+      # `NetworkCatalogEntry` fixtures for the adapter's mapping and holds the probe that the
+      # environment-gated live smoke uses. The boundary rule ("one file imports a Gnostic
+      # module") is about `Sources/`; every other test stays offline against
+      # `FakeGnosticTransport`.
+      - package: Gnostic
+        product: GnosticClient
+      - package: Gnostic
+        product: GnosticProtocol
       - package: Gnostic
         product: GnosticCore
+      - package: PositronicKit
+        product: PositronicKit
       - package: PositronicKit
         product: PKContracts
       - package: swift-log

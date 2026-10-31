@@ -35,8 +35,22 @@ public enum NetworkEntityStatus: Equatable, Sendable {
         case .offline:
             "No longer advertised on the network. It reappears when its Node advertises it again."
         case let .incompatible(major):
-            "Advertises protocol version \(major.map(String.init) ?? "unknown"), which this version of Yakamoz does not support."
+            Self.incompatibilityReason(major: major)
         }
+    }
+
+    private static func incompatibilityReason(major: Int?) -> String {
+        let supported = NetworkCompatibility.supportedProtocolMajor
+        guard let major else {
+            return "Its Node did not advertise a protocol version. Yakamoz needs protocol \(supported)."
+        }
+        if major < supported {
+            return "Its Node runs an older Gnostic (protocol \(major)). Yakamoz needs protocol \(supported), so upgrade the Node."
+        }
+        if major > supported {
+            return "Its Node runs a newer Gnostic (protocol \(major)). Yakamoz needs protocol \(supported), so upgrade Yakamoz."
+        }
+        return "Its Node advertised an unusable object for protocol \(major)."
     }
 
     /// Resolves the status of an Ascendant.

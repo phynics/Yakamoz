@@ -532,7 +532,7 @@ public actor YakamozRuntime: ChatRunning {
 
     /// ChatRunning conformance that resolves the latest settings and API key on each turn.
     ///
-    /// PositronicKit 6 exposes managed execution as
+    /// PositronicKit exposes managed execution as
     /// `TimelineHandle.startTurn(_:systemInstructions:options:) -> TurnHandle`; its
     /// non-throwing `events()` stream is returned directly over the seam.
     public func run(_ request: ChatRunRequest) async throws -> AsyncStream<TurnEvent> {
@@ -607,7 +607,6 @@ public actor YakamozRuntime: ChatRunning {
                 persistence: .init(
                     runtimeRepository: stores.runtime,
                     workspacePersistence: stores.workspaces,
-                    toolPersistence: stores.tools,
                     agentStore: stores.agents,
                     requestOriginStore: stores.origins
                 ),
@@ -830,7 +829,7 @@ private struct FileWorkspaceToolProvider: ToolSource {
         }
     }
 
-    private static let definitions: [WorkspaceToolDefinition] = [
+    private static let definitions: [ToolDefinition] = [
         definition(
             id: "cat",
             name: "Read File",
@@ -893,7 +892,7 @@ private struct FileWorkspaceToolProvider: ToolSource {
         description: String,
         properties: [String: AnyCodable],
         required: [String] = []
-    ) -> WorkspaceToolDefinition {
+    ) -> ToolDefinition {
         var schema: [String: AnyCodable] = [
             "type": .string("object"),
             "properties": .dictionary(properties),
@@ -902,7 +901,7 @@ private struct FileWorkspaceToolProvider: ToolSource {
         if !required.isEmpty {
             schema["required"] = .array(required.map(AnyCodable.string))
         }
-        return WorkspaceToolDefinition(
+        return ToolDefinition(
             id: id,
             name: name,
             description: description,

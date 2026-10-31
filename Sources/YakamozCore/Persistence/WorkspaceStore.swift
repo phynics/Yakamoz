@@ -12,7 +12,7 @@ extension WorkspaceReferenceModel {
             locationRaw: workspace.location.rawValue,
             originId: workspace.originID,
             rootPath: workspace.rootPath,
-            trustLevelRaw: workspace.trustLevel.rawValue,
+            trustLevelRaw: WorkspaceReferenceModel.retiredTrustLevelRaw,
             lastModifiedBy: workspace.lastModifiedBy,
             statusRaw: workspace.status.rawValue,
             contextInjection: workspace.contextInjection,
@@ -26,9 +26,6 @@ extension WorkspaceReferenceModel {
         guard let location = WorkspaceReference.WorkspaceLocation(rawValue: locationRaw) else {
             throw PersistenceError.decoding("Unknown WorkspaceLocation raw value: \(locationRaw)")
         }
-        guard let trustLevel = WorkspaceTrustLevel(rawValue: trustLevelRaw) else {
-            throw PersistenceError.decoding("Unknown WorkspaceTrustLevel raw value: \(trustLevelRaw)")
-        }
         guard let status = WorkspaceReference.WorkspaceStatus(rawValue: statusRaw) else {
             throw PersistenceError.decoding("Unknown WorkspaceStatus raw value: \(statusRaw)")
         }
@@ -39,7 +36,6 @@ extension WorkspaceReferenceModel {
             originID: originId,
             tools: tools,
             rootPath: rootPath,
-            trustLevel: trustLevel,
             lastModifiedBy: lastModifiedBy,
             status: status,
             contextInjection: contextInjection,
@@ -53,7 +49,6 @@ extension WorkspaceReferenceModel {
         locationRaw = workspace.location.rawValue
         originId = workspace.originID
         rootPath = workspace.rootPath
-        trustLevelRaw = workspace.trustLevel.rawValue
         lastModifiedBy = workspace.lastModifiedBy
         statusRaw = workspace.status.rawValue
         contextInjection = workspace.contextInjection
@@ -63,7 +58,7 @@ extension WorkspaceReferenceModel {
 
 /// `WorkspaceStore` adapter persisting `WorkspaceReference` values
 /// as `WorkspaceReferenceModel` rows, with nested `tools` stored separately as
-/// `ToolReferenceModel` rows keyed by `workspaceId` (mirrors how `ToolPersistenceProtocol`
+/// `ToolReferenceModel` rows keyed by `workspaceId` (mirrors how ``SwiftDataToolStore``
 /// addresses tools independently of workspace saves).
 @ModelActor
 public actor SwiftDataWorkspaceStore: WorkspaceStore {

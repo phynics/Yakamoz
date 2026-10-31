@@ -1,6 +1,6 @@
 import Foundation
-import GnosticCore
 import PKContracts
+import PositronicKit
 import Testing
 import YakamozCore
 @testable import YakamozNetwork
@@ -23,7 +23,7 @@ struct GnosticLiveSmokeTests {
             identity: "yakamoz-live-smoke",
             isEnabled: true
         )
-        let transport = GnosticCoreTransport()
+        let transport = LiveGnosticClientTransport()
         let session = NetworkClientSession(
             configuration: broker,
             transport: transport,
@@ -102,34 +102,117 @@ struct GnosticLiveSmokeTests {
         timeline: NetworkTimelineRef,
         environment: SmokeEnvironment
     ) async throws {
-        let session = try GnosticConsumerSession(
-            broker: GnosticBrokerSettings(
+        let result = try await GnosticLiveProbe.invokeAndDetach(
+            workspaceID: workspace.key.objectID,
+            timelineID: timeline.key.objectID,
+            toolID: environment.toolID,
+            value: "yakamoz-live-smoke",
+            host: environment.host,
+            port: environment.port,
+            namespace: environment.namespace
+        )
+        #expect(result.isSuccess)
+        #expect(result.output == "yakamoz-live-smoke")
+    }
+}
+
+/// Opt-in proof that discovery works through the app's transport against a real Node, with
+/// no Workspace, Runtime process, or Turn required. Prints what the Node advertises.
+@Suite("Live Gnostic discovery", .timeLimit(.minutes(2)))
+@MainActor
+struct GnosticLiveDiscoveryTests {
+    @Test(
+        "The app's transport discovers a real Node's objects",
+        .enabled(if: ProcessInfo.processInfo.environment["YAKAMOZ_GNOSTIC_SMOKE"] == "1")
+    )
+    func discoversNodeObjects() async throws {
+        let environment = try SmokeEnvironment()
+        let session = NetworkClientSession(
+            configuration: NetworkBrokerConfiguration(
                 host: environment.host,
                 port: environment.port,
-                namespace: environment.namespace
+                namespace: environment.namespace,
+                identity: "yakamoz-live-discovery",
+                isEnabled: true
             ),
-            identityName: "yakamoz-live-smoke-invoke"
+            transport: LiveGnosticClientTransport(),
+            retryLimit: 0
         )
-        try await session.start()
-        do {
-            try await session.discover()
-            let client = try session.workspaceClient(timeout: .seconds(5))
-            let result = try await client.invoke(
-                workspaceID: workspace.key.objectID,
-                toolID: environment.toolID,
-                arguments: ["value": .string("yakamoz-live-smoke")]
-            )
-            #expect(result.isSuccess)
-            #expect(result.output == "yakamoz-live-smoke")
-            try await client.detach(
-                workspaceID: workspace.key.objectID,
-                from: timeline.key.objectID
-            )
-        } catch {
-            await session.stop()
-            throw error
+
+        await session.start()
+        defer { Task { await session.stop() } }
+        #expect(session.state.isOnline)
+        await session.forceRefresh()
+        for _ in 0..<50 where session.catalog.sortedTimelines.isEmpty {
+            try await Task.sleep(for: .milliseconds(200))
         }
-        await session.stop()
+
+        for ascendant in session.catalog.sortedAscendants {
+            print("LIVE-MAPPED ascendant name=\(ascendant.name) kind=\(ascendant.backendKind ?? "nil") version=\(ascendant.backendVersion ?? "nil") health=\(ascendant.backendHealth) major=\(ascendant.compatibility.protocolMajor.map(String.init) ?? "nil") compatible=\(ascendant.compatibility.isCompatible) capabilities=\(ascendant.capabilities)")
+        }
+        for timeline in session.catalog.sortedTimelines {
+            print("LIVE-MAPPED timeline title=\(timeline.title) attachedAscendantID=\(timeline.attachedAscendantID?.uuidString ?? "nil") major=\(timeline.compatibility.protocolMajor.map(String.init) ?? "nil") compatible=\(timeline.compatibility.isCompatible)")
+        }
+        for workspace in session.catalog.sortedWorkspaces {
+            print("LIVE-MAPPED workspace uri=\(workspace.uri) major=\(workspace.compatibility.protocolMajor.map(String.init) ?? "nil") compatible=\(workspace.compatibility.isCompatible)")
+        }
+        for line in try await GnosticLiveProbe.advertisedObjects(
+            host: environment.host,
+            port: environment.port,
+            namespace: environment.namespace
+        ) {
+            print("LIVE-RAW \(line)")
+        }
+
+        let timeline = try #require(session.catalog.sortedTimelines.first, "The Node advertised no Timeline.")
+        #expect(timeline.compatibility.protocolMajor == NetworkCompatibility.supportedProtocolMajor)
+        #expect(timeline.compatibility.isCompatible)
+        #expect(session.catalog.ascendant(for: timeline) != nil)
+    }
+
+    @Test(
+        "A Network turn through the app's backend streams text and completes",
+        .enabled(if: ProcessInfo.processInfo.environment["YAKAMOZ_GNOSTIC_SMOKE"] == "1")
+    )
+    func runsTurn() async throws {
+        let environment = try SmokeEnvironment()
+        let transport = LiveGnosticClientTransport()
+        let session = NetworkClientSession(
+            configuration: NetworkBrokerConfiguration(
+                host: environment.host,
+                port: environment.port,
+                namespace: environment.namespace,
+                identity: "yakamoz-live-turn",
+                isEnabled: true
+            ),
+            transport: transport,
+            retryLimit: 0
+        )
+        await session.start()
+        defer { Task { await session.stop() } }
+        await session.forceRefresh()
+        for _ in 0..<50 where session.catalog.sortedTimelines.isEmpty {
+            try await Task.sleep(for: .milliseconds(200))
+        }
+        let timeline = try #require(session.catalog.sortedTimelines.first, "The Node advertised no Timeline.")
+
+        let backend = GnosticBackend(transport: transport, approver: MainActorToolApprover()).scoped(to: timeline.key)
+        let stream = try await backend.run(ChatRunRequest(
+            timelineID: timeline.key.objectID,
+            message: "Yakamoz live discovery Turn",
+            tools: []
+        ))
+        // A completed Network turn ends the stream without a terminal event; failures and
+        // cancellation surface as terminal events.
+        var text = ""
+        var terminal: TurnEvent?
+        for await event in stream {
+            print("LIVE-TURN \(event)")
+            text += event.textContent ?? ""
+            if event.isTerminal { terminal = event }
+        }
+        #expect(terminal == nil)
+        #expect(!text.isEmpty)
     }
 }
 
