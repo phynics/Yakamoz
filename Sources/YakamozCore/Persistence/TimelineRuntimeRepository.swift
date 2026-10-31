@@ -613,7 +613,7 @@ public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository {
     /// - otherwise the message is inserted.
     ///
     /// A retried Turn adopts its predecessor's stored input, so a membership row can be
-    /// new even when the message is not. A failed save rolls back both inserts.
+    /// new even when the message is not. A failed staging or save rolls back both inserts.
     private func persist(_ message: TimelineMessage, memberOf turnID: UUID? = nil) throws {
         let messageID = message.id
         let descriptor = FetchDescriptor<MessageModel>(predicate: #Predicate { $0.id == messageID })
@@ -624,11 +624,11 @@ public actor SwiftDataTimelineRuntimeRepository: TimelineRuntimeRepository {
         } else {
             try modelContext.insert(MessageModel(message))
         }
-        if let turnID {
-            try stageMembership(of: message, in: turnID)
-        }
-        guard modelContext.hasChanges else { return }
         do {
+            if let turnID {
+                try stageMembership(of: message, in: turnID)
+            }
+            guard modelContext.hasChanges else { return }
             try modelContext.save()
         } catch {
             modelContext.rollback()

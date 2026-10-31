@@ -102,6 +102,28 @@ struct AgentModelMigrationTests {
         #expect(conversation.attachedWorkspaceIds.first == legacyWorkspaceID)
     }
 
+    @Test("A version 1 store migrates through to the schema the app opens")
+    @MainActor
+    func migratesVersion1StoreToCurrentSchema() throws {
+        let storeURL = FileManager.default.temporaryDirectory.appending(path: "YakamozV1ToCurrentMigration-\(UUID()).store")
+        defer { try? FileManager.default.removeItem(at: storeURL) }
+        let customPersonaID = UUID()
+        do {
+            let schema = Schema(versionedSchema: YakamozSchemaV1.self)
+            let container = try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, url: storeURL))
+            container.mainContext.insert(YakamozSchemaV1.ConversationModel(title: "Legacy", personaId: customPersonaID))
+            try container.mainContext.save()
+        }
+
+        let schema = Schema(YakamozSchema.models)
+        let migrated = try ModelContainer(for: schema, migrationPlan: YakamozMigrationPlan.self,
+                                          configurations: ModelConfiguration(schema: schema, url: storeURL))
+
+        let conversation = try #require(try migrated.mainContext.fetch(FetchDescriptor<ConversationModel>()).first)
+        #expect(conversation.agentId == customPersonaID)
+        #expect(try migrated.mainContext.fetchCount(FetchDescriptor<TurnMessageMembershipModel>()) == 0)
+    }
+
     @Test("A version 2 store opens the way the app opens it and gains the version 3 entities")
     @MainActor
     func migratesVersion2StoreToVersion3() throws {

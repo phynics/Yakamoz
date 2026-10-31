@@ -210,10 +210,11 @@ targets:
     dependencies:
       - target: YakamozNetwork
       - target: YakamozCore
-      # Gnostic is linked here only so `LiveGnosticClientTransportMappingTests` can build
-      # `NetworkCatalogEntry` fixtures for the adapter's mapping. The boundary rule
-      # ("one file imports a Gnostic module") is about `Sources/`; every other test stays
-      # offline against `FakeGnosticTransport`.
+      # Gnostic is linked here only for `LiveGnosticClientTransportMappingTests`, which builds
+      # `NetworkCatalogEntry` fixtures for the adapter's mapping and holds the probe that the
+      # environment-gated live smoke uses. The boundary rule ("one file imports a Gnostic
+      # module") is about `Sources/`; every other test stays offline against
+      # `FakeGnosticTransport`.
       - package: Gnostic
         product: GnosticClient
       - package: Gnostic
